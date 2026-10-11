@@ -116,3 +116,25 @@ async fn expression_workflow_ids_are_not_passed_to_the_saved_catalog() {
     let errors = unresolvable_tool_args_with_resolver(&root, &[], Some(&RejectLookup)).await;
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+#[tokio::test]
+async fn completed_diagnostics_survive_a_later_child_timeout() {
+    let slow = graph(
+        json!([trigger(),
+            {"id":"scatter","kind":"scatter","name":"Scatter","config":{"items":[1]}},
+            {"id":"gather","kind":"gather","name":"Gather","config":{"from":[],"poll_interval_ms":1000,"max_polls":100}}
+        ]),
+        json!([{"from_node":"t","to_node":"scatter"},{"from_node":"scatter","to_node":"gather"}]),
+    );
+    let root = graph(
+        json!([trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":null}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}},
+            {"id":"slow","kind":"sub_workflow","name":"Slow","config":{"workflow":slow}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    let errors = unresolvable_tool_args(&root, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+}

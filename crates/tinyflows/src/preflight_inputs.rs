@@ -234,7 +234,11 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
                 || (!nested
                     && body[i..].starts_with(['.', '['])
                     && (start == 0 || bytes[start - 1] != b'$'));
-            if root && matches!(scope, "inputs" | "run" | "item" | "items" | "nodes") {
+            let object_key = body[i..].trim_start().starts_with(':');
+            if root
+                && !object_key
+                && matches!(scope, "inputs" | "run" | "item" | "items" | "nodes")
+            {
                 let path = input_path(&format!("=inputs{}", &body[i..])).unwrap_or_default();
                 reads.push((scope.to_owned(), path));
             }

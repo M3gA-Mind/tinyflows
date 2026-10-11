@@ -92,16 +92,21 @@ pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
 ) -> Vec<String> {
-    unresolvable_tool_args_with_resolver(graph, native_slug_prefixes, None).await
+    unresolvable_tool_args_with_resolver(
+        graph,
+        native_slug_prefixes,
+        None::<&dyn crate::caps::WorkflowResolver>,
+    )
+    .await
 }
 
 /// Preflight saved children with the host resolver as well as inline children.
 /// Lookup failures remain best-effort skips; all lookups and mock runs share
 /// the root depth budget and the whole-traversal deadline.
-pub async fn unresolvable_tool_args_with_resolver(
+pub async fn unresolvable_tool_args_with_resolver<R: crate::caps::WorkflowResolver + ?Sized>(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
-    host: Option<&dyn crate::caps::WorkflowResolver>,
+    host: Option<&R>,
 ) -> Vec<String> {
     traversal::check(graph, native_slug_prefixes, host).await
 }

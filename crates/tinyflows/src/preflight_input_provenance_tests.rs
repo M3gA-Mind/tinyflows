@@ -86,7 +86,8 @@ async fn constant_object_scope_keys_do_not_hide_missing_child_fields() {
         json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.item.subject"}}}]),
         json!([{"from_node":"t","to_node":"send"}]),
     );
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
     let parent = graph(
         json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"={item: {}}"}}}]),
         json!([{"from_node":"t","to_node":"child"}]),
@@ -99,10 +100,14 @@ async fn constant_object_scope_keys_do_not_hide_missing_child_fields() {
 #[test]
 fn mixed_input_and_runtime_mappings_retain_unknown_provenance() {
     let mut child = graph(json!([trigger()]), json!([]));
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
     for expression in ["=.inputs.base + .run.extra", "=inputs.a // run.b"] {
         let inputs = MockInputs::default().child(&child, &json!({"inputs":{"payload":expression}}));
-        assert!(inputs.is_unverifiable("=inputs.payload.subject"), "{expression}");
+        assert!(
+            inputs.is_unverifiable("=inputs.payload.subject"),
+            "{expression}"
+        );
     }
 }
 
@@ -110,6 +115,9 @@ fn mixed_input_and_runtime_mappings_retain_unknown_provenance() {
 fn unquoted_scope_keys_are_literals_but_their_values_can_read_runtime_data() {
     for scope in ["inputs", "run", "item", "items", "nodes"] {
         assert!(input_scope::scope_reads(&format!("={{{scope}: {{}}}}")).is_empty());
-        assert_eq!(input_scope::scope_reads(&format!("={{{scope}: .run.value}}"))[0].0, "run");
+        assert_eq!(
+            input_scope::scope_reads(&format!("={{{scope}: .run.value}}"))[0].0,
+            "run"
+        );
     }
 }

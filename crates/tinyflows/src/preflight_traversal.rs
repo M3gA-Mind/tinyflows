@@ -5,10 +5,10 @@ use crate::model::{NodeKind, WorkflowGraph};
 use serde_json::Value;
 use std::sync::Arc;
 
-pub(super) async fn check(
+pub(super) async fn check<R: crate::caps::WorkflowResolver + ?Sized>(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
-    host: Option<&dyn crate::caps::WorkflowResolver>,
+    host: Option<&R>,
 ) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
     let completed = std::sync::Mutex::new(Vec::new());
