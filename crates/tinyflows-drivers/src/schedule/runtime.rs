@@ -56,7 +56,8 @@ impl CronDocuments {
                 if current.created_at != job.created_at {
                     return Ok(());
                 }
-                if current.schedule != job.schedule
+                if !current.delete_after_run
+                    || current.schedule != job.schedule
                     || current.command != job.command
                     || current.prompt != job.prompt
                 {

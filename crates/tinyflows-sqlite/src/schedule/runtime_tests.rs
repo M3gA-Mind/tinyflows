@@ -57,6 +57,15 @@ fn completed_one_shot_is_disabled_and_successful_auto_delete_is_atomic() {
             "echo once",
         )
         .unwrap();
+        let job = update_job(
+            &options,
+            &job.id,
+            CronJobPatch {
+                delete_after_run: Some(remove),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let completion = Completion {
             remove,
             disable: !remove,

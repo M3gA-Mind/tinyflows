@@ -69,6 +69,7 @@ pub fn complete_run(
         }
         let same = current.schedule == job.schedule;
         if completion.remove
+            && current.delete_after_run
             && same
             && current.command == job.command
             && current.prompt == job.prompt

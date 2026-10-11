@@ -70,6 +70,16 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
             )
             .await
             .unwrap();
+        let job = store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    delete_after_run: Some(remove),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         let completion = Completion {
             remove,
             disable: !remove,
@@ -109,6 +119,16 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
                 .await
                 .is_err()
         );
+        let job = store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    delete_after_run: Some(remove),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         let completion = Completion {
             remove,
             disable: !remove,
