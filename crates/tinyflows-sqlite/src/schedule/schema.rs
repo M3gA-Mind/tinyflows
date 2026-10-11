@@ -31,7 +31,8 @@ pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cron
     let origin = decode_origin(origin_raw.as_deref()).map_err(sql_conversion_error)?;
 
     Ok(CronJob {
-        claim_generation: row.get(21)?,
+        claim_generation: u64::try_from(row.get::<_, i64>(21)?)
+            .map_err(|error| sql_conversion_error(error.into()))?,
         policy: tinyflows_schedule::JobPolicy {
             retries: row
                 .get::<_, Option<i64>>(19)?
