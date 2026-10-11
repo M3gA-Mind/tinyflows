@@ -7,7 +7,7 @@ use crate::model::{InputType, WorkflowGraph};
 #[derive(Clone, Default)]
 pub(super) struct MockInputs {
     pub(super) values: Map<String, Value>,
-    unknown: Vec<Vec<String>>,
+    pub(super) unknown: Vec<Vec<String>>,
 }
 
 impl MockInputs {
@@ -89,8 +89,15 @@ impl MockInputs {
                             out.push(path);
                         }
                     }
-                } else {
-                    // Runtime scopes are absent from this inputs-only mock.
+                } else if scope_reads(expression).iter().any(|(scope, path)| {
+                    scope != "inputs"
+                        || self
+                            .unknown
+                            .iter()
+                            .any(|unknown| path.starts_with(unknown) || unknown.starts_with(path))
+                }) {
+                    // Only expressions reading unavailable data are opaque;
+                    // constant jq mappings retain their concrete values.
                     out.push(destination.to_vec());
                 }
             }
@@ -163,4 +170,44 @@ fn placeholder(ty: InputType) -> Value {
         InputType::Boolean => json!(false),
         InputType::Json => json!({}),
     }
+}
+
+/// Find runtime scope reads outside quoted jq literals. Complex operations
+/// conservatively address the whole named scope rather than inventing a value.
+pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
+    let Some(body) = expression.strip_prefix('=') else {
+        return vec![];
+    };
+    let bytes = body.as_bytes();
+    let mut reads = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i += 2;
+                } else if bytes[i] == quote {
+                    i += 1;
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let scope = &body[start..i];
+            if matches!(scope, "inputs" | "run" | "item" | "items" | "nodes") {
+                let path = input_path(&format!("=inputs{}", &body[i..])).unwrap_or_default();
+                reads.push((scope.to_owned(), path));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    reads
 }

@@ -46,6 +46,8 @@ use crate::observability::CapturingObserver;
 #[path = "preflight_inputs.rs"]
 mod input_scope;
 use input_scope::MockInputs;
+#[path = "preflight_provenance.rs"]
+mod provenance;
 
 /// Wall-clock bound on the sandbox run.
 ///
@@ -236,6 +238,7 @@ async fn graph_unresolvable_tool_args(
         .find(|n| n.kind == NodeKind::Trigger)
         .map(|n| n.id.as_str());
 
+    let provenance = provenance::Provenance::new(graph, &inputs);
     let mut errors = Vec::new();
     for step in observer.steps() {
         let Some(&slug) = tool_call_slugs.get(step.node_id.as_str()) else {
@@ -258,6 +261,7 @@ async fn graph_unresolvable_tool_args(
                 continue;
             };
             if inputs.is_unverifiable(&diag.expression)
+                || provenance.is_unverifiable(&diag.expression, &step.node_id)
                 || is_trigger_scoped_expression(&diag.expression, graph, &step.node_id, trigger_id)
             {
                 // Legitimately empty in this gate's `{}` mock run — the real
