@@ -4,8 +4,8 @@
 //! the author with silence. A host that wants a guaranteed terminal state asks
 //! [`text_looks_like_question`] whether the model's final text already asks
 //! something answerable, and only synthesizes a fallback question when it does
-//! not. The fallback itself is the host's: it depends on the host's transcript
-//! and tool vocabulary, which this crate does not name.
+//! not. [`crate::fallback`] constructs that question from host-correlated
+//! authoring results without depending on the host's transcript types.
 
 /// Heuristic: does `text` already contain a clear, answerable question in its
 /// final paragraph? Conservative by design (issue: builder convergence) — a

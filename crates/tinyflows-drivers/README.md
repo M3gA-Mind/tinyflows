@@ -127,6 +127,73 @@ run and pruning history are separate writes, and so are removing a job and
 its runs; `sweep_orphan_runs` (run by `clear_all_jobs`) collects runs whose
 job is gone or was re-created.
 
+### Occurrence claims and an operator cap
+
+On a transaction-capable backend, install an optional scope-wide cap using
+`cron.set_max_active_jobs(Some(max_enabled)).await?`. It counts enabled jobs
+of all types; disabled jobs do not consume slots. Re-enabling, creating,
+removing, one-shot completion, clearing and deduplication update admission
+in the same transaction as the job. A cap below the current count is refused.
+`None` removes the cap. Every upgraded handle observes this persisted policy,
+including handles created before installation.
+
+For multiple schedulers, treat `due_jobs` as discovery and claim each result
+before dispatch:
+
+```rust
+for due in cron.due_jobs(chrono::Utc::now()).await? {
+    let Some(claim) = cron
+        .claim_due_job(&due.id, worker_id, chrono::Utc::now(), chrono::Duration::minutes(2))
+        .await?
+    else {
+        continue;
+    };
+    // Dispatch claim.job(), preserving this receipt through the whole turn.
+    // Renew before expiry during long turns; stop if renewal returns false.
+    cron.complete_claim(
+        &claim, chrono::Utc::now(), true, "completed", None,
+    ).await?;
+}
+```
+
+A claim carries a fresh token, job incarnation and the exact scheduled instant.
+Only its unexpired owner can renew, release, or complete it. An edit or
+cancellation invalidates the claim; deleting and re-registering the same flow
+creates a new incarnation. Stale completion changes neither outcome nor history.
+Successful completion stores the run and schedule advance atomically, disabling
+one-shots while keeping their history. For `delete_after_run`, call
+`remove_completed_claim(&claim)` after successful completion. This fences the
+completion token and incarnation; a later acquisition or edit invalidates the
+receipt. Never use `remove_job(id)` for this follow-up, since the id may already
+belong to a replacement. History pruning remains a subsequent operation.
+
+Lease time is supplied by the host. Replicas need clocks consistent within the
+lease tolerance. Recovery after expiry permits another execution of the same
+occurrence. A crash after sending to an external provider but before committing
+completion can repeat that send; this API does not guarantee exactly-once HTTP
+delivery.
+
+Transactional backends maintain an authoritative membership ledger even before
+a cap is installed, which fences an unlimited write already in flight when
+policy changes. Initialization imports preexisting rows with their versions
+fenced. Policy installation reconciles the authoritative rows again, fencing
+both those rows and the ledger so pre-adoption legacy writes are counted.
+All writers must run upgraded code; old binaries and direct document
+writes bypass this protocol and must be stopped before policy adoption.
+Every transactional job mutation, including lease renewal and completion,
+rewrites this scope-wide ledger. These operations contend on one document and
+serialize the membership map, so this design suits small, bounded job scopes.
+Retries stop after 32 conflicts and return an error; hosts must treat renewal
+errors as uncertain ownership and stop dispatch until ownership is confirmed.
+Initialization and policy installation also reconcile all jobs in one
+transaction and must fit the backend's transaction size and lifetime limits.
+Large scopes or high write rates need a different admission protocol; no
+throughput bound is guaranteed by this API.
+
+Nontransactional backends retain unlimited legacy CRUD only when no ledger
+exists; policy installation and occurrence claims are refused. If a ledger
+already exists, mutations fail closed. No local fallback is used.
+
 ## Checkpointer guarantees
 
 - One document per checkpoint with a per-thread `seq` advanced by

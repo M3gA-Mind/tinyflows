@@ -25,46 +25,44 @@
 //!
 //! # Concurrency
 //!
-//! What is atomic across processes sharing one database:
+//! On a transaction-capable backend, every job mutation also CASes a shared
+//! admission ledger in one atomic batch. Its optional enabled-job cap applies
+//! to every upgraded handle, even one created before policy installation.
+//! Legacy rows are imported with their versions fenced in the initialization
+//! batch. Deploy upgraded writers together; older binaries or direct writes to
+//! the job documents do not participate in admission and are unsupported once
+//! a policy is installed.
 //!
-//! - Every job update ([`CronDocuments::update_job`], the run bookkeeping) is
-//!   a compare-and-swap on the job document, retried on conflict, so two
-//!   writers never lose each other's fields.
-//! - [`CronDocuments::reschedule_after_run`] advances `next_run` only from the
-//!   occurrence the caller fired: if the stored `next_run` no longer matches
-//!   the job it was handed, another process already rescheduled it (or the
-//!   schedule was edited), and only the run outcome is recorded.
-//! - [`CronDocuments::add_flow_schedule_job`] is idempotent: a flow's job has
-//!   a deterministic id, written only if absent.
-//! - Run numbers come from a compare-and-swap counter, so they are unique.
+//! [`CronDocuments::claim_due_job`] captures a job incarnation, exact scheduled
+//! occurrence and random lease token before dispatch. Renewal, release and
+//! [`CronDocuments::complete_claim`] reject stale tokens, expired leases and
+//! edited/canceled/re-created jobs. Completion records the incarnation-bound
+//! run and advances the schedule atomically. Expired claims can be recovered:
+//! execution is at least once, and a crash after an external HTTP send but
+//! before completion can repeat delivery.
 //!
-//! What is not:
+//! The legacy [`CronDocuments::due_jobs`] API remains a read: callers that
+//! dispatch its results without claiming can duplicate execution. Legacy
+//! `record_run` and `reschedule_after_run` do not carry dispatch incarnations;
+//! hosts needing incarnation fencing must use the claim API through completion.
 //!
-//! - [`CronDocuments::due_jobs`] is a read. Two schedulers polling one
-//!   database can both pick up the same due job and both run it, as two
-//!   processes on one SQLite file can; the guarded reschedule keeps the
-//!   schedule itself from advancing twice.
-//! - Recording a run and pruning the job's history are separate writes. A
-//!   crash in between leaves a few extra runs, removed by the next record.
-//! - Removing a job and then its runs are separate writes; a crash in between
-//!   leaves orphan runs that no job lists. [`CronDocuments::sweep_orphan_runs`]
-//!   collects them; [`CronDocuments::clear_all_jobs`] runs it.
-//! - A run recorded after its job was removed and re-created under the same
-//!   id (a flow's schedule job) is checked against the job's current
-//!   incarnation when it is recorded, but dispatch does not carry the
-//!   incarnation it fired, so a run that started under the old job and
-//!   finished after the new one exists attaches to the new one. Closing that
-//!   needs the incarnation passed from dispatch to `record_run`, a change to
-//!   both stores' API.
+//! Nontransactional backends retain unlimited legacy CRUD when no admission
+//! ledger exists. They cannot install policy or use occurrence claims. A
+//! persisted ledger on such a backend fails closed instead of bypassing policy.
+//! Policy and claims never fall back to local storage.
+//!
+//! History pruning and deletion of a removed job's runs remain separate writes.
+//! A crash can leave excess or orphan runs; subsequent pruning and
+//! [`CronDocuments::sweep_orphan_runs`] reclaim them.
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde_json::Value;
-use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, ErrorKind, IndexSpec, StorageError, Versioned,
-};
+use tinystoragedrivers_core::{CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned};
 
+mod admission;
+mod claims;
 mod codec;
 mod jobs;
 mod patch;
@@ -74,6 +72,8 @@ mod runs;
 mod runtime;
 #[cfg(test)]
 mod test_support;
+
+pub use claims::ClaimedOccurrence;
 
 pub use tinyflows_schedule::{
     AgentJobSpec, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, truncate_cron_output,
@@ -151,7 +151,8 @@ impl CronDocuments {
 
 /// A storage failure as this store's error.
 fn storage_error(error: StorageError) -> anyhow::Error {
-    anyhow!("cron store: {error}")
+    let message = format!("cron store: {error}");
+    anyhow::Error::new(error).context(message)
 }
 
 /// The job-not-found error, worded as the SQLite store words it.
@@ -162,40 +163,60 @@ fn job_not_found(job_id: &str) -> anyhow::Error {
 /// Applies `change` to document `id` of `collection` under compare-and-swap.
 /// Returns what was stored, or `None` when the document is missing or
 /// `change` returns `Ok(None)` (nothing to write).
-async fn compare_and_swap(
-    docs: &Arc<dyn DocumentStore>,
+async fn compare_job(
+    store: &CronDocuments,
     collection: &str,
     id: &str,
     change: impl Fn(&Value) -> Result<Option<Value>>,
 ) -> Result<Option<Versioned<Value>>> {
     for _ in 0..CAS_ATTEMPTS {
-        let Some(stored) = docs.get(collection, id).await.map_err(storage_error)? else {
+        let Some(stored) = store
+            .docs
+            .get(collection, id)
+            .await
+            .map_err(storage_error)?
+        else {
             return Ok(None);
         };
         let Some(next) = change(&stored.doc)? else {
             return Ok(None);
         };
-        match docs
-            .put(collection, id, next.clone(), stored.unchanged())
+        match store
+            .commit_job(id, Some(&stored), Some(next.clone()), vec![])
             .await
         {
-            Ok(version) => {
+            Ok(results) => {
+                let Some(tinystoragedrivers_core::WriteResult::Put { version }) = results.first()
+                else {
+                    anyhow::bail!("cron store: invalid atomic write result");
+                };
                 return Ok(Some(Versioned {
-                    id: id.to_string(),
-                    version,
+                    id: id.into(),
+                    version: *version,
                     doc: next,
                 }));
             }
-            Err(error) if error.kind() == ErrorKind::Conflict => {}
-            Err(error) => return Err(storage_error(error)),
+            Err(error) if admission::conflict(&error) => {}
+            Err(error) => return Err(error),
         }
     }
     Err(anyhow!(
         "cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
     ))
-    .context("compare-and-swap gave up")
 }
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "claims_tests.rs"]
+mod claims_tests;
+
+#[cfg(test)]
+#[path = "admission_tests.rs"]
+mod admission_tests;
+
+#[cfg(test)]
+#[path = "claim_removal_tests.rs"]
+mod claim_removal_tests;
