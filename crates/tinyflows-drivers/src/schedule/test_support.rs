@@ -47,6 +47,7 @@ pub(super) struct FaultDocuments {
     pub inner: Arc<dyn DocumentStore>,
     pub transactions: bool,
     pub fail_batch: std::sync::atomic::AtomicBool,
+    pub batch_barrier: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
 }
 #[async_trait::async_trait]
 impl DocumentStore for FaultDocuments {
@@ -132,6 +133,10 @@ impl DocumentStore for FaultDocuments {
         &self,
         ops: Vec<tinystoragedrivers_core::WriteOp>,
     ) -> tinystoragedrivers_core::Result<Vec<tinystoragedrivers_core::WriteResult>> {
+        let barrier = self.batch_barrier.lock().unwrap().take();
+        if let Some(barrier) = barrier {
+            barrier.wait().await;
+        }
         if self.fail_batch.load(std::sync::atomic::Ordering::SeqCst) || !self.transactions {
             return Err(tinystoragedrivers_core::StorageError::unsupported(
                 tinystoragedrivers_core::Capability::Transactions,

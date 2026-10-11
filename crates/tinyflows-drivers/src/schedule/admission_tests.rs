@@ -72,6 +72,7 @@ async fn unsupported_backends_keep_unlimited_crud_but_refuse_policy_and_claims()
         inner: docs_in(&backend, "legacy"),
         transactions: false,
         fail_batch: AtomicBool::new(false),
+        batch_barrier: Default::default(),
     });
     let a = CronDocuments::new(docs);
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
@@ -113,6 +114,7 @@ async fn transaction_refusal_and_completion_failure_leave_jobs_unchanged() {
         inner: docs_in(&backend, "failure"),
         transactions: true,
         fail_batch: AtomicBool::new(true),
+        batch_barrier: Default::default(),
     });
     let a = CronDocuments::new(docs.clone());
     assert!(a.set_max_active_jobs(Some(1)).await.is_err());
@@ -172,6 +174,7 @@ async fn malformed_admission_and_capability_downgrades_fail_closed() {
         inner: docs_in(&backend, "downgrade"),
         transactions: false,
         fail_batch: AtomicBool::new(false),
+        batch_barrier: Default::default(),
     }));
     assert!(b.add_shell_job(None, daily(), "bypass").await.is_err());
     a.docs
@@ -232,4 +235,31 @@ async fn concurrent_reenable_and_installation_preserve_the_cap() {
     policy.unwrap();
     create.unwrap();
     assert!(b.add_shell_job(None, daily(), "over cap").await.is_err());
+}
+
+#[tokio::test]
+async fn installing_policy_fences_an_unlimited_write_already_in_flight() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let backend = MemoryStorage::new();
+    let a = CronDocuments::new(docs_in(&backend, "install-race"));
+    a.set_max_active_jobs(None).await.unwrap();
+    a.add_shell_job(None, daily(), "existing").await.unwrap();
+    let gate = Arc::new(tokio::sync::Barrier::new(2));
+    let docs = Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "install-race"),
+        transactions: true,
+        fail_batch: AtomicBool::new(false),
+        batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+    });
+    let b = CronDocuments::new(docs.clone());
+    let create = tokio::spawn(async move { b.add_shell_job(None, daily(), "racer").await });
+    // Wait for the writer to take the gate immediately before its transaction.
+    while docs.batch_barrier.lock().unwrap().is_some() {
+        tokio::task::yield_now().await;
+    }
+    a.set_max_active_jobs(Some(1)).await.unwrap();
+    gate.wait().await;
+    assert!(create.await.unwrap().is_err());
+    assert_eq!(a.list_jobs().await.unwrap().len(), 1);
 }

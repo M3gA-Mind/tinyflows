@@ -300,7 +300,7 @@ async fn invalid_inputs_and_malformed_stored_leases_fail_closed() {
         a.claim_due_job(
             &job.id,
             "w",
-            chrono::DateTime::MAX_UTC,
+            chrono::DateTime::<chrono::Utc>::MAX_UTC,
             Duration::seconds(1)
         )
         .await
@@ -342,5 +342,33 @@ async fn invalid_inputs_and_malformed_stored_leases_fail_closed() {
         a.complete_claim(&claim, now, true, "bad", None)
             .await
             .is_err()
+    );
+}
+
+#[tokio::test]
+async fn competing_claims_with_overlapping_snapshots_have_one_winner() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let backend = MemoryStorage::new();
+    let setup = CronDocuments::new(docs_in(&backend, "claim-overlap"));
+    let job = setup.add_shell_job(None, daily(), "echo").await.unwrap();
+    let gate = Arc::new(tokio::sync::Barrier::new(2));
+    let handle = || {
+        CronDocuments::new(Arc::new(FaultDocuments {
+            inner: docs_in(&backend, "claim-overlap"),
+            transactions: true,
+            fail_batch: AtomicBool::new(false),
+            batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+        }))
+    };
+    let a = handle();
+    let b = handle();
+    let (first, second) = tokio::join!(
+        a.claim_due_job(&job.id, "a", job.next_run, Duration::minutes(1)),
+        b.claim_due_job(&job.id, "b", job.next_run, Duration::minutes(1))
+    );
+    assert_eq!(
+        usize::from(first.unwrap().is_some()) + usize::from(second.unwrap().is_some()),
+        1
     );
 }
