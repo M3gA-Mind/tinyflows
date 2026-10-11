@@ -15,7 +15,11 @@ members = ["crates/*"]
 # `worktrees/` holds `git worktree` checkouts of this same repository. Each one
 # contains a full copy of this manifest and every crate under it, so without
 # this entry cargo walks into them and reports duplicate packages.
-exclude = ["worktrees"]
+exclude = ["worktrees", "vendor/tinybus"]
+
+[patch.crates-io]
+tinybus = { path = "vendor/tinybus/crates/tinybus" }
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
 
 [workspace.package]
 edition = "2024"

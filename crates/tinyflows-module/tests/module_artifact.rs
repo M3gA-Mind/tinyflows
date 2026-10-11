@@ -1,0 +1,51 @@
+use serde_json::json;
+use std::sync::Arc;
+use tinybus::Connection;
+use tinybus::broker::Broker;
+use tinybus::module::ModuleHost;
+use tinybus::transport::memory::MemoryTransport;
+use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn compiled_module_serves_validation_without_linking_engine_into_client() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
+    let broker = Broker::new();
+    let host = ModuleHost::new(broker.clone());
+    let info = host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    let provided = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == INTERFACE)
+        .unwrap();
+    let mut actual: Vec<_> = provided.methods.iter().map(ToString::to_string).collect();
+    let mut expected: Vec<_> = METHODS.iter().map(|member| member.to_string()).collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
+    let report: GraphValidation = proxy
+        .call(
+            methods::VALIDATE_GRAPH,
+            (json!({
+                "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
+                "edges": []
+            }),),
+        )
+        .await
+        .unwrap();
+    assert!(report.is_valid(), "{:?}", report.errors);
+    let graph = report.graph.unwrap();
+    assert!(graph["schema_version"].as_u64().unwrap() > 0);
+    let failures: Vec<String> = proxy
+        .call(methods::BINDING_FAILURES, (graph,))
+        .await
+        .unwrap();
+    assert!(failures.is_empty());
+}
