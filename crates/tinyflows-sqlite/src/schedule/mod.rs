@@ -23,12 +23,13 @@ mod schema;
 pub use agent_jobs::{AgentJobSpec, add_agent_job_from_spec};
 pub use jobs::{
     add_agent_job, add_agent_job_with_definition, add_flow_schedule_job, add_job, add_shell_job,
-    clear_all_jobs, dedup_named_jobs, due_jobs, find_flow_schedule_job, get_job, list_jobs,
-    remove_job, update_job,
+    clear_all_jobs, dedup_named_jobs, due_jobs, due_jobs_excluding, find_flow_schedule_job,
+    get_job, list_jobs, remove_job, update_job,
 };
 pub use runs::{
-    MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, delete_queued_runs, list_runs, record_last_run,
-    record_run, record_run_with_delivery, reschedule_after_run,
+    MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, delete_queued_runs, list_runs,
+    record_claimed_run, record_last_run, record_run, record_run_with_delivery,
+    reschedule_after_run,
 };
 pub use schema::with_connection;
 

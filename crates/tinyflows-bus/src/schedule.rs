@@ -55,6 +55,9 @@ pub struct StartScheduler {
 pub mod callbacks {
     /// `(now: RFC3339) -> jobs: JSON[]`.
     pub const DUE_JOBS: &str = "DueJobs";
+    /// `(now: RFC3339, excluded: string[]) -> jobs: JSON[]`. Apply exclusions
+    /// before the batch limit; required when an active job defers a due slot.
+    pub const DUE_JOBS_EXCLUDING: &str = "DueJobsExcluding";
     /// `(job: JSON, next_run: RFC3339) -> ()`: claim or return an error.
     /// Preserve concurrent edits; disable one-shots durably before success.
     pub const CLAIM_SLOT: &str = "ClaimSlot";

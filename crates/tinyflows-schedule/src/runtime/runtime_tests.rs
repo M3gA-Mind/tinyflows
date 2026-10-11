@@ -20,6 +20,7 @@ struct Fixture {
     delivery_fails: bool,
     delivery_status_failed: bool,
     claim_fails: bool,
+    max_tasks: usize,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -36,6 +37,7 @@ impl Fixture {
             delivery_fails: false,
             delivery_status_failed: false,
             claim_fails: false,
+            max_tasks: usize::MAX,
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -86,7 +88,29 @@ impl Clock for Fixture {
 #[async_trait]
 impl JobStore for Fixture {
     async fn due_jobs(&self, _: DateTime<Utc>) -> Result<Vec<CronJob>> {
-        Ok(self.jobs.lock().unwrap().clone())
+        Ok(self
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .take(self.max_tasks)
+            .cloned()
+            .collect())
+    }
+    async fn due_jobs_excluding(
+        &self,
+        _: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        Ok(self
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|job| !excluded.contains(&job.id))
+            .take(self.max_tasks)
+            .cloned()
+            .collect())
     }
     async fn claim_slot(&self, _: &CronJob, _: DateTime<Utc>) -> Result<()> {
         anyhow::ensure!(!self.claim_fails, "durable claim rejected");
@@ -420,4 +444,22 @@ async fn explicit_failed_delivery_prevents_auto_delete_only_when_required() {
         assert_eq!(records[0].status, if best_effort { "ok" } else { "error" });
         assert_eq!(records[0].delivery_status, Some(DeliveryStatus::Failed));
     }
+}
+
+#[tokio::test]
+async fn deferred_active_head_does_not_starve_later_due_jobs_in_a_limited_batch() {
+    let mut fixture = Fixture::new();
+    Arc::get_mut(&mut fixture).unwrap().max_tasks = 1;
+    let first = fixture.job();
+    let second = fixture.job();
+    *fixture.jobs.lock().unwrap() = vec![first.clone(), second.clone()];
+    let scope = uuid::Uuid::new_v4().to_string();
+    let held = RunClaim::acquire(&scope, &first.id).unwrap();
+    let mut scheduler = Scheduler::new(scope, SchedulerConfig::default(), fixture.ports());
+    assert_eq!(scheduler.tick().await.unwrap(), 1);
+    scheduler.drain().await.unwrap();
+    assert_eq!(fixture.records.lock().unwrap()[0].job_id, second.id);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.jobs.lock().unwrap()[0].next_run, first.next_run);
+    drop(held);
 }

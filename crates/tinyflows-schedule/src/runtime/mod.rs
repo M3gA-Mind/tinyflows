@@ -81,7 +81,36 @@ impl Scheduler {
         anyhow::ensure!(!self.stopped, "scheduler is stopped");
         self.reap();
         let jobs = self.ports.store.due_jobs(self.ports.clock.now()).await?;
-        self.dispatch(jobs).await
+        let limit = jobs.len();
+        let now = self.ports.clock.now();
+        let mut examined = Vec::new();
+        let mut selected = Vec::new();
+        let mut batch = jobs;
+        loop {
+            let mut deferred = false;
+            for job in batch {
+                examined.push(job.id.clone());
+                if RunClaim::is_running(&self.scope, &job.id)
+                    && (!job.policy.single_flight || matches!(job.schedule, Schedule::At { .. }))
+                {
+                    deferred = true;
+                } else if selected.len() < limit {
+                    selected.push(job);
+                }
+            }
+            if !deferred || selected.len() == limit {
+                break;
+            }
+            batch = self.ports.store.due_jobs_excluding(now, &examined).await?;
+            if batch.is_empty() {
+                break;
+            }
+            anyhow::ensure!(
+                batch.iter().all(|job| !examined.contains(&job.id)),
+                "job store returned an excluded due job"
+            );
+        }
+        self.dispatch(selected).await
     }
 
     /// Durably claim jobs, advance recurring slots, and return the queued count.
@@ -131,6 +160,7 @@ impl Scheduler {
             .record_run(RunRecord {
                 run_id: uuid::Uuid::new_v4().to_string(),
                 job_id: job.id.clone(),
+                job_created_at: job.created_at,
                 started_at: now,
                 finished_at: now,
                 status: "skipped".into(),
