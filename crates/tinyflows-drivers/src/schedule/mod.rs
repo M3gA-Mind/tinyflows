@@ -25,37 +25,35 @@
 //!
 //! # Concurrency
 //!
-//! What is atomic across processes sharing one database:
+//! On a transaction-capable backend, every job mutation also CASes a shared
+//! admission ledger in one atomic batch. Its optional enabled-job cap applies
+//! to every upgraded handle, even one created before policy installation.
+//! Legacy rows are imported with their versions fenced in the initialization
+//! batch. Deploy upgraded writers together; older binaries or direct writes to
+//! the job documents do not participate in admission and are unsupported once
+//! a policy is installed.
 //!
-//! - Every job update ([`CronDocuments::update_job`], the run bookkeeping) is
-//!   a compare-and-swap on the job document, retried on conflict, so two
-//!   writers never lose each other's fields.
-//! - [`CronDocuments::reschedule_after_run`] advances `next_run` only from the
-//!   occurrence the caller fired: if the stored `next_run` no longer matches
-//!   the job it was handed, another process already rescheduled it (or the
-//!   schedule was edited), and only the run outcome is recorded.
-//! - [`CronDocuments::add_flow_schedule_job`] is idempotent: a flow's job has
-//!   a deterministic id, written only if absent.
-//! - Run numbers come from a compare-and-swap counter, so they are unique.
+//! [`CronDocuments::claim_due_job`] captures a job incarnation, exact scheduled
+//! occurrence and random lease token before dispatch. Renewal, release and
+//! [`CronDocuments::complete_claim`] reject stale tokens, expired leases and
+//! edited/canceled/re-created jobs. Completion records the incarnation-bound
+//! run and advances the schedule atomically. Expired claims can be recovered:
+//! execution is at least once, and a crash after an external HTTP send but
+//! before completion can repeat delivery.
 //!
-//! What is not:
+//! The legacy [`CronDocuments::due_jobs`] API remains a read: callers that
+//! dispatch its results without claiming can duplicate execution. Legacy
+//! `record_run` and `reschedule_after_run` do not carry dispatch incarnations;
+//! hosts needing incarnation fencing must use the claim API through completion.
 //!
-//! - [`CronDocuments::due_jobs`] is a read. Two schedulers polling one
-//!   database can both pick up the same due job and both run it, as two
-//!   processes on one SQLite file can; the guarded reschedule keeps the
-//!   schedule itself from advancing twice.
-//! - Recording a run and pruning the job's history are separate writes. A
-//!   crash in between leaves a few extra runs, removed by the next record.
-//! - Removing a job and then its runs are separate writes; a crash in between
-//!   leaves orphan runs that no job lists. [`CronDocuments::sweep_orphan_runs`]
-//!   collects them; [`CronDocuments::clear_all_jobs`] runs it.
-//! - A run recorded after its job was removed and re-created under the same
-//!   id (a flow's schedule job) is checked against the job's current
-//!   incarnation when it is recorded, but dispatch does not carry the
-//!   incarnation it fired, so a run that started under the old job and
-//!   finished after the new one exists attaches to the new one. Closing that
-//!   needs the incarnation passed from dispatch to `record_run`, a change to
-//!   both stores' API.
+//! Nontransactional backends retain unlimited legacy CRUD when no admission
+//! ledger exists. They cannot install policy or use occurrence claims. A
+//! persisted ledger on such a backend fails closed instead of bypassing policy.
+//! Policy and claims never fall back to local storage.
+//!
+//! History pruning and deletion of a removed job's runs remain separate writes.
+//! A crash can leave excess or orphan runs; subsequent pruning and
+//! [`CronDocuments::sweep_orphan_runs`] reclaim them.
 
 use std::sync::Arc;
 
