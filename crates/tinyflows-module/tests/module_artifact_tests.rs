@@ -1,5 +1,7 @@
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/document_callbacks.rs"]
+mod document_callbacks;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
@@ -105,6 +107,92 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert_eq!(*state.triggers.lock().unwrap(), ["artifact-flow"]);
     assert_eq!(state.records.lock().unwrap()[0]["status"], "ok");
     assert_eq!(state.completions.lock().unwrap()[0]["disable"], true);
+
+    // Persist through the actual cdylib for both backend selections. The host
+    // forwards document I/O only; schema, policy and schedule behavior is module-owned.
+    let directory = tempfile::tempdir().unwrap();
+    let sqlite = json!({"backend":{"kind":"sqlite","path":directory.path().join("jobs.db")}});
+    let created: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":sqlite,"operation":{"op":"add_shell","name":"compiled-seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seed"}}),)).await.unwrap();
+    let listed: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":sqlite,"operation":{"op":"list"}}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed[0]["id"], created["id"]);
+
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+    let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let docs = scoped.documents().clone();
+    connection
+        .serve_at(
+            "/test/Documents".try_into().unwrap(),
+            document_callbacks::Documents {
+                docs: docs.clone(),
+                conflict_once: std::sync::atomic::AtomicBool::new(true),
+            },
+        )
+        .await
+        .unwrap();
+    let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleCallbacks","object_path":"/test/Documents"}}});
+    // The first insertion uses Absent, not a CAS retry, so consume the injected
+    // conflict through a policy migration below instead.
+    let failed: tinybus::Result<serde_json::Value> = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await;
+    assert!(failed.is_err());
+    let flow: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await.unwrap();
+    let id = flow["id"].as_str().unwrap();
+    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let mut body = stored.doc.clone();
+    body["next_run_ms"] = json!(0);
+    body["next_run_ns"] = json!(0);
+    docs.put("cron_jobs", id, body, stored.unchanged())
+        .await
+        .unwrap();
+    let request = tinyflows_bus::schedule::StartScheduler {
+        scope: "artifact-stored".into(),
+        callback: tinyflows_bus::schedule::CallbackAddress {
+            destination: "test.ScheduleCallbacks".into(),
+            object_path: "/test/ScheduleCallbacks".into(),
+        },
+        config: json!({}),
+        manual_ticks: true,
+        storage: Some(serde_json::from_value(storage.clone()).unwrap()),
+    };
+    let handle: String = schedule_proxy
+        .call("StartScheduler", (request,))
+        .await
+        .unwrap();
+    let count: usize = schedule_proxy
+        .call("TickScheduler", (&handle,))
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    schedule_proxy
+        .call::<()>("DrainScheduler", (&handle,))
+        .await
+        .unwrap();
+    schedule_proxy
+        .call::<()>("StopScheduler", (&handle,))
+        .await
+        .unwrap();
+    let history: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"list_runs","job_id":id,"limit":10}}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history[0]["status"], "ok");
+    assert_eq!(
+        *state.triggers.lock().unwrap(),
+        ["artifact-flow", "stored-flow"]
+    );
+    assert_eq!(
+        state.records.lock().unwrap().len(),
+        1,
+        "configured storage bypasses the host cron-store callback"
+    );
 
     let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
     let report: GraphValidation = proxy
