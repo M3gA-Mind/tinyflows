@@ -126,6 +126,13 @@ async fn completed_diagnostics_survive_a_later_child_timeout() {
         ]),
         json!([{"from_node":"t","to_node":"scatter"},{"from_node":"scatter","to_node":"gather"}]),
     );
+    let compiled = crate::compiler::compile(&slow).expect("slow graph compiles");
+    let caps = crate::caps::mock::mock_capabilities();
+    let probe = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        crate::engine::run(&compiled, crate::engine::RunInput::new(json!({})), &caps),
+    ).await;
+    assert!(probe.is_err(), "slow graph settled: {probe:?}");
     let root = graph(
         json!([trigger(),
             {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":null}}},
