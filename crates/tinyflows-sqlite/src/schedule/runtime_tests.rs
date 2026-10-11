@@ -329,16 +329,50 @@ fn claimed_history_rejects_a_recreated_flow_job_and_keeps_matching_runs() {
 fn old_one_shot_completion_cannot_delete_a_subsequent_claim() {
     let directory = tempfile::tempdir().unwrap();
     let options = CronStoreOptions::new(directory.path().join("jobs.db"));
-    let job = add_shell_job(&options, None, Schedule::At { at: Utc::now() + chrono::Duration::hours(1) }, "once").unwrap();
-    let job = update_job(&options, &job.id, CronJobPatch { delete_after_run: Some(true), ..Default::default() }).unwrap();
+    let job = add_shell_job(
+        &options,
+        None,
+        Schedule::At {
+            at: Utc::now() + chrono::Duration::hours(1),
+        },
+        "once",
+    )
+    .unwrap();
+    let job = update_job(
+        &options,
+        &job.id,
+        CronJobPatch {
+            delete_after_run: Some(true),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert!(claim_slot(&options, &job, job.next_run).unwrap());
-    let newer = update_job(&options, &job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).unwrap();
+    let newer = update_job(
+        &options,
+        &job.id,
+        CronJobPatch {
+            enabled: Some(true),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert!(claim_slot(&options, &newer, newer.next_run).unwrap());
-    let completion = Completion { remove: true, disable: false, next_run: None, finished_at: Utc::now(), success: true, output: "old run".into() };
+    let completion = Completion {
+        remove: true,
+        disable: false,
+        next_run: None,
+        finished_at: Utc::now(),
+        success: true,
+        output: "old run".into(),
+    };
     complete_run(&options, &job, &completion).unwrap();
     let retained = get_job(&options, &job.id).expect("old completion deleted the newer claim");
     assert!(!retained.enabled);
-    assert!(retained.last_output.is_none(), "old completion overwrote newer claim bookkeeping");
+    assert!(
+        retained.last_output.is_none(),
+        "old completion overwrote newer claim bookkeeping"
+    );
     complete_run(&options, &newer, &completion).unwrap();
     assert!(get_job(&options, &job.id).is_err());
 }

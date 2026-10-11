@@ -300,6 +300,10 @@ impl JobPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronJob {
+    /// Durable occurrence claim generation; legacy jobs start at zero. Stores
+    /// increment this atomically when claiming and fence stale completions.
+    #[serde(default)]
+    pub claim_generation: u64,
     #[serde(default, skip_serializing_if = "JobPolicy::is_default")]
     /// Retry override and single-flight semantics, defaulting for older jobs.
     pub policy: JobPolicy,

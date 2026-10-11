@@ -11,9 +11,9 @@ fn stored(doc: Value) -> Versioned<Value> {
 }
 
 fn job() -> CronJob {
-    let now = Utc::now();
+        claim_generation: 0,    let now = Utc::now();
     CronJob {
-        policy: Default::default(),
+        claim_generation: 0,        policy: Default::default(),
         id: "x".into(),
         expression: "0 9 * * *".into(),
         schedule: Schedule::Cron {

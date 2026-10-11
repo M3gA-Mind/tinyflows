@@ -13,7 +13,7 @@ use tinyflows_schedule::{CronJob, DeliveryConfig, JobOrigin, JobType, Schedule, 
 pub(super) const JOB_COLUMNS: &str =
     "id, expression, command, schedule, job_type, prompt, name, session_target, model,
      enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output,
-     agent_id, origin, retries, single_flight";
+     agent_id, origin, retries, single_flight, claim_generation";
 
 pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronJob> {
     let expression: String = row.get(1)?;
@@ -31,6 +31,7 @@ pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cron
     let origin = decode_origin(origin_raw.as_deref()).map_err(sql_conversion_error)?;
 
     Ok(CronJob {
+        claim_generation: row.get(21)?,
         policy: tinyflows_schedule::JobPolicy {
             retries: row
                 .get::<_, Option<i64>>(19)?
@@ -236,6 +237,12 @@ pub fn with_connection<T>(
             conn,
             "cron_jobs",
             "single_flight",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        add_column_if_missing(
+            conn,
+            "cron_jobs",
+            "claim_generation",
             "INTEGER NOT NULL DEFAULT 0",
         )?;
         migrate_policies(conn)?;
