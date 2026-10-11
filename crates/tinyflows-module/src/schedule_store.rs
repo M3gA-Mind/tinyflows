@@ -184,14 +184,14 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         }
     }
     async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
-        match self {
-            Self::Sqlite(options) => {
-                sql::claim_slot(options, job, next)?;
-            }
-            Self::Documents(documents) => {
-                documents.claim_slot(job, next).await?;
-            }
-        }
+        let claimed = match self {
+            Self::Sqlite(options) => sql::claim_slot(options, job, next)?,
+            Self::Documents(documents) => documents.claim_slot(job, next).await?,
+        };
+        anyhow::ensure!(
+            claimed,
+            "schedule occurrence was removed, edited or already claimed"
+        );
         Ok(())
     }
     async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {

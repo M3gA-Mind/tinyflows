@@ -94,7 +94,7 @@ impl Scheduler {
                 self.skip_in_flight(&job).await?;
                 continue;
             };
-            self.claim_slot(&job).await;
+            self.claim_slot(&job).await?;
             let permits = Arc::clone(&self.permits);
             let ports = self.ports.clone();
             let config = self.config.clone();
@@ -108,25 +108,19 @@ impl Scheduler {
         Ok(count)
     }
 
-    async fn claim_slot(&self, job: &CronJob) {
+    async fn claim_slot(&self, job: &CronJob) -> Result<()> {
         if matches!(job.schedule, Schedule::At { .. }) {
-            return;
+            return Ok(());
         }
-        let next = next_run_for_schedule(&job.schedule, self.ports.clock.now());
-        match next {
-            Ok(next) => {
-                if let Err(error) = self.ports.store.claim_slot(job, next).await {
-                    tracing::warn!(job_id = %job.id, %error, "could not advance slot; run claim retained");
-                }
-            }
-            Err(error) => tracing::warn!(job_id = %job.id, %error, "could not compute next slot"),
-        }
+        let next = next_run_for_schedule(&job.schedule, self.ports.clock.now())?;
+        self.ports.store.claim_slot(job, next).await
     }
 
     async fn skip_in_flight(&self, job: &CronJob) -> Result<()> {
         if !job.policy.single_flight || matches!(job.schedule, Schedule::At { .. }) {
             return Ok(());
         }
+        self.claim_slot(job).await?;
         let now = self.ports.clock.now();
         self.ports
             .store
@@ -140,7 +134,6 @@ impl Scheduler {
                 delivery_status: None,
             })
             .await?;
-        self.claim_slot(job).await;
         Ok(())
     }
 
