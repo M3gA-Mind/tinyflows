@@ -39,7 +39,7 @@ impl MockInputs {
                 continue;
             };
             let mut value = crate::expr::resolve(raw, &json!({"inputs": self.values}));
-            self.collect_unknown(raw, &[input.name.clone()], &mut child.unknown);
+            self.collect_unknown(raw, std::slice::from_ref(&input.name), &mut child.unknown);
             if raw.as_str().is_some_and(crate::expr::is_expression) && !input.ty.accepts(&value) {
                 value = placeholder(input.ty);
             }
