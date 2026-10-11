@@ -437,3 +437,7 @@ mod input_provenance_tests;
 #[cfg(test)]
 #[path = "preflight_traversal_tests.rs"]
 mod traversal_tests;
+
+#[cfg(test)]
+#[path = "preflight_mapping_tests.rs"]
+mod mapping_tests;
