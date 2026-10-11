@@ -11,6 +11,7 @@ fn claims() -> &'static Mutex<HashSet<(String, String)>> {
 #[must_use]
 pub struct RunClaim((String, String));
 impl RunClaim {
+    /// Acquire a job claim, or return None when the same scoped job is active.
     pub fn acquire(scope: &str, job_id: &str) -> Option<Self> {
         let key = (scope.to_owned(), job_id.to_owned());
         let acquired = claims()
@@ -19,6 +20,7 @@ impl RunClaim {
             .insert(key.clone());
         acquired.then(|| Self(key))
     }
+    /// Whether a run currently holds this scoped job claim.
     pub fn is_running(scope: &str, job_id: &str) -> bool {
         claims()
             .lock()
@@ -43,6 +45,7 @@ fn loops() -> &'static Mutex<HashSet<String>> {
 #[must_use]
 pub struct SchedulerSlot(String);
 impl SchedulerSlot {
+    /// Acquire the scoped poll-loop slot until this guard drops.
     pub fn acquire(scope: &str) -> Option<Self> {
         loops()
             .lock()
@@ -50,6 +53,7 @@ impl SchedulerSlot {
             .insert(scope.into())
             .then(|| Self(scope.into()))
     }
+    /// Whether a poll-loop slot is held in this process.
     pub fn is_running(scope: &str) -> bool {
         loops()
             .lock()

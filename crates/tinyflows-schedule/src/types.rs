@@ -284,9 +284,11 @@ fn default_true() -> bool {
 pub struct JobPolicy {
     /// None uses scheduler defaults; Some(0) runs exactly once.
     pub retries: Option<u32>,
+    /// Record recurring slots skipped while the same job is already running.
     pub single_flight: bool,
 }
 impl JobPolicy {
+    /// Whether serialization can omit this historically compatible policy.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
@@ -295,6 +297,7 @@ impl JobPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronJob {
     #[serde(default, skip_serializing_if = "JobPolicy::is_default")]
+    /// Retry override and single-flight semantics, defaulting for older jobs.
     pub policy: JobPolicy,
     pub id: String,
     pub expression: String,
@@ -404,6 +407,7 @@ where
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CronJobPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Replace the complete job policy; None leaves it unchanged.
     pub policy: Option<JobPolicy>,
     pub schedule: Option<Schedule>,
     pub command: Option<String>,

@@ -12,15 +12,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::{sync::Semaphore, task::JoinSet};
 
+/// Stored output for a single-flight recurrence missed during an active run.
 pub const SKIPPED_OUTPUT: &str = "skipped: the previous run was still in flight";
 
 /// Scheduler defaults compatible with the former host loop.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SchedulerConfig {
+    /// Poll cadence; the owning loop enforces a five-second minimum.
     pub poll_secs: u64,
+    /// Jobs executing at once, clamped to at least one.
     pub max_concurrent: usize,
+    /// Retries after failure unless the job supplies its own budget.
     pub retries: u32,
+    /// Initial retry backoff, clamped to 200 ms and doubled up to 30 seconds.
     pub backoff_ms: u64,
 }
 impl Default for SchedulerConfig {
@@ -37,10 +42,15 @@ impl Default for SchedulerConfig {
 /// All ports belong to one scope; hosts must bind callbacks to that identity.
 #[derive(Clone)]
 pub struct RuntimePorts {
+    /// Storage bound to this scheduler's agent/tenant.
     pub store: Arc<dyn JobStore>,
+    /// Host execution and final-failure reporting.
     pub executor: Arc<dyn JobExecutor>,
+    /// Product delivery, called once after execution finishes.
     pub delivery: Arc<dyn RunDelivery>,
+    /// Direct flow schedule-trigger dispatch.
     pub triggers: Arc<dyn TriggerSink>,
+    /// Time and waits used by both the poll and retry loops.
     pub clock: Arc<dyn Clock>,
 }
 
@@ -54,6 +64,7 @@ pub struct Scheduler {
     permits: Arc<Semaphore>,
 }
 impl Scheduler {
+    /// Create an idle scheduler. Equal scope keys share process-wide claims.
     pub fn new(scope: impl Into<String>, config: SchedulerConfig, ports: RuntimePorts) -> Self {
         Self {
             stopped: false,
@@ -73,6 +84,8 @@ impl Scheduler {
         self.dispatch(jobs).await
     }
 
+    /// Queue unclaimed jobs, advance recurring slots, and return the queued count.
+    /// A claimed single-flight recurrence records a skipped run; one-shots wait.
     pub async fn dispatch(&mut self, jobs: Vec<CronJob>) -> Result<usize> {
         anyhow::ensure!(!self.stopped, "scheduler is stopped");
         let mut count = 0;

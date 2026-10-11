@@ -25,6 +25,7 @@ pub fn parse_human_delay(input: &str) -> Result<chrono::Duration> {
     chrono::Duration::try_seconds(seconds).ok_or_else(|| anyhow::anyhow!("delay is too large"))
 }
 
+/// Reject origin delivery or a current-session target without a conversation snapshot.
 pub fn check_origin_requirements(
     target: &SessionTarget,
     delivery: &DeliveryConfig,
