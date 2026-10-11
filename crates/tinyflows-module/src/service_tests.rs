@@ -23,7 +23,7 @@ async fn standalone_preflight_uses_root_budget_and_preserves_native_exemptions()
     let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
     let leaf = json!({"nodes":[
         {"id":"start","name":"Start","kind":"trigger"},
-        {"id":"shape","name":"Shape","kind":"transform","config":{"mode":"template","template":{"actual":"ok"}}},
+        {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"json":{"actual":"ok"}}}},
         {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"text":"=nodes.shape.item.json.missing"}}}
     ],"edges":[
         {"from_node":"start","from_port":"main","to_node":"shape"},

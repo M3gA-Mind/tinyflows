@@ -36,7 +36,7 @@ async fn builder_mock_preflight_reports_inline_child_provider_arguments() {
     let child: WorkflowGraph = serde_json::from_value(json!({
         "nodes":[
             {"id":"start","name":"Start","kind":"trigger"},
-            {"id":"shape","name":"Shape","kind":"transform","config":{"mode":"template","template":{"actual":"ok"}}},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"json":{"actual":"ok"}}}},
             {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"text":"=nodes.shape.item.json.missing"}}}
         ],"edges":[
             {"from_node":"start","from_port":"main","to_node":"shape"},
@@ -115,7 +115,7 @@ async fn successful_host_gates_proceed_to_mock_preflight_and_respect_native_pref
     };
     let graph = graph(json!([
         {"id":"start", "name":"Start", "kind":"trigger"},
-        {"id":"shape", "name":"Shape", "kind":"transform", "config":{"mode":"template", "template":{"actual":"ok"}}},
+        {"id":"shape", "name":"Shape", "kind":"transform", "config":{"set":{"json":{"actual":"ok"}}}},
         {"id":"send", "name":"Send", "kind":"tool_call", "config":{"slug":"host:send", "args":{"text":"=nodes.shape.item.json.missing"}}}
     ]));
     // Wire the trigger through the deterministic producer so preflight can prove absence.
@@ -234,9 +234,9 @@ async fn required_root_inputs_do_not_hide_deterministic_missing_tool_arguments()
     ] {
         let mut graph = graph(json!([
             {"id":"start","name":"Start","kind":"trigger"},
-            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"body":"hello"}}},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"body":{}}}},
             {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{
-                "caller":"=inputs.value", "subject":"=nodes.shape.item.missing"
+                "caller":"=inputs.value", "subject":"=nodes.shape.item.body.missing"
             }}}
         ]));
         graph.inputs = vec![crate::model::WorkflowInput::new("value", ty).required()];
