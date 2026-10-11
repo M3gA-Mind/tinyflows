@@ -131,3 +131,28 @@ async fn explicit_transform_overrides_remain_verifiable_after_trigger_passthroug
         assert!(errors[0].contains("arg `subject`"), "{errors:?}");
     }
 }
+
+#[tokio::test]
+async fn passthrough_control_nodes_preserve_trigger_uncertainty_and_known_overlays() {
+    for (kind, config, port) in [
+        ("condition", json!({"field":"missing"}), "false"),
+        ("switch", json!({"field":"missing"}), "default"),
+        ("merge", json!({}), "main"),
+    ] {
+        let graph: WorkflowGraph = serde_json::from_value(json!({
+            "nodes":[
+                {"id":"t","kind":"trigger","name":"Start"},
+                {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":{}}}},
+                {"id":"relay","kind":kind,"name":"Relay","config":config},
+                {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
+                    "subject":"=item.subject", "body":"=item.body.missing"
+                }}}
+            ],
+            "edges":[{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"relay"},
+                {"from_node":"relay","from_port":port,"to_node":"send"}]
+        })).unwrap();
+        let errors = unresolvable_tool_args(&graph, &[]).await;
+        assert_eq!(errors.len(), 1, "{kind}: {errors:?}");
+        assert!(errors[0].contains("arg `body`"), "{kind}: {errors:?}");
+    }
+}

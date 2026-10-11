@@ -147,3 +147,37 @@ async fn completed_diagnostics_survive_a_later_child_timeout() {
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `subject`"), "{errors:?}");
 }
+
+#[tokio::test]
+async fn child_mock_runs_inherit_the_root_nesting_budget() {
+    let mut nested = graph(json!([trigger()]), json!([]));
+    for _ in 0..9 {
+        nested = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":nested}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+    }
+    for child_cap in [None, Some(1)] {
+        let mut child = graph(
+            json!([trigger(),
+                {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":{}}}},
+                {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=item.subject.missing"}}},
+                {"id":"nested","kind":"sub_workflow","name":"Nested","config":{"workflow":nested}}]),
+            json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"},
+                {"from_node":"send","to_node":"nested"}]),
+        );
+        if let Some(cap) = child_cap {
+            child.nodes[0].config["max_sub_workflow_depth"] = json!(cap);
+        }
+        let root = graph(
+            json!([
+                {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":12}},
+                {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child}}
+            ]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&root, &[]).await;
+        assert_eq!(errors.len(), 1, "child cap {child_cap:?}: {errors:?}");
+        assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+    }
+}
