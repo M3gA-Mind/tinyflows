@@ -95,3 +95,46 @@ async fn removal_already_in_flight_spares_the_replacement_and_its_history() {
     );
     assert_eq!(setup.list_runs(&job.id, 10).await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn later_acquisition_or_edit_invalidates_the_completed_receipt() {
+    use tinyflows_schedule::CronJobPatch;
+    let a = super::test_support::store();
+    let job = a.add_shell_job(None, daily(), "echo").await.unwrap();
+    let old = a
+        .claim_due_job(&job.id, "worker", job.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    a.complete_claim(&old, job.next_run, true, "completed", None)
+        .await
+        .unwrap();
+    let next = a.get_job(&job.id).await.unwrap();
+    let fresh = a
+        .claim_due_job(&job.id, "worker", next.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!a.remove_completed_claim(&old).await.unwrap());
+    a.release_claim(&fresh, next.next_run).await.unwrap();
+    assert!(!a.remove_completed_claim(&old).await.unwrap());
+    let fresh = a
+        .claim_due_job(&job.id, "worker", next.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    a.complete_claim(&fresh, next.next_run, true, "completed again", None)
+        .await
+        .unwrap();
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            name: Some("edited".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!a.remove_completed_claim(&fresh).await.unwrap());
+    assert_eq!(a.list_jobs().await.unwrap().len(), 1);
+}
