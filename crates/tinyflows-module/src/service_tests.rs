@@ -18,6 +18,60 @@ async fn standalone_authoring_checks_descend_into_inline_workflows() -> Result<(
 }
 
 #[tokio::test]
+async fn standalone_preflight_uses_root_budget_and_preserves_native_exemptions() -> Result<()> {
+    let (_server, client) = authoring_connections().await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let leaf = json!({"nodes":[
+        {"id":"start","name":"Start","kind":"trigger"},
+        {"id":"shape","name":"Shape","kind":"transform","config":{"mode":"template","template":{"actual":"ok"}}},
+        {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"text":"=nodes.shape.item.json.missing"}}}
+    ],"edges":[
+        {"from_node":"start","from_port":"main","to_node":"shape"},
+        {"from_node":"shape","from_port":"main","to_node":"send"}
+    ]});
+    let wrap = |child, budget| {
+        json!({"nodes":[
+        {"id":"start","name":"Start","kind":"trigger","config":{"max_sub_workflow_depth":budget}},
+        {"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow":child}}
+    ],"edges":[{"from_node":"start","from_port":"main","to_node":"child"}]})
+    };
+    let child = wrap(leaf.clone(), 1);
+    for budget in [1, 2] {
+        let graph = wrap(child.clone(), budget);
+        let failures: Vec<String> = proxy
+            .call("UnresolvableToolArgs", (&graph, Vec::<String>::new()))
+            .await?;
+        if budget == 1 {
+            assert!(failures.is_empty(), "{failures:?}");
+        } else {
+            assert_eq!(failures.len(), 1, "{failures:?}");
+            assert!(failures[0].starts_with(
+                "Inline sub_workflow node 'child': Inline sub_workflow node 'child': Node 'send':"
+            ));
+            assert!(failures[0].contains("provider:send"));
+        }
+        let exempt: Vec<String> = proxy
+            .call(
+                "UnresolvableToolArgs",
+                (&graph, vec!["provider:".to_string()]),
+            )
+            .await?;
+        assert!(exempt.is_empty(), "{exempt:?}");
+    }
+    let mut trigger_scoped = leaf;
+    trigger_scoped["nodes"][2]["config"]["args"]["text"] = json!("=run.payload.text");
+    let graph = wrap(trigger_scoped, 1);
+    let failures: Vec<String> = proxy
+        .call("UnresolvableToolArgs", (graph, Vec::<String>::new()))
+        .await?;
+    assert!(
+        failures.is_empty(),
+        "empty mock trigger data must not reject a valid child: {failures:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn binding_failures_excludes_unrelated_authoring_gates() -> Result<()> {
     let (server, _client) = authoring_connections().await?;
     let failures = Authoring { connection: server }
