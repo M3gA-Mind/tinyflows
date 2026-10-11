@@ -500,3 +500,7 @@ pub fn mock_opaque_tool_call_upstream_ref<'a>(
 #[cfg(test)]
 #[path = "preflight_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "preflight_uncertainty_tests.rs"]
+mod uncertainty_tests;

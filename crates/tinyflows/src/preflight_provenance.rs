@@ -88,6 +88,15 @@ impl<'a> Provenance<'a> {
     }
 
     pub(super) fn is_unverifiable(&self, expression: &str, node: &str) -> bool {
+        let trigger = self
+            .graph
+            .nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::Trigger)
+            .map(|node| node.id.as_str());
+        if super::is_trigger_scoped_expression(expression, self.graph, node, trigger) {
+            return true;
+        }
         scope_reads(expression)
             .iter()
             .any(|(scope, path)| match scope.as_str() {
