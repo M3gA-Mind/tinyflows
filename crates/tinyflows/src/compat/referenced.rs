@@ -46,9 +46,9 @@ pub fn referenced_workflow_errors(
 /// missing/unavailable references to runtime diagnostics. The shared walker
 /// preserves synchronous diagnostic precedence, lookup order, cycle handling,
 /// and the root's remaining depth budget without blocking an async executor.
-pub async fn referenced_workflow_errors_async(
+pub async fn referenced_workflow_errors_async<R: crate::caps::WorkflowResolver + ?Sized>(
     graph: &WorkflowGraph,
-    resolve: &dyn crate::caps::WorkflowResolver,
+    resolve: &R,
 ) -> Vec<String> {
     let mut walk = ReferenceWalk::new(graph);
     while let Some(reference) = walk.next() {

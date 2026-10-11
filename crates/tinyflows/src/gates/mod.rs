@@ -262,3 +262,12 @@ fn agent_schema_failures(graph: &WorkflowGraph) -> Vec<String> {
 #[cfg(test)]
 #[path = "gates_tests.rs"]
 mod tests;
+
+#[cfg(feature = "mock")]
+mod builder;
+#[cfg(feature = "mock")]
+pub use builder::{BuilderGateHost, HostGateStage, builder_failures};
+
+#[cfg(all(test, feature = "mock"))]
+#[path = "builder_tests.rs"]
+mod builder_tests;
