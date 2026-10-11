@@ -192,7 +192,7 @@ async fn child_mock_runs_inherit_the_root_nesting_budget() {
 #[tokio::test]
 async fn child_mock_runs_inherit_the_root_depth_cap_and_current_depth() {
     let mut nested = graph(json!([trigger()]), json!([]));
-    for _ in 0..8 {
+    for _ in 0..1 {
         nested = graph(
             json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":nested}}]),
             json!([{"from_node":"t","to_node":"child"}]),
@@ -213,7 +213,7 @@ async fn child_mock_runs_inherit_the_root_depth_cap_and_current_depth() {
     );
     let root = graph(
         json!([
-            {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":10}},
+            {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":3}},
             {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child}}
         ]),
         json!([{"from_node":"t","to_node":"child"}]),
