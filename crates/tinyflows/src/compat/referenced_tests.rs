@@ -119,3 +119,60 @@ fn the_root_depth_cap_bounds_how_far_saved_children_are_followed() {
     assert!(referenced_workflow_errors(&root, &resolve).is_empty());
     assert_eq!(*seen.borrow(), vec!["mid".to_string()]);
 }
+
+struct AsyncStore {
+    graphs: HashMap<String, WorkflowGraph>,
+    seen: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl crate::caps::WorkflowResolver for AsyncStore {
+    async fn resolve(&self, id: &str) -> crate::Result<WorkflowGraph> {
+        tokio::task::yield_now().await;
+        self.seen.lock().unwrap().push(id.to_owned());
+        self.graphs.get(id).cloned().ok_or_else(|| {
+            crate::EngineError::Capability(format!("missing workflow {id}"))
+        })
+    }
+}
+
+#[tokio::test]
+async fn async_saved_workflow_gate_preserves_sync_diagnostics_and_lookup_order() {
+    let resolver = AsyncStore {
+        graphs: [("mid".into(), calls("bad")), ("bad".into(), unsafe_child())].into(),
+        seen: Default::default(),
+    };
+    let sync_seen = std::cell::RefCell::new(Vec::new());
+    let sync = |id: &str| {
+        sync_seen.borrow_mut().push(id.to_owned());
+        resolver.graphs.get(id).cloned()
+    };
+    let expected = referenced_workflow_errors(&calls("mid"), &sync);
+    let actual = referenced_workflow_errors_async(&calls("mid"), &resolver).await;
+    assert_eq!(actual, expected);
+    assert_eq!(*resolver.seen.lock().unwrap(), *sync_seen.borrow());
+}
+
+#[tokio::test]
+async fn async_saved_workflow_gate_skips_unavailable_dynamic_and_cyclic_references() {
+    let resolver = AsyncStore {
+        graphs: [("a".into(), calls("b")), ("b".into(), calls("a"))].into(),
+        seen: Default::default(),
+    };
+    for id in ["missing", "=inputs.which", " ", "a"] {
+        assert!(referenced_workflow_errors_async(&calls(id), &resolver).await.is_empty());
+    }
+    assert_eq!(*resolver.seen.lock().unwrap(), ["missing", "a", "b"]);
+}
+
+#[tokio::test]
+async fn async_saved_workflow_gate_keeps_root_depth_budget() {
+    let resolver = AsyncStore {
+        graphs: [("mid".into(), calls("bad")), ("bad".into(), unsafe_child())].into(),
+        seen: Default::default(),
+    };
+    let mut root = calls("mid");
+    root.nodes[0].config = json!({"max_sub_workflow_depth": 1});
+    assert!(referenced_workflow_errors_async(&root, &resolver).await.is_empty());
+    assert_eq!(*resolver.seen.lock().unwrap(), ["mid"]);
+}
