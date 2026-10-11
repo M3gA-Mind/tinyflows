@@ -1,6 +1,10 @@
 //! Ordered authoring gates with host-owned catalogs and policy as ports.
 
-use crate::{caps::WorkflowResolver, error::Result, model::WorkflowGraph};
+use crate::{
+    caps::WorkflowResolver,
+    error::Result,
+    model::{NodeKind, WorkflowGraph},
+};
 
 /// Host-specific gate stages, in increasing cost order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,7 +57,7 @@ pub async fn builder_failures(
     if !saved.is_empty() {
         return Ok(saved);
     }
-    let portable = super::failures(graph);
+    let portable = portable_failures(graph, 0, crate::compat::max_sub_workflow_depth(graph));
     if !portable.is_empty() {
         return Ok(portable);
     }
@@ -69,4 +73,30 @@ pub async fn builder_failures(
         }
     }
     Ok(crate::preflight::unresolvable_tool_args(graph, native_slug_prefixes).await)
+}
+
+fn portable_failures(graph: &WorkflowGraph, depth: u64, max_depth: u64) -> Vec<String> {
+    let mut failures = super::failures(graph);
+    if depth >= max_depth {
+        return failures;
+    }
+    for node in &graph.nodes {
+        if node.kind != NodeKind::SubWorkflow {
+            continue;
+        }
+        let Some(inline) = node.config.get("workflow") else {
+            continue;
+        };
+        let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) else {
+            // Match compatibility checks: malformed child graphs retain their
+            // structural/runtime diagnosis instead of becoming portable errors.
+            continue;
+        };
+        failures.extend(
+            portable_failures(&child, depth + 1, max_depth)
+                .into_iter()
+                .map(|message| format!("Inline sub_workflow node '{}': {message}", node.id)),
+        );
+    }
+    failures
 }

@@ -129,3 +129,34 @@ async fn inline_portable_failures_are_checked_before_any_host_stage() {
         assert!(host.calls.lock().unwrap().is_empty());
     }
 }
+
+#[tokio::test]
+async fn nested_portable_checks_use_the_remaining_root_depth_budget() {
+    let leaf =
+        graph(json!([{"id":"code","name":"Code","kind":"code","config":{"language":"shell"}}]));
+    let child = graph(json!([
+        {"id":"start","name":"Start","kind":"trigger","config":{"max_sub_workflow_depth":1}},
+        {"id":"inner","name":"Inner","kind":"sub_workflow","config":{"workflow":leaf}}
+    ]));
+    for budget in [1, 2] {
+        let outer = graph(json!([
+            {"id":"start","name":"Start","kind":"trigger","config":{"max_sub_workflow_depth":budget}},
+            {"id":"outer","name":"Outer","kind":"sub_workflow","config":{"workflow":child}}
+        ]));
+        let host = Host {
+            calls: Default::default(),
+            refuse: None,
+        };
+        let found = builder_failures(&outer, &host, &[]).await.unwrap();
+        if budget == 1 {
+            assert!(found.is_empty(), "{found:?}");
+            assert_eq!(host.calls.lock().unwrap().len(), 4);
+        } else {
+            let expected: Vec<_> = failures(&leaf).into_iter().map(|message| {
+                format!("Inline sub_workflow node 'outer': Inline sub_workflow node 'inner': {message}")
+            }).collect();
+            assert_eq!(found, expected);
+            assert!(host.calls.lock().unwrap().is_empty());
+        }
+    }
+}
