@@ -21,7 +21,6 @@ jobs:
           # This job executes repo code (cargo build/test); don't persist the
           # token in git config.
           persist-credentials: false
-          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -54,6 +53,9 @@ jobs:
 
       - name: Test all features
         run: cargo test --all-features
+
+      - name: Verify compiled workflow module
+        run: bash scripts/verify-module-artifact.sh
 
       - name: Test the schedule-only drivers build
         # The cron store must build and pass without the engine.
