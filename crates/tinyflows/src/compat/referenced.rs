@@ -28,84 +28,160 @@ pub fn referenced_workflow_errors(
     graph: &WorkflowGraph,
     resolve: &dyn Fn(&str) -> Option<WorkflowGraph>,
 ) -> Vec<String> {
-    let max_depth = max_sub_workflow_depth(graph);
-    let mut pending = vec![(graph.clone(), 0_u64, Vec::<String>::new())];
-    // Record the shallowest visit, not just whether an id was seen. The same
-    // child can be referenced by multiple branches; a deep DFS visit must not
-    // suppress a later shallower visit that has more depth budget remaining.
-    let mut visited_depths = HashMap::<String, u64>::new();
-
-    while let Some((current, depth, path)) = pending.pop() {
-        if depth >= max_depth {
+    let mut walk = ReferenceWalk::new(graph);
+    while let Some(reference) = walk.next() {
+        let Some(child) = resolve(&reference.id) else {
             continue;
+        };
+        if let Some(error) = walk.resolved(reference, child) {
+            return vec![error];
         }
+    }
+    Vec::new()
+}
 
-        for node in &current.nodes {
+/// Asynchronous saved-workflow compatibility using the engine's host resolver.
+///
+/// Lookup failures are skipped, as in [`referenced_workflow_errors`], leaving
+/// missing/unavailable references to runtime diagnostics. The shared walker
+/// preserves synchronous diagnostic precedence, lookup order, cycle handling,
+/// and the root's remaining depth budget without blocking an async executor.
+pub async fn referenced_workflow_errors_async<R: crate::caps::WorkflowResolver + ?Sized>(
+    graph: &WorkflowGraph,
+    resolve: &R,
+) -> Vec<String> {
+    let mut walk = ReferenceWalk::new(graph);
+    while let Some(reference) = walk.next() {
+        let Ok(child) = resolve.resolve(&reference.id).await else {
+            continue;
+        };
+        if let Some(error) = walk.resolved(reference, child) {
+            return vec![error];
+        }
+    }
+    Vec::new()
+}
+
+struct Frame {
+    graph: WorkflowGraph,
+    depth: u64,
+    path: Vec<String>,
+    next_node: usize,
+}
+
+struct Reference {
+    id: String,
+    depth: u64,
+    path: Vec<String>,
+}
+
+/// Suspend at each host lookup, retaining the old per-frame node order before
+/// descending into children. Both resolver APIs use exactly the same state.
+struct ReferenceWalk {
+    max_depth: u64,
+    pending: Vec<Frame>,
+    current: Option<Frame>,
+    // A deep visit must not suppress a later shallower visit with more budget.
+    visited_depths: HashMap<String, u64>,
+}
+
+impl ReferenceWalk {
+    fn new(graph: &WorkflowGraph) -> Self {
+        Self {
+            max_depth: max_sub_workflow_depth(graph),
+            pending: vec![Frame {
+                graph: graph.clone(),
+                depth: 0,
+                path: Vec::new(),
+                next_node: 0,
+            }],
+            current: None,
+            visited_depths: HashMap::new(),
+        }
+    }
+
+    fn next(&mut self) -> Option<Reference> {
+        loop {
+            if self.current.is_none() {
+                self.current = Some(self.pending.pop()?);
+            }
+            let current = self.current.as_mut()?;
+            if current.depth >= self.max_depth || current.next_node >= current.graph.nodes.len() {
+                self.current = None;
+                continue;
+            }
+            let node = &current.graph.nodes[current.next_node];
+            current.next_node += 1;
             if node.kind != NodeKind::SubWorkflow {
                 continue;
             }
-
-            let mut child_path = path.clone();
-            child_path.push(node.id.clone());
-
+            let mut path = current.path.clone();
+            path.push(node.id.clone());
+            let depth = current.depth + 1;
             let inline = node.config.get("workflow");
-            let configured_workflow_id = node
+            let id = node
                 .config
                 .get("workflow_id")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|id| !id.is_empty());
-            // Structural validation requires exactly one source and runs before
-            // this helper. Retain that precedence defensively if a caller passes
-            // an invalid graph directly: do not inspect either source as though
-            // the engine could choose between them at runtime.
-            if inline.is_some() && configured_workflow_id.is_some() {
+            // Invalid dual-source nodes retain structural-validation precedence.
+            if inline.is_some() && id.is_some() {
                 continue;
             }
-
             if let Some(inline) = inline {
-                if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
-                    pending.push((child, depth + 1, child_path.clone()));
+                if let Ok(graph) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
+                    self.pending.push(Frame {
+                        graph,
+                        depth,
+                        path,
+                        next_node: 0,
+                    });
                 }
                 continue;
             }
-
-            let Some(workflow_id) = configured_workflow_id.filter(|id| !id.starts_with('=')) else {
+            let Some(id) = id.filter(|id| !id.starts_with('=')) else {
                 continue;
             };
-            let child_depth = depth + 1;
-            if visited_depths
-                .get(workflow_id)
-                .is_some_and(|seen_depth| *seen_depth <= child_depth)
+            if self
+                .visited_depths
+                .get(id)
+                .is_some_and(|seen| *seen <= depth)
             {
                 continue;
             }
-            visited_depths.insert(workflow_id.to_string(), child_depth);
-
-            let Some(child) = resolve(workflow_id) else {
-                continue;
-            };
-            // Thread the root's remaining depth budget through, not the child's
-            // own cap.
-            let remaining_depth = max_depth.saturating_sub(child_depth);
-            if let Some(error) = errors_with_max_depth(&child, remaining_depth)
-                .into_iter()
-                .next()
-            {
-                return vec![format!(
-                    "Sub_workflow path '{}' references workflow_id '{}' with an unsupported \
-                     engine topology: {}: {}",
-                    child_path.join(" -> "),
-                    workflow_id,
-                    error.code,
-                    error.message
-                )];
-            }
-            pending.push((child, child_depth, child_path));
+            self.visited_depths.insert(id.to_owned(), depth);
+            return Some(Reference {
+                id: id.to_owned(),
+                depth,
+                path,
+            });
         }
     }
 
-    Vec::new()
+    fn resolved(&mut self, reference: Reference, graph: WorkflowGraph) -> Option<String> {
+        let remaining_depth = self.max_depth.saturating_sub(reference.depth);
+        if let Some(error) = errors_with_max_depth(&graph, remaining_depth)
+            .into_iter()
+            .next()
+        {
+            return Some(format!(
+                "Sub_workflow path '{}' references workflow_id '{}' with an unsupported \
+                 engine topology: {}: {}",
+                reference.path.join(" -> "),
+                reference.id,
+                error.code,
+                error.message
+            ));
+        }
+        self.pending.push(Frame {
+            graph,
+            depth: reference.depth,
+            path: reference.path,
+            next_node: 0,
+        });
+        None
+    }
 }
 
 #[cfg(test)]

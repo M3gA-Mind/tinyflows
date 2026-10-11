@@ -47,6 +47,39 @@ pub fn failures(graph: &WorkflowGraph) -> Vec<String> {
     failures
 }
 
+/// Collect portable diagnostics for the graph and its inline children.
+///
+/// Children share the root's depth budget. Malformed inline graphs retain
+/// their structural/runtime diagnosis instead of becoming authoring errors.
+#[must_use]
+pub fn authoring_failures(graph: &WorkflowGraph) -> Vec<String> {
+    inline_failures(graph, 0, crate::compat::max_sub_workflow_depth(graph))
+}
+
+fn inline_failures(graph: &WorkflowGraph, depth: u64, max_depth: u64) -> Vec<String> {
+    let mut errors = failures(graph);
+    if depth >= max_depth {
+        return errors;
+    }
+    for node in &graph.nodes {
+        if node.kind != NodeKind::SubWorkflow {
+            continue;
+        }
+        let Some(inline) = node.config.get("workflow") else {
+            continue;
+        };
+        let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) else {
+            continue;
+        };
+        errors.extend(
+            inline_failures(&child, depth + 1, max_depth)
+                .into_iter()
+                .map(|message| format!("Inline sub_workflow node '{}': {message}", node.id)),
+        );
+    }
+    errors
+}
+
 /// `code` nodes whose language the engine will not read the way it was written.
 ///
 /// The engine matches the literal string `"python"` and treats *everything else*
@@ -262,3 +295,12 @@ fn agent_schema_failures(graph: &WorkflowGraph) -> Vec<String> {
 #[cfg(test)]
 #[path = "gates_tests.rs"]
 mod tests;
+
+#[cfg(feature = "mock")]
+mod builder;
+#[cfg(feature = "mock")]
+pub use builder::{BuilderGateHost, HostGateStage, builder_failures};
+
+#[cfg(all(test, feature = "mock"))]
+#[path = "builder_tests.rs"]
+mod builder_tests;

@@ -12,12 +12,12 @@ use super::*;
 
 /// A graph from a node list and an edge list. `preflight` runs the engine, so
 /// unlike the static gates it needs real topology and a trigger.
-fn graph(nodes: serde_json::Value, edges: serde_json::Value) -> WorkflowGraph {
+pub(super) fn graph(nodes: serde_json::Value, edges: serde_json::Value) -> WorkflowGraph {
     serde_json::from_value(json!({ "name": "test", "nodes": nodes, "edges": edges }))
         .expect("graph parses")
 }
 
-fn trigger() -> serde_json::Value {
+pub(super) fn trigger() -> serde_json::Value {
     json!({ "id": "t", "kind": "trigger", "name": "Manual",
             "config": { "trigger_kind": "manual" } })
 }
@@ -31,10 +31,10 @@ async fn an_arg_reading_a_field_an_upstream_node_never_produces_is_refused() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": {} } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "GMAIL_SEND_EMAIL",
-                "args": { "subject": "=nodes.shape.item.subject" }
+                "args": { "subject": "=nodes.shape.item.subject.missing" }
             } },
         ]),
         json!([{ "from_node": "t", "to_node": "shape" },
@@ -103,10 +103,10 @@ async fn a_hosts_native_tool_call_is_skipped_entirely() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": {} } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "oh:send_message",
-                "args": { "subject": "=nodes.shape.item.subject" }
+                "args": { "subject": "=nodes.shape.item.subject.missing" }
             } },
         ]),
         json!([{ "from_node": "t", "to_node": "shape" },
@@ -131,10 +131,10 @@ async fn a_dynamic_slug_is_skipped() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": {} } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "=item.slug",
-                "args": { "subject": "=nodes.shape.item.subject" }
+                "args": { "subject": "=nodes.shape.item.subject.missing" }
             } },
         ]),
         json!([{ "from_node": "t", "to_node": "shape" },
@@ -254,4 +254,228 @@ fn a_non_tool_call_upstream_is_not_treated_as_opaque() {
         mock_opaque_tool_call_upstream_ref("=item.x", &g, "sink"),
         None
     );
+}
+
+#[tokio::test]
+async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"=inputs.repo","known":{}}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.known.missing"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("repo", crate::model::InputType::String).required()];
+    for supplied in [json!("acme/api"), json!("=run.repo"), json!("=inputs.repo")] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"repo":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].contains("Inline sub_workflow node 'child': "),
+            "{errors:?}"
+        );
+        assert!(errors[0].contains("subject"), "{errors:?}");
+        let mut valid = parent;
+        valid.nodes[1].config["workflow"]["nodes"][2]["config"]["args"]["subject"] =
+            json!("=nodes.shape.item.body");
+        let valid_errors = unresolvable_tool_args(&valid, &[]).await;
+        assert!(valid_errors.is_empty(), "{supplied:?}: {valid_errors:?}");
+    }
+}
+
+#[tokio::test]
+async fn runtime_json_child_inputs_are_unverifiable_without_hiding_graph_output_errors() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    for expression in ["=inputs.payload.subject", "=.inputs[\"payload\"].subject"] {
+        child.nodes[1].config["args"]["subject"] = json!(expression);
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert!(errors.is_empty(), "{expression}: {errors:?}");
+    }
+    child.nodes.insert(
+        1,
+        serde_json::from_value(
+            json!({"id":"shape","kind":"transform","name":"Shape","config":{"set":{"actual":{}}}}),
+        )
+        .unwrap(),
+    );
+    child.edges = serde_json::from_value(
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    )
+    .unwrap();
+    child.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.actual.missing");
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `other`"), "{errors:?}");
+}
+
+/// Runtime JSON is opaque, while literal JSON and unrelated outputs remain checkable.
+#[tokio::test]
+async fn dynamic_json_child_inputs_are_unverifiable_but_literal_missing_fields_are_refused() {
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"hello"}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
+                "subject":"=inputs.payload.subject", "body":"=nodes.shape.item.body.missing"
+            }}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    for supplied in [json!("=run.payload"), json!({}), json!({"subject":"hello"})] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        let expected = if supplied == json!({}) { 2 } else { 1 };
+        assert_eq!(errors.len(), expected, "{supplied}: {errors:?}");
+        assert!(
+            errors.iter().any(|error| error.contains("arg `body`")),
+            "{errors:?}"
+        );
+    }
+}
+
+/// Opaque JSON stays opaque after a second child's input mapping, including jq reads.
+#[tokio::test]
+async fn dynamic_json_child_inputs_remain_unverifiable_across_nested_children() {
+    let mut leaf = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=.inputs[\"payload\"].subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    leaf.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let mut child = graph(
+        json!([trigger(), {"id":"leaf","kind":"sub_workflow","name":"Leaf","config":{"workflow":leaf,"inputs":{"payload":"=inputs.payload"}}}]),
+        json!([{"from_node":"t","to_node":"leaf"}]),
+    );
+    child.inputs = leaf.inputs.clone();
+    for supplied in [json!("=run.payload"), json!({})] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(
+            errors.len(),
+            usize::from(supplied == json!({})),
+            "{supplied}: {errors:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn mixed_json_input_provenance_preserves_literal_siblings() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
+            "known":"=inputs.payload.known.subject", "dynamic":"=inputs.payload.dynamic.subject"
+        }}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":{"known":{},"dynamic":"=run.payload"}}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `known`"), "{errors:?}");
+    let mut wrapper = graph(
+        json!([trigger(), {"id":"nested","kind":"sub_workflow","name":"Nested","config":{"workflow":child,"inputs":{"payload":"=inputs.payload"}}}]),
+        json!([{"from_node":"t","to_node":"nested"}]),
+    );
+    wrapper.inputs = child.inputs.clone();
+    let mut nested = parent;
+    nested.nodes[1].config["workflow"] = serde_json::to_value(wrapper).unwrap();
+    let errors = unresolvable_tool_args(&nested, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `known`"), "{errors:?}");
+}
+
+#[tokio::test]
+async fn piped_jq_reads_from_dynamic_json_inputs_are_unverifiable() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=.inputs | .payload.subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[tokio::test]
+async fn derived_caller_input_output_is_unverifiable() {
+    let mut g = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":"=if .inputs.enabled then \"subject\" else null end","known":{}}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    g.inputs = vec![
+        crate::model::WorkflowInput::new("enabled", crate::model::InputType::Boolean).required(),
+    ];
+    let errors = unresolvable_tool_args(&g, &[]).await;
+    assert!(errors.is_empty(), "{errors:?}");
+    g.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.known.missing");
+    let errors = unresolvable_tool_args(&g, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `other`"), "{errors:?}");
+}
+
+#[tokio::test]
+async fn constant_child_expression_preserves_missing_field_diagnostics() {
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let mut parent = graph(
+        json!([
+            trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"={}"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    for mapping in [
+        "={}",
+        "={run: \"literal\"}",
+        "={inputs: \"literal\"}",
+        "={item: {}}",
+    ] {
+        parent.nodes[1].config["inputs"]["payload"] = json!(mapping);
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(errors.len(), 1, "{mapping}: {errors:?}");
+        assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+    }
 }
