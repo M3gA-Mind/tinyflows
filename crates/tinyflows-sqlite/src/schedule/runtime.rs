@@ -6,10 +6,11 @@ use super::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
-use tinyflows_schedule::{CronJob, runtime::Completion, truncate_cron_output};
+use tinyflows_schedule::{CronJob, Schedule, runtime::Completion, truncate_cron_output};
 
 /// Advance only the original occurrence and definition incarnation.
-/// Returns false when it was removed, edited or already advanced.
+/// One-shots are disabled before execution, so a crash cannot repeat them.
+/// Returns false when it was removed, disabled, edited or already advanced.
 pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>) -> Result<bool> {
     with_connection(options, |connection| {
         let tx = connection.unchecked_transaction()?;
@@ -23,15 +24,20 @@ pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>
         let Some(current) = current else {
             return Ok(false);
         };
-        if current.created_at != job.created_at
+        if !current.enabled
+            || current.created_at != job.created_at
             || current.schedule != job.schedule
             || current.next_run != job.next_run
         {
             return Ok(false);
         }
         tx.execute(
-            "UPDATE cron_jobs SET next_run=?1 WHERE id=?2",
-            params![next.to_rfc3339(), job.id],
+            "UPDATE cron_jobs SET next_run=?1, enabled=?2 WHERE id=?3",
+            params![
+                next.to_rfc3339(),
+                !matches!(job.schedule, Schedule::At { .. }),
+                job.id
+            ],
         )?;
         tx.commit()?;
         Ok(true)

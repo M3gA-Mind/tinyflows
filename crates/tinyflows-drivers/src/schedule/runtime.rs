@@ -7,7 +7,7 @@ use super::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use tinyflows_schedule::{CronJob, runtime::Completion, truncate_cron_output};
+use tinyflows_schedule::{CronJob, Schedule, runtime::Completion, truncate_cron_output};
 use tinystoragedrivers_core::{Version, Versioned};
 fn decode(id: &str, doc: &Value) -> Result<CronJob> {
     doc_to_job(&Versioned {
@@ -18,18 +18,24 @@ fn decode(id: &str, doc: &Value) -> Result<CronJob> {
 }
 impl CronDocuments {
     /// Advance only the original occurrence and definition incarnation.
+    /// Disable one-shots durably before execution to prevent replay after a crash.
     pub async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<bool> {
         self.ensure().await?;
         Ok(compare_job(self, JOBS, &job.id, |doc| {
             let current = decode(&job.id, doc)?;
-            if current.created_at != job.created_at
+            if !current.enabled
+                || current.created_at != job.created_at
                 || current.schedule != job.schedule
                 || current.next_run != job.next_run
             {
                 return Ok(None);
             }
             let mut next_doc = doc.as_object().cloned().unwrap_or_default();
-            super::jobs::reschedule(&mut next_doc, next, false);
+            super::jobs::reschedule(
+                &mut next_doc,
+                next,
+                matches!(job.schedule, Schedule::At { .. }),
+            );
             Ok(Some(Value::Object(next_doc)))
         })
         .await?

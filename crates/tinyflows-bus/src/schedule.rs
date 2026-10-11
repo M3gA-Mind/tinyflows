@@ -55,7 +55,8 @@ pub struct StartScheduler {
 pub mod callbacks {
     /// `(now: RFC3339) -> jobs: JSON[]`.
     pub const DUE_JOBS: &str = "DueJobs";
-    /// `(job: JSON, next_run: RFC3339) -> ()`, preserving concurrent edits.
+    /// `(job: JSON, next_run: RFC3339) -> ()`: claim or return an error.
+    /// Preserve concurrent edits; disable one-shots durably before success.
     pub const CLAIM_SLOT: &str = "ClaimSlot";
     /// `(record: JSON) -> ()`; fields match runtime run records.
     pub const RECORD_RUN: &str = "RecordRun";

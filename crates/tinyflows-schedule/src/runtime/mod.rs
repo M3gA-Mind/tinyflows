@@ -109,10 +109,11 @@ impl Scheduler {
     }
 
     async fn claim_slot(&self, job: &CronJob) -> Result<()> {
-        if matches!(job.schedule, Schedule::At { .. }) {
-            return Ok(());
-        }
-        let next = next_run_for_schedule(&job.schedule, self.ports.clock.now())?;
+        let next = if matches!(job.schedule, Schedule::At { .. }) {
+            job.next_run
+        } else {
+            next_run_for_schedule(&job.schedule, self.ports.clock.now())?
+        };
         self.ports.store.claim_slot(job, next).await
     }
 

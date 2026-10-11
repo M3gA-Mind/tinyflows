@@ -59,6 +59,7 @@ pub trait JobStore: Send + Sync {
     /// Read enabled jobs due at `now` within the store's configured batch limit.
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>>;
     /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
+    /// One-shots must be durably disabled before returning success.
     /// Return an error on storage failure or when another writer won the claim.
     async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()>;
     /// Append a run outcome without changing the job's schedule.
