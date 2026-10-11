@@ -200,3 +200,27 @@ async fn builder_gate_module_calls_host_stages_in_order_and_stops_on_failure() -
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn builder_gate_callback_transport_failure_is_not_a_successful_report() -> Result<()> {
+    let (_server, client) = authoring_connections().await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let result: Result<Vec<String>> = proxy
+        .call(
+            "BuilderFailures",
+            (
+                json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
+                tinyflows_bus::AuthoringHost {
+                    bus_name: "test.MissingAuthoringHost".into(),
+                    object_path: "/missing".into(),
+                },
+                Vec::<String>::new(),
+            ),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "a missing host must not pass the gate: {result:?}"
+    );
+    Ok(())
+}

@@ -15,7 +15,7 @@ pub(super) struct HostPorts {
 }
 
 impl HostPorts {
-    fn proxy(&self) -> Result<tinybus::Proxy<'_>> {
+    fn proxy(&self) -> Result<tinybus::Proxy> {
         self.connection
             .proxy(&self.host.bus_name, &self.host.object_path, HOST_INTERFACE)
             .map_err(|error| EngineError::Capability(error.to_string()))

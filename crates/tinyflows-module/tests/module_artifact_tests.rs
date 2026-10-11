@@ -6,6 +6,26 @@ use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
 use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
 
+struct HostCallback;
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
+impl HostCallback {
+    async fn resolve_workflow(&self, _: String) -> tinybus::Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+    async fn check_gate(
+        &self,
+        stage: String,
+        _: serde_json::Value,
+    ) -> tinybus::Result<Vec<String>> {
+        Ok(if stage == "connections" {
+            vec!["artifact callback refused account".into()]
+        } else {
+            vec![]
+        })
+    }
+}
+
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
@@ -30,6 +50,30 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
     let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
+    connection
+        .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
+        .await
+        .unwrap();
+    connection
+        .request_name("test.ArtifactAuthoringHost")
+        .await
+        .unwrap();
+    let failures: Vec<String> = proxy
+        .call(
+            methods::BUILDER_FAILURES,
+            (
+                json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
+                tinyflows_bus::AuthoringHost {
+                    bus_name: "test.ArtifactAuthoringHost".into(),
+                    object_path: "/authoring_host".into(),
+                },
+                Vec::<String>::new(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures, ["artifact callback refused account"]);
+
     let report: GraphValidation = proxy
         .call(
             methods::VALIDATE_GRAPH,
