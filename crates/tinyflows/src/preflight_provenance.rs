@@ -25,9 +25,18 @@ impl<'a> Provenance<'a> {
             let mut changed = false;
             for node in &graph.nodes {
                 let mut paths = Vec::new();
-                if node.kind == NodeKind::Trigger {
-                    paths.push(Vec::new());
-                } else if node.kind == NodeKind::Transform {
+                if node.kind == NodeKind::Transform {
+                    let set = node.config.get("set").and_then(Value::as_object);
+                    for edge in graph.edges.iter().filter(|edge| edge.to_node == node.id) {
+                        for path in result.outputs.get(&edge.from_node).into_iter().flatten() {
+                            if !path
+                                .first()
+                                .is_some_and(|field| set.is_some_and(|set| set.contains_key(field)))
+                            {
+                                paths.push(path.clone());
+                            }
+                        }
+                    }
                     for key in ["set", "template"] {
                         if let Some(Value::Object(fields)) = node.config.get(key) {
                             for (field, value) in fields {
