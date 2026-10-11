@@ -2,6 +2,22 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
+async fn standalone_authoring_checks_descend_into_inline_workflows() -> Result<()> {
+    let (_server, client) = authoring_connections().await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let failures: Vec<String> = proxy.call("AuthoringFailures", (json!({
+        "nodes":[{"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow":{
+            "nodes":[{"id":"code","name":"Code","kind":"code","config":{"language":"shell"}}],
+            "edges":[]
+        }}}],"edges":[]
+    }),)).await?;
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("Inline sub_workflow node 'child'"));
+    assert!(failures[0].contains("language"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn binding_failures_excludes_unrelated_authoring_gates() -> Result<()> {
     let (server, _client) = authoring_connections().await?;
     let failures = Authoring { connection: server }

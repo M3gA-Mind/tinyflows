@@ -32,6 +32,43 @@ fn graph(nodes: serde_json::Value) -> WorkflowGraph {
 }
 
 #[tokio::test]
+async fn builder_mock_preflight_reports_inline_child_provider_arguments() {
+    let child: WorkflowGraph = serde_json::from_value(json!({
+        "nodes":[
+            {"id":"start","name":"Start","kind":"trigger"},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"mode":"template","template":{"actual":"ok"}}},
+            {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"text":"=nodes.shape.item.json.missing"}}}
+        ],"edges":[
+            {"from_node":"start","from_port":"main","to_node":"shape"},
+            {"from_node":"shape","from_port":"main","to_node":"send"}
+        ]
+    })).unwrap();
+    let outer: WorkflowGraph = serde_json::from_value(json!({
+        "nodes":[
+            {"id":"start","name":"Start","kind":"trigger"},
+            {"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow":child}}
+        ],"edges":[{"from_node":"start","from_port":"main","to_node":"child"}]
+    }))
+    .unwrap();
+    let expected = crate::preflight::unresolvable_tool_args(&child, &[]).await;
+    assert_eq!(
+        expected.len(),
+        1,
+        "child fixture must prove the missing provider argument"
+    );
+    let host = Host {
+        calls: Default::default(),
+        refuse: None,
+    };
+    let found = builder_failures(&outer, &host, &[]).await.unwrap();
+    assert_eq!(
+        found,
+        vec![format!("Inline sub_workflow node 'child': {}", expected[0])]
+    );
+    assert_eq!(host.calls.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
 async fn builder_host_gates_stop_at_the_first_failure_in_declared_order() {
     let stages = [
         HostGateStage::ToolPolicy,
