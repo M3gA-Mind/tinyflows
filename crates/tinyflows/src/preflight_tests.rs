@@ -255,3 +255,28 @@ fn a_non_tool_call_upstream_is_not_treated_as_opaque() {
         None
     );
 }
+
+#[tokio::test]
+async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"expression":"={ body: inputs.repo }"}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("repo", crate::model::InputType::String).required()];
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"repo":"acme/api"}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("Inline sub_workflow node 'child': "),
+        "{errors:?}"
+    );
+    assert!(errors[0].contains("subject"), "{errors:?}");
+}
