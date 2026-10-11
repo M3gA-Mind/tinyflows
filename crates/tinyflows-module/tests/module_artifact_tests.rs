@@ -191,8 +191,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(listed[0]["id"], created["id"]);
-    assert_eq!(created["claim_generation"], 0);
-    assert_eq!(listed[0]["claim_generation"], 0);
+    assert!(
+        created.get("claim_generation").is_none(),
+        "unclaimed jobs preserve the legacy wire bytes"
+    );
+    assert!(listed[0].get("claim_generation").is_none());
 
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
