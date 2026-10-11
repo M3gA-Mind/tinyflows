@@ -2,11 +2,11 @@
 name = "tinyflows-module"
 version = "0.1.0"
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Loadable TinyBus module for workflow authoring"
+description = "Loadable TinyBus module for workflow authoring and scheduling"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
