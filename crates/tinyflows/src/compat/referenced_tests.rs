@@ -127,12 +127,13 @@ struct AsyncStore {
 
 #[async_trait::async_trait]
 impl crate::caps::WorkflowResolver for AsyncStore {
-    async fn resolve(&self, id: &str) -> crate::Result<WorkflowGraph> {
+    async fn resolve(&self, id: &str) -> crate::error::Result<WorkflowGraph> {
         tokio::task::yield_now().await;
         self.seen.lock().unwrap().push(id.to_owned());
-        self.graphs.get(id).cloned().ok_or_else(|| {
-            crate::EngineError::Capability(format!("missing workflow {id}"))
-        })
+        self.graphs
+            .get(id)
+            .cloned()
+            .ok_or_else(|| crate::error::EngineError::Capability(format!("missing workflow {id}")))
     }
 }
 
@@ -160,7 +161,11 @@ async fn async_saved_workflow_gate_skips_unavailable_dynamic_and_cyclic_referenc
         seen: Default::default(),
     };
     for id in ["missing", "=inputs.which", " ", "a"] {
-        assert!(referenced_workflow_errors_async(&calls(id), &resolver).await.is_empty());
+        assert!(
+            referenced_workflow_errors_async(&calls(id), &resolver)
+                .await
+                .is_empty()
+        );
     }
     assert_eq!(*resolver.seen.lock().unwrap(), ["missing", "a", "b"]);
 }
@@ -173,6 +178,10 @@ async fn async_saved_workflow_gate_keeps_root_depth_budget() {
     };
     let mut root = calls("mid");
     root.nodes[0].config = json!({"max_sub_workflow_depth": 1});
-    assert!(referenced_workflow_errors_async(&root, &resolver).await.is_empty());
+    assert!(
+        referenced_workflow_errors_async(&root, &resolver)
+            .await
+            .is_empty()
+    );
     assert_eq!(*resolver.seen.lock().unwrap(), ["mid"]);
 }
