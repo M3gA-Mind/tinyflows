@@ -257,17 +257,20 @@ async fn required_root_inputs_do_not_hide_deterministic_missing_tool_arguments()
     }
 }
 
-
 #[tokio::test]
 async fn saved_workflow_preflight_retains_deterministic_argument_failures() {
     struct SavedHost(WorkflowGraph);
     #[async_trait::async_trait]
     impl WorkflowResolver for SavedHost {
-        async fn resolve(&self, _: &str) -> Result<WorkflowGraph> { Ok(self.0.clone()) }
+        async fn resolve(&self, _: &str) -> Result<WorkflowGraph> {
+            Ok(self.0.clone())
+        }
     }
     #[async_trait::async_trait]
     impl BuilderGateHost for SavedHost {
-        async fn check(&self, _: HostGateStage, _: &WorkflowGraph) -> Result<Vec<String>> { Ok(vec![]) }
+        async fn check(&self, _: HostGateStage, _: &WorkflowGraph) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
     }
     let child = graph(json!([{"id":"start","kind":"trigger","name":"Start"}]));
     let outer: WorkflowGraph = serde_json::from_value(json!({
@@ -279,7 +282,9 @@ async fn saved_workflow_preflight_retains_deterministic_argument_failures() {
         ],
         "edges":[{"from_node":"start","to_node":"child"},{"from_node":"child","to_node":"shape"},{"from_node":"shape","to_node":"send"}]
     })).unwrap();
-    let errors = builder_failures(&outer, &SavedHost(child), &[]).await.unwrap();
+    let errors = builder_failures(&outer, &SavedHost(child), &[])
+        .await
+        .unwrap();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `subject`"), "{errors:?}");
 }

@@ -68,5 +68,10 @@ pub async fn builder_failures(
             return Ok(failures);
         }
     }
-    Ok(crate::preflight::unresolvable_tool_args(graph, native_slug_prefixes).await)
+    Ok(crate::preflight::unresolvable_tool_args_with_resolver(
+        graph,
+        native_slug_prefixes,
+        Some(host),
+    )
+    .await)
 }

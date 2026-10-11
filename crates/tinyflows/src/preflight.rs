@@ -88,16 +88,63 @@ pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
 ) -> Vec<String> {
+    unresolvable_tool_args_with_resolver(graph, native_slug_prefixes, None).await
+}
+
+/// Preflight saved children with the host resolver as well as inline children.
+/// Lookup failures remain best-effort skips; all lookups and mock runs share
+/// the root depth budget and the whole-traversal deadline.
+pub async fn unresolvable_tool_args_with_resolver(
+    graph: &WorkflowGraph,
+    native_slug_prefixes: &[&str],
+    host: Option<&dyn crate::caps::WorkflowResolver>,
+) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
     let check = async {
+        let mut saved = std::collections::HashMap::new();
+        let mut lookup = vec![(graph.clone(), 0_u64)];
+        while let Some((current, depth)) = lookup.pop() {
+            if depth >= max_depth {
+                continue;
+            }
+            for node in &current.nodes {
+                if node.kind != NodeKind::SubWorkflow {
+                    continue;
+                }
+                if let Some(inline) = node.config.get("workflow") {
+                    if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
+                        lookup.push((child, depth + 1));
+                    }
+                } else if let (Some(host), Some(id)) =
+                    (host, node.config.get("workflow_id").and_then(Value::as_str))
+                {
+                    if !saved.contains_key(id) {
+                        if let Ok(child) = host.resolve(id).await {
+                            saved.insert(id.to_owned(), child.clone());
+                            lookup.push((child, depth + 1));
+                        }
+                    }
+                }
+            }
+        }
+        let mut resolver = crate::caps::mock::MockWorkflowResolver::default();
+        for (id, child) in &saved {
+            resolver = resolver.with(id, child.clone());
+        }
+        let resolver: Arc<dyn crate::caps::WorkflowResolver> = Arc::new(resolver);
         let mut pending = vec![(graph.clone(), 0_u64, String::new(), MockInputs::root(graph))];
         let mut errors = Vec::new();
         while let Some((current, depth, prefix, inputs)) = pending.pop() {
             errors.extend(
-                graph_unresolvable_tool_args(&current, native_slug_prefixes, inputs.clone())
-                    .await
-                    .into_iter()
-                    .map(|message| format!("{prefix}{message}")),
+                graph_unresolvable_tool_args(
+                    &current,
+                    native_slug_prefixes,
+                    inputs.clone(),
+                    resolver.clone(),
+                )
+                .await
+                .into_iter()
+                .map(|message| format!("{prefix}{message}")),
             );
             if depth >= max_depth {
                 continue;
@@ -106,10 +153,18 @@ pub async fn unresolvable_tool_args(
                 if node.kind != NodeKind::SubWorkflow {
                     continue;
                 }
-                let Some(inline) = node.config.get("workflow") else {
-                    continue;
-                };
-                if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
+                let child = node
+                    .config
+                    .get("workflow")
+                    .and_then(|inline| serde_json::from_value::<WorkflowGraph>(inline.clone()).ok())
+                    .or_else(|| {
+                        node.config
+                            .get("workflow_id")
+                            .and_then(Value::as_str)
+                            .and_then(|id| saved.get(id))
+                            .cloned()
+                    });
+                if let Some(child) = child {
                     let child_inputs = inputs.child(&child, &node.config);
                     pending.push((
                         child,
@@ -133,6 +188,7 @@ async fn graph_unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
     inputs: MockInputs,
+    resolver: Arc<dyn crate::caps::WorkflowResolver>,
 ) -> Vec<String> {
     let Ok(compiled) = crate::compiler::compile(graph) else {
         return Vec::new();
@@ -145,6 +201,7 @@ async fn graph_unresolvable_tool_args(
     // reject a correct graph (which is why `propose_workflow` was rejecting
     // valid graphs). The schema-aware mock LLM honors the schema instead.
     caps.llm = Arc::new(SchemaAwareMockLlm);
+    caps.resolver = resolver;
 
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();

@@ -423,29 +423,40 @@ async fn piped_jq_reads_from_dynamic_json_inputs_are_unverifiable() {
     assert!(errors.is_empty(), "{errors:?}");
 }
 
-
 #[tokio::test]
 async fn derived_caller_input_output_is_unverifiable() {
-    let mut g = graph(json!([
-        trigger(),
-        {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":"=if .inputs.enabled then \"subject\" else null end"}}},
-        {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
-    ]), json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]));
-    g.inputs = vec![crate::model::WorkflowInput::new("enabled", crate::model::InputType::Boolean).required()];
+    let mut g = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":"=if .inputs.enabled then \"subject\" else null end"}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    g.inputs = vec![
+        crate::model::WorkflowInput::new("enabled", crate::model::InputType::Boolean).required(),
+    ];
     let errors = unresolvable_tool_args(&g, &[]).await;
     assert!(errors.is_empty(), "{errors:?}");
 }
 
 #[tokio::test]
 async fn constant_child_expression_preserves_missing_field_diagnostics() {
-    let mut child = graph(json!([
-        trigger(),
-        {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
-    ]), json!([{"from_node":"t","to_node":"send"}]));
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
-    let parent = graph(json!([
-        trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"={}"}}}
-    ]), json!([{"from_node":"t","to_node":"child"}]));
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let parent = graph(
+        json!([
+            trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"={}"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
     let errors = unresolvable_tool_args(&parent, &[]).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `subject`"), "{errors:?}");
