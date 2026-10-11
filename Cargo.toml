@@ -17,9 +17,10 @@ members = ["crates/*"]
 # this entry cargo walks into them and reports duplicate packages.
 exclude = ["worktrees", "vendor/tinybus"]
 
+# Pin unpublished module APIs to a source available in non-recursive clones and archives.
 [patch.crates-io]
-tinybus = { path = "vendor/tinybus/crates/tinybus" }
-tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "8a4d8ca0c34166f0ef63a60de66d9e07e0373b03" }
+tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "8a4d8ca0c34166f0ef63a60de66d9e07e0373b03" }
 
 [workspace.package]
 edition = "2024"
