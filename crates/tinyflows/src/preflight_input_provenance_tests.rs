@@ -1,7 +1,6 @@
-//! Caller-input provenance regressions.
-
-use super::tests::{graph, trigger};
 use super::*;
+// Caller-input provenance regressions.
+use super::tests::{graph, trigger};
 use serde_json::json;
 
 #[tokio::test]

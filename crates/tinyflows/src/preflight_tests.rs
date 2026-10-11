@@ -12,12 +12,12 @@ use super::*;
 
 /// A graph from a node list and an edge list. `preflight` runs the engine, so
 /// unlike the static gates it needs real topology and a trigger.
-fn graph(nodes: serde_json::Value, edges: serde_json::Value) -> WorkflowGraph {
+pub(super) fn graph(nodes: serde_json::Value, edges: serde_json::Value) -> WorkflowGraph {
     serde_json::from_value(json!({ "name": "test", "nodes": nodes, "edges": edges }))
         .expect("graph parses")
 }
 
-fn trigger() -> serde_json::Value {
+pub(super) fn trigger() -> serde_json::Value {
     json!({ "id": "t", "kind": "trigger", "name": "Manual",
             "config": { "trigger_kind": "manual" } })
 }

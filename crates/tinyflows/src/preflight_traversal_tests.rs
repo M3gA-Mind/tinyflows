@@ -1,7 +1,6 @@
-//! Saved workflows reached with a larger remaining budget must be revisited.
-
-use super::tests::{graph, trigger};
 use super::*;
+// Saved workflows reached with a larger remaining budget must be revisited.
+use super::tests::{graph, trigger};
 use serde_json::json;
 use std::collections::HashMap;
 
