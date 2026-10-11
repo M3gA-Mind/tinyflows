@@ -102,9 +102,14 @@ impl MockInputs {
 /// Recognize input paths in shorthand, bracket notation, and jq field-access pipes.
 /// Other jq operators conservatively address the entire input scope.
 fn input_path(expression: &str) -> Option<Vec<String>> {
+    scope_path(expression, "inputs")
+}
+
+/// Extract field-access paths; unsupported jq programs conservatively address the scope.
+pub(super) fn scope_path(expression: &str, scope: &str) -> Option<Vec<String>> {
     let body = expression.strip_prefix('=')?.trim();
     let body = body.strip_prefix('.').unwrap_or(body);
-    let mut rest = body.strip_prefix("inputs")?;
+    let mut rest = body.strip_prefix(scope)?;
     if !rest.is_empty() && !rest.starts_with(['.', '[', ' ', '|']) {
         return None;
     }
