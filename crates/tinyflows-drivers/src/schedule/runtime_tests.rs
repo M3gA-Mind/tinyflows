@@ -186,3 +186,57 @@ async fn claim_rejects_an_execution_definition_edited_after_due_selection() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn completion_preserves_auto_delete_canceled_during_execution() {
+    let store = store();
+    let job = store
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: Utc::now() + chrono::Duration::hours(1),
+            },
+            "once",
+        )
+        .await
+        .unwrap();
+    let job = store
+        .update_job(
+            &job.id,
+            CronJobPatch {
+                delete_after_run: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(store.claim_slot(&job, job.next_run).await.unwrap());
+    store
+        .update_job(
+            &job.id,
+            CronJobPatch {
+                delete_after_run: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    store
+        .complete_run(
+            &job,
+            &Completion {
+                remove: true,
+                disable: false,
+                next_run: None,
+                finished_at: Utc::now(),
+                success: true,
+                output: "done".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let kept = store.get_job(&job.id).await.unwrap();
+    assert!(!kept.enabled);
+    assert!(!kept.delete_after_run);
+    assert_eq!(kept.last_output.as_deref(), Some("done"));
+}

@@ -132,3 +132,54 @@ fn claim_rejects_an_execution_definition_edited_after_due_selection() {
         .unwrap()
     );
 }
+
+#[test]
+fn completion_preserves_auto_delete_canceled_during_execution() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = CronStoreOptions::new(directory.path().join("jobs.db"));
+    let job = add_shell_job(
+        &options,
+        None,
+        Schedule::At {
+            at: Utc::now() + chrono::Duration::hours(1),
+        },
+        "once",
+    )
+    .unwrap();
+    let job = update_job(
+        &options,
+        &job.id,
+        CronJobPatch {
+            delete_after_run: Some(true),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(claim_slot(&options, &job, job.next_run).unwrap());
+    update_job(
+        &options,
+        &job.id,
+        CronJobPatch {
+            delete_after_run: Some(false),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    complete_run(
+        &options,
+        &job,
+        &Completion {
+            remove: true,
+            disable: false,
+            next_run: None,
+            finished_at: Utc::now(),
+            success: true,
+            output: "done".into(),
+        },
+    )
+    .unwrap();
+    let kept = get_job(&options, &job.id).unwrap();
+    assert!(!kept.enabled);
+    assert!(!kept.delete_after_run);
+    assert_eq!(kept.last_output.as_deref(), Some("done"));
+}

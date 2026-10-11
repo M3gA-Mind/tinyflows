@@ -61,6 +61,9 @@ pub(super) async fn execute_and_persist(
             DeliveryStatus::Failed
         }
     };
+    if delivery_status == DeliveryStatus::Failed && !job.delivery.best_effort {
+        success = false;
+    }
     ports
         .store
         .record_run(RunRecord {
