@@ -21,7 +21,11 @@ async fn trigger_fields_mapped_through_transforms_remain_unverifiable() {
             ]
         })).unwrap();
         let errors = unresolvable_tool_args(&graph, &[]).await;
-        assert_eq!(errors.len(), 1, "{expression}: {errors:?}");
-        assert!(errors[0].contains("arg `body`"), "{errors:?}");
+        // The tool executes once per incoming item in this fan-in.
+        assert_eq!(errors.len(), 2, "{expression}: {errors:?}");
+        assert!(
+            errors.iter().all(|error| error.contains("arg `body`")),
+            "{errors:?}"
+        );
     }
 }

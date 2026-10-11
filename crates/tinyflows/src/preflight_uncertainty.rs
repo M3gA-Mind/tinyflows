@@ -76,7 +76,14 @@ pub(super) fn is_unverifiable(
     inputs: &MockInputs,
     unknown: &UnknownOutputs,
 ) -> bool {
-    if inputs.is_unverifiable(expression) {
+    let trigger_id = graph
+        .nodes
+        .iter()
+        .find(|node| node.kind == NodeKind::Trigger)
+        .map(|node| node.id.as_str());
+    if super::is_trigger_scoped_expression(expression, graph, node_id, trigger_id)
+        || inputs.is_unverifiable(expression)
+    {
         return true;
     }
     let body = expression.strip_prefix('=').unwrap_or(expression).trim();
