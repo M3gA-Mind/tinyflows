@@ -84,8 +84,11 @@ impl Scheduler {
         self.dispatch(jobs).await
     }
 
-    /// Queue unclaimed jobs, advance recurring slots, and return the queued count.
+    /// Durably claim jobs, advance recurring slots, and return the queued count.
     /// A claimed single-flight recurrence records a skipped run; one-shots wait.
+    /// One-shots are disabled before dispatch: a crash after claiming can lose
+    /// execution or history, but persistence failure cannot automatically replay
+    /// an external side effect. Operators may explicitly re-enable such a job.
     pub async fn dispatch(&mut self, jobs: Vec<CronJob>) -> Result<usize> {
         anyhow::ensure!(!self.stopped, "scheduler is stopped");
         let mut count = 0;
