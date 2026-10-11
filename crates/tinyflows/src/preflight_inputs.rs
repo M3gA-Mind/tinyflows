@@ -178,12 +178,17 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
     let Some(body) = expression.strip_prefix('=') else {
         return vec![];
     };
+    if body.trim() == "." {
+        return vec![("inputs".into(), vec![]), ("run".into(), vec![])];
+    }
     let bytes = body.as_bytes();
     let mut reads = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'"' || bytes[i] == b'\'' {
             let quote = bytes[i];
+            let start = i;
+            let root_access = i >= 2 && bytes[i - 1] == b'[' && bytes[i - 2] == b'.';
             i += 1;
             while i < bytes.len() {
                 if bytes[i] == b'\\' {
@@ -193,6 +198,18 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
                     break;
                 } else {
                     i += 1;
+                }
+            }
+            if root_access && i < bytes.len() && bytes[i] == b']' {
+                if let Ok(scope) = serde_json::from_str::<String>(&body[start..i]) {
+                    if matches!(
+                        scope.as_str(),
+                        "inputs" | "run" | "item" | "items" | "nodes"
+                    ) {
+                        let path =
+                            input_path(&format!("=inputs{}", &body[i + 1..])).unwrap_or_default();
+                        reads.push((scope, path));
+                    }
                 }
             }
         } else if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {

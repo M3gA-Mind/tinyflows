@@ -499,18 +499,27 @@ async fn outputs_derived_from_unknown_inputs_remain_unverifiable() {
     assert!(errors[0].contains("arg `body`"), "{errors:?}");
 }
 
-
 #[tokio::test]
 async fn bracketed_runtime_scope_and_identity_child_mappings_remain_opaque() {
-    let mut child = graph(json!([
-        trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
-    ]), json!([{"from_node":"t","to_node":"send"}]));
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
-    for (mapping, argument) in [("=.[\"run\"].payload", "=inputs.payload.subject"), ("=.", "=inputs.payload.run.subject")] {
+    let mut child = graph(
+        json!([
+            trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
+        ]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    for (mapping, argument) in [
+        ("=.[\"run\"].payload", "=inputs.payload.subject"),
+        ("=.", "=inputs.payload.run.subject"),
+    ] {
         child.nodes[1].config["args"]["subject"] = json!(argument);
-        let parent = graph(json!([
-            trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":mapping}}}
-        ]), json!([{"from_node":"t","to_node":"child"}]));
+        let parent = graph(
+            json!([
+                trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":mapping}}}
+            ]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
         let errors = unresolvable_tool_args(&parent, &[]).await;
         assert!(errors.is_empty(), "{mapping}: {errors:?}");
     }
