@@ -30,7 +30,6 @@ async fn trigger_fields_mapped_through_transforms_remain_unverifiable() {
     }
 }
 
-
 #[tokio::test]
 async fn trigger_fields_passed_through_transforms_remain_unverifiable() {
     for expression in [
@@ -60,7 +59,11 @@ async fn trigger_fields_passed_through_transforms_remain_unverifiable() {
 #[tokio::test]
 async fn explicit_transform_overrides_remain_verifiable_after_trigger_passthrough() {
     for supplied in [json!(null), json!({})] {
-        let expression = if supplied.is_null() { "=item.subject" } else { "=item.subject.missing" };
+        let expression = if supplied.is_null() {
+            "=item.subject"
+        } else {
+            "=item.subject.missing"
+        };
         let graph: WorkflowGraph = serde_json::from_value(json!({
             "nodes":[
                 {"id":"t","kind":"trigger","name":"Start"},

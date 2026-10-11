@@ -104,12 +104,14 @@ impl<'a> Provenance<'a> {
                 "run" => true,
                 "nodes" => {
                     let Some((id, rest)) = path.split_first() else {
-                        return self.outputs.values().any(|paths| !paths.is_empty());
+                        return self.outputs.values().any(|paths| !paths.is_empty())
+                            || self.graph.nodes.iter().any(|node| trigger_passthrough(self.graph, &node.id, &[], self.graph.nodes.len()));
                     };
                     let rest = output_path(rest);
                     self.outputs
                         .get(id)
                         .is_some_and(|paths| intersects(paths, rest))
+                        || trigger_passthrough(self.graph, id, rest, self.graph.nodes.len())
                 }
                 "item" | "items" => self
                     .graph
@@ -117,16 +119,15 @@ impl<'a> Provenance<'a> {
                     .iter()
                     .filter(|edge| edge.to_node == node)
                     .any(|edge| {
-                        self.outputs.get(&edge.from_node).is_some_and(|paths| {
-                            let path = if scope == "items"
-                                && path.first().is_some_and(|key| key.parse::<usize>().is_ok())
-                            {
-                                &path[1..]
-                            } else {
-                                path.as_slice()
-                            };
-                            intersects(paths, path)
-                        })
+                        let path = if scope == "items"
+                            && path.first().is_some_and(|key| key.parse::<usize>().is_ok())
+                        {
+                            &path[1..]
+                        } else {
+                            path.as_slice()
+                        };
+                        self.outputs.get(&edge.from_node).is_some_and(|paths| intersects(paths, path))
+                            || trigger_passthrough(self.graph, &edge.from_node, path, self.graph.nodes.len())
                     }),
                 _ => false,
             })
@@ -145,4 +146,37 @@ fn intersects(unknown: &Paths, path: &[String]) -> bool {
     unknown
         .iter()
         .any(|unknown| path.starts_with(unknown) || unknown.starts_with(path))
+}
+
+/// Unset transform fields retain caller provenance; explicit overlays cut it off.
+/// Limit traversal to the node count so malformed cycles cannot recurse forever.
+fn trigger_passthrough(
+    graph: &WorkflowGraph,
+    node_id: &str,
+    read: &[String],
+    remaining: usize,
+) -> bool {
+    if remaining == 0 {
+        return false;
+    }
+    let Some(node) = graph.nodes.iter().find(|node| node.id == node_id) else {
+        return false;
+    };
+    if node.kind == NodeKind::Trigger {
+        return true;
+    }
+    if node.kind != NodeKind::Transform {
+        return false;
+    }
+    if read.first().is_some_and(|field| {
+        node.config
+            .get("set")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|set| set.contains_key(field))
+    }) {
+        return false;
+    }
+    graph.edges.iter().any(|edge| {
+        edge.to_node == node_id && trigger_passthrough(graph, &edge.from_node, read, remaining - 1)
+    })
 }
