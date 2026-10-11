@@ -121,10 +121,11 @@ async fn expression_workflow_ids_are_not_passed_to_the_saved_catalog() {
 async fn completed_diagnostics_survive_a_later_child_timeout() {
     let slow = graph(
         json!([trigger(),
-            {"id":"scatter","kind":"scatter","name":"Scatter","config":{"items":[1]}},
+            {"id":"scatter","kind":"scatter","name":"Scatter","config":{}},
+            {"id":"body","kind":"transform","name":"Body","config":{"set":{"value":1}}},
             {"id":"gather","kind":"gather","name":"Gather","config":{"from":[],"poll_interval_ms":1000,"max_polls":100}}
         ]),
-        json!([{"from_node":"t","to_node":"scatter"},{"from_node":"scatter","to_node":"gather"}]),
+        json!([{"from_node":"t","to_node":"scatter"},{"from_node":"scatter","to_node":"body"},{"from_node":"body","to_node":"gather"}]),
     );
     let compiled = crate::compiler::compile(&slow).expect("slow graph compiles");
     let caps = crate::caps::mock::mock_capabilities();
