@@ -3,7 +3,7 @@ use super::{
     CronDocuments,
     test_support::{daily, docs_in},
 };
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]

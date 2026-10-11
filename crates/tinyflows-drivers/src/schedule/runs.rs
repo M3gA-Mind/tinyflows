@@ -13,7 +13,7 @@ use super::codec;
 use super::codec::{doc_to_run, incarnation, integer, nanos, run_id, run_to_doc, set_last_run};
 use super::jobs::{reschedule, runs_of};
 use super::{
-    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_and_swap, job_not_found,
+    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_job, job_not_found,
     storage_error,
 };
 
@@ -33,7 +33,7 @@ impl CronDocuments {
     ) -> Result<()> {
         self.ensure().await?;
         let output = truncate_cron_output(output);
-        compare_and_swap(self, JOBS, job_id, |doc| {
+        compare_job(self, JOBS, job_id, |doc| {
             let mut next = doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, finished_at, success, output.clone());
             Ok(Some(Value::Object(next)))
@@ -69,7 +69,7 @@ impl CronDocuments {
         let fired_schedule =
             serde_json::to_string(&job.schedule).context("serialize cron schedule")?;
         let output = truncate_cron_output(output);
-        compare_and_swap(self, JOBS, &job.id, |doc| {
+        compare_job(self, JOBS, &job.id, |doc| {
             let mut next = doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, now, success, output.clone());
             // Milliseconds must match, and nanoseconds too when the document

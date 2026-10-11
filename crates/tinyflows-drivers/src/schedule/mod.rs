@@ -60,6 +60,10 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+#[cfg(test)]
+use anyhow::Context;
+#[cfg(test)]
+use tinystoragedrivers_core::ErrorKind;
 use serde_json::Value;
 use tinystoragedrivers_core::{CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned};
 
@@ -150,7 +154,8 @@ impl CronDocuments {
 
 /// A storage failure as this store's error.
 fn storage_error(error: StorageError) -> anyhow::Error {
-    anyhow::Error::new(error).context("cron store")
+    let message = format!("cron store: {error}");
+    anyhow::Error::new(error).context(message)
 }
 
 /// The job-not-found error, worded as the SQLite store words it.
@@ -161,7 +166,7 @@ fn job_not_found(job_id: &str) -> anyhow::Error {
 /// Applies `change` to document `id` of `collection` under compare-and-swap.
 /// Returns what was stored, or `None` when the document is missing or
 /// `change` returns `Ok(None)` (nothing to write).
-async fn compare_and_swap(
+async fn compare_job(
     store: &CronDocuments,
     collection: &str,
     id: &str,
@@ -214,3 +219,39 @@ mod claims_tests;
 #[cfg(test)]
 #[path = "admission_tests.rs"]
 mod admission_tests;
+
+#[cfg(test)]
+async fn compare_and_swap(
+    docs: &Arc<dyn DocumentStore>,
+    collection: &str,
+    id: &str,
+    change: impl Fn(&Value) -> Result<Option<Value>>,
+) -> Result<Option<Versioned<Value>>> {
+    for _ in 0..CAS_ATTEMPTS {
+        let Some(stored) = docs.get(collection, id).await.map_err(storage_error)? else {
+            return Ok(None);
+        };
+        let Some(next) = change(&stored.doc)? else {
+            return Ok(None);
+        };
+        match docs
+            .put(collection, id, next.clone(), stored.unchanged())
+            .await
+        {
+            Ok(version) => {
+                return Ok(Some(Versioned {
+                    id: id.to_string(),
+                    version,
+                    doc: next,
+                }));
+            }
+            Err(error) if error.kind() == ErrorKind::Conflict => {}
+            Err(error) => return Err(storage_error(error)),
+        }
+    }
+    Err(anyhow!(
+        "cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
+    ))
+    .context("compare-and-swap gave up")
+}
+
