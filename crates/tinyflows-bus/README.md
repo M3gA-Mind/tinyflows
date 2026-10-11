@@ -8,7 +8,8 @@ engine to invoke these operations.
 errors, then checks engine topology compatibility. Invalid graphs are ordinary
 typed results; malformed JSON graph shapes carry `unparseable_graph`. A parsed
 candidate is returned even when validation fails so editors can retain it.
-No operation persists a graph or invokes an external capability.
+No operation persists a graph or executes a production workflow capability.
+`BuilderFailures` may call the host lookup and authoring-policy ports described below.
 
 `BindingFailures(graph)` reports node-output bindings missing their required
 output envelope. `AuthoringFailures(graph)` runs the full portable gate set:
@@ -24,8 +25,30 @@ produce no diagnostics. Call `ValidateGraph` first; an empty preflight report
 does not establish structural validity.
 
 Deserialization failures in these gate operations are method failures.
-Host-specific connection, credential, tool-contract and agent-reference gates
-remain the caller's responsibility.
+`BuilderFailures(graph, host, native_slug_prefixes)` owns the ordered gate
+composition. Call `ValidateGraph` first. It returns diagnostics from the first
+failing stage, in this order: engine compatibility, saved-workflow
+compatibility, portable authoring gates, host tool policy, host agent
+references, host connections, host tool contracts, and mock argument preflight.
+The module passes host diagnostics through verbatim. Provider connectivity
+remains a runtime check or a separate advisory; it is not a hard authoring gate.
+
+The `host` object has `bus_name` and `object_path` fields. The destination serves
+`ai.tinyhumans.tinyflows.AuthoringHost` with these methods:
+
+- `ResolveWorkflow(id: String) -> Option<Value>` reads a saved graph from the
+  request's scoped store. Lookup errors, missing graphs, and unparseable saved
+  graphs are skipped, matching the engine's existing saved-workflow gate. Their
+  runtime missing-reference diagnostics remain authoritative.
+- `CheckGate(stage: String, graph: Value) -> Vec<String>` implements product
+  checks for `tool_policy`, `agent_references`, `connections`, and
+  `tool_contracts`. An empty list passes the stage. A method failure fails the
+  whole operation; it cannot silently pass the gate.
+
+Bind the callback object to the acting identity and store for the request.
+The module has no credential or account lookup implementation. Hosts can apply
+native-tool argument rules and query their own agent, account, and tool catalogs
+through this callback without linking the workflow engine.
 
 The wire contract starts at version 1. Its identity and method constants live
 in `src/lib.rs`. Build and exercise the actual dynamic artifact with
