@@ -8,6 +8,30 @@ fn result(tool_name: &str, content: &str) -> ToolResult {
 }
 
 #[test]
+fn new_flow_and_clone_failures_reach_the_trail_off_fallback() {
+    for tool in ["create_workflow", "duplicate_flow"] {
+        let history = [result(tool, "An account is required to save this flow")];
+        assert_eq!(
+            last_builder_tool_blocker(&history).as_deref(),
+            Some("An account is required to save this flow"),
+            "{tool}"
+        );
+        assert!(build_trail_off_fallback(&history).contains("An account is required"));
+    }
+}
+
+#[test]
+fn a_new_flow_or_clone_success_supersedes_an_earlier_failure() {
+    for tool in ["create_workflow", "duplicate_flow"] {
+        let history = [
+            result("validate_workflow", "broken"),
+            result(tool, r#"{"ok":true}"#),
+        ];
+        assert_eq!(last_builder_tool_blocker(&history), None, "{tool}");
+    }
+}
+
+#[test]
 fn latest_authoring_success_does_not_resurrect_an_earlier_blocker() {
     let history = [
         result("validate_workflow", "broken"),

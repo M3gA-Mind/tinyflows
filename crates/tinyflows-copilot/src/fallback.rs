@@ -21,6 +21,8 @@ pub const BLOCKER_TOOLS: &[&str] = &[
     "revise_workflow",
     "edit_workflow",
     "save_workflow",
+    "create_workflow",
+    "duplicate_flow",
 ];
 
 /// Describe the newest authoring result if it failed. A newer authoring
