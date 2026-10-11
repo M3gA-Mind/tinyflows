@@ -347,7 +347,7 @@ jobs:
             --package tinybus --all-features --bin tinybus -- \
             modules checksum "${checksum_args[@]}" --output release-assets/checksum.toml
 
-      - name: Create release and upload assets
+      - name: Create draft release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
@@ -358,24 +358,41 @@ jobs:
           gh release create "$RELEASE_TAG" "${release_files[@]}" \
             --repo "$REPOSITORY" \
             --verify-tag \
+            --draft \
             --title "$RELEASE_TAG" \
             --generate-notes
 
-      # Downloads what was just released and loads it the way a host does, so a
-      # release that cannot actually be installed fails here rather than in the
-      # field on whichever platform nobody tested.
-      - name: Verify the released module through TinyBus
+      # Draft assets need authenticated download. Verify uploaded bytes while
+      # the release is private; a broken archive/module must never be published.
+      - name: Verify the uploaded draft module through TinyBus
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
           REPOSITORY: ${{ github.repository }}
           VERSION: ${{ needs.publish-rust.outputs.next_version }}
         run: |
           set -euo pipefail
           archive="tinyflows-module-${VERSION}-ubuntu-24.04-x86_64.tar.gz"
-          release_url="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
+          verification_dir="$PWD/target/release-verification"
+          mkdir -p "$verification_dir"
+          gh release download "$RELEASE_TAG" --repo "$REPOSITORY" \
+            --pattern "$archive" --pattern checksum.toml --dir "$verification_dir"
+          cmp release-assets/checksum.toml "$verification_dir/checksum.toml"
           sha256="$(sed -n "s/^\"${archive}\" = \"\([0-9a-f]\{64\}\)\"$/\1/p" release-assets/checksum.toml)"
           test -n "$sha256"
-          cargo run --manifest-path vendor/tinybus/Cargo.toml --locked \
-            --package tinybus --all-features --example github_module_host -- \
-            "$release_url" "$archive" "$sha256"
+          (cd "$verification_dir" && printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check)
+          tar -xzf "$verification_dir/$archive" -C "$verification_dir"
+          mapfile -t modules < <(find "$verification_dir" -type f -name libtinyflows_module.so)
+          test "${#modules[@]}" -eq 1
+          TINYFLOWS_MODULE_ARTIFACT="${modules[0]}" bash scripts/verify-module-artifact.sh
+
+      - name: Publish verified module release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --draft=false
