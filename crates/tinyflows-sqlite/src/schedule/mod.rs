@@ -27,8 +27,9 @@ pub use jobs::{
     get_job, list_jobs, remove_job, update_job,
 };
 pub use runs::{
-    MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, delete_queued_runs, list_runs, record_last_run,
-    record_run, record_run_with_delivery, reschedule_after_run,
+    MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, delete_queued_runs, list_runs,
+    record_claimed_run, record_last_run, record_run, record_run_with_delivery,
+    reschedule_after_run,
 };
 pub use schema::with_connection;
 

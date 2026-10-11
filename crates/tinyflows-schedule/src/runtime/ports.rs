@@ -24,6 +24,9 @@ pub struct RunRecord {
     pub run_id: String,
     /// Identity of the job that produced this run.
     pub job_id: String,
+    /// Dispatch-time creation identity. Stores must reject a replacement with
+    /// the same job ID instead of attaching this outcome to its history.
+    pub job_created_at: DateTime<Utc>,
     /// Execution start, before the first attempt.
     pub started_at: DateTime<Utc>,
     /// Execution finish before delivery; skipped runs use the same start/end.

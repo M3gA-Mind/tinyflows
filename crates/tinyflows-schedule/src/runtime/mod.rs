@@ -160,6 +160,7 @@ impl Scheduler {
             .record_run(RunRecord {
                 run_id: uuid::Uuid::new_v4().to_string(),
                 job_id: job.id.clone(),
+                job_created_at: job.created_at,
                 started_at: now,
                 finished_at: now,
                 status: "skipped".into(),

@@ -205,33 +205,12 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         Ok(())
     }
     async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {
-        let duration = (record.finished_at - record.started_at).num_milliseconds();
         match self {
-            Self::Sqlite(options) => sql::record_run_with_delivery(
-                options,
-                &record.job_id,
-                record.started_at,
-                record.finished_at,
-                &record.status,
-                Some(&record.output),
-                duration,
-                record.delivery_status,
-            ),
-            Self::Documents(documents) => {
-                documents
-                    .record_run_with_delivery(
-                        &record.job_id,
-                        record.started_at,
-                        record.finished_at,
-                        &record.status,
-                        Some(&record.output),
-                        duration,
-                        record.delivery_status,
-                    )
-                    .await
-            }
+            Self::Sqlite(options) => sql::record_claimed_run(options, &record),
+            Self::Documents(documents) => documents.record_claimed_run(&record).await,
         }
     }
+
     async fn complete(
         &self,
         job: &CronJob,

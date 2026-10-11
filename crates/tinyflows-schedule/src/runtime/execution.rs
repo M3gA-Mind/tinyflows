@@ -69,6 +69,7 @@ pub(super) async fn execute_and_persist(
         .record_run(RunRecord {
             run_id,
             job_id: job.id.clone(),
+            job_created_at: job.created_at,
             started_at,
             finished_at,
             status: if success { "ok" } else { "error" }.into(),
