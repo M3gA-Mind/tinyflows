@@ -1,5 +1,6 @@
-use super::super::test_support::store;
 use super::*;
+
+use super::super::test_support::store;
 use tinyflows_schedule::{CronJobPatch, Schedule};
 #[tokio::test]
 async fn completion_keeps_a_schedule_edited_after_the_slot_was_claimed() {
