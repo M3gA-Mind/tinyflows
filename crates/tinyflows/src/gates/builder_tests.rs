@@ -36,7 +36,7 @@ async fn builder_mock_preflight_reports_inline_child_provider_arguments() {
     let child: WorkflowGraph = serde_json::from_value(json!({
         "nodes":[
             {"id":"start","name":"Start","kind":"trigger"},
-            {"id":"shape","name":"Shape","kind":"transform","config":{"mode":"template","template":{"actual":"ok"}}},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"json":{}}}},
             {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"text":"=nodes.shape.item.json.missing"}}}
         ],"edges":[
             {"from_node":"start","from_port":"main","to_node":"shape"},
@@ -115,7 +115,7 @@ async fn successful_host_gates_proceed_to_mock_preflight_and_respect_native_pref
     };
     let graph = graph(json!([
         {"id":"start", "name":"Start", "kind":"trigger"},
-        {"id":"shape", "name":"Shape", "kind":"transform", "config":{"mode":"template", "template":{"actual":"ok"}}},
+        {"id":"shape", "name":"Shape", "kind":"transform", "config":{"set":{"json":{}}}},
         {"id":"send", "name":"Send", "kind":"tool_call", "config":{"slug":"host:send", "args":{"text":"=nodes.shape.item.json.missing"}}}
     ]));
     // Wire the trigger through the deterministic producer so preflight can prove absence.
@@ -236,7 +236,7 @@ async fn required_root_inputs_do_not_hide_deterministic_missing_tool_arguments()
             {"id":"start","name":"Start","kind":"trigger"},
             {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"body":"hello"}}},
             {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{
-                "caller":"=inputs.value", "subject":"=nodes.shape.item.missing"
+                "caller":"=inputs.value", "subject":"=nodes.shape.item.body.missing"
             }}}
         ]));
         graph.inputs = vec![crate::model::WorkflowInput::new("value", ty).required()];
@@ -277,8 +277,8 @@ async fn saved_workflow_preflight_retains_deterministic_argument_failures() {
         "nodes":[
             {"id":"start","kind":"trigger","name":"Start"},
             {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow_id":"saved"}},
-            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"actual":"ok"}}},
-            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":{}}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject.missing"}}}
         ],
         "edges":[{"from_node":"start","to_node":"child"},{"from_node":"child","to_node":"shape"},{"from_node":"shape","to_node":"send"}]
     })).unwrap();

@@ -12,7 +12,7 @@ async fn trigger_fields_mapped_through_transforms_remain_unverifiable() {
                 {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":expression}}},
                 {"id":"stable","kind":"transform","name":"Stable","config":{"set":{"body":"hello"}}},
                 {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
-                    "subject":"=nodes.shape.item.subject", "body":"=nodes.stable.item.missing"
+                    "subject":"=nodes.shape.item.subject", "body":"=nodes.stable.item.body.missing"
                 }}}
             ],
             "edges":[

@@ -40,7 +40,7 @@ impl<'a> Provenance<'a> {
             let mut changed = false;
             for node in &graph.nodes {
                 let mut output = Output::default();
-                if node.kind == NodeKind::Trigger {
+                if matches!(node.kind, NodeKind::Trigger | NodeKind::SubWorkflow) {
                     output.opaque = true;
                 } else if node.kind == NodeKind::Transform {
                     let predecessors: Vec<_> = graph
@@ -63,7 +63,9 @@ impl<'a> Provenance<'a> {
                     if let Some(Value::Object(fields)) = node.config.get("set") {
                         for (field, value) in fields {
                             output.paths.retain(|path| path.first() != Some(field));
-                            if result.value_is_unknown(value, &node.id) {
+                            if value.as_str().is_some_and(|expression| {
+                                result.is_unverifiable(expression, &node.id)
+                            }) {
                                 output.known.remove(field);
                                 output.paths.push(vec![field.clone()]);
                             } else {
