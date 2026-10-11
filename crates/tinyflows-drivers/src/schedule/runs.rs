@@ -13,8 +13,7 @@ use super::codec;
 use super::codec::{doc_to_run, incarnation, integer, nanos, run_id, run_to_doc, set_last_run};
 use super::jobs::{reschedule, runs_of};
 use super::{
-    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_and_swap, job_not_found,
-    storage_error,
+    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_job, job_not_found, storage_error,
 };
 
 /// The counter document run numbers are drawn from.
@@ -33,7 +32,7 @@ impl CronDocuments {
     ) -> Result<()> {
         self.ensure().await?;
         let output = truncate_cron_output(output);
-        compare_and_swap(&self.docs, JOBS, job_id, |doc| {
+        compare_job(self, JOBS, job_id, |doc| {
             let mut next = doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, finished_at, success, output.clone());
             Ok(Some(Value::Object(next)))
@@ -69,7 +68,7 @@ impl CronDocuments {
         let fired_schedule =
             serde_json::to_string(&job.schedule).context("serialize cron schedule")?;
         let output = truncate_cron_output(output);
-        compare_and_swap(&self.docs, JOBS, &job.id, |doc| {
+        compare_job(self, JOBS, &job.id, |doc| {
             let mut next = doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, now, success, output.clone());
             // Milliseconds must match, and nanoseconds too when the document
@@ -194,7 +193,7 @@ impl CronDocuments {
     }
 
     /// Draws the next run number from the counter, under compare-and-swap.
-    async fn next_run_number(&self) -> Result<i64> {
+    pub(super) async fn next_run_number(&self) -> Result<i64> {
         for _ in 0..CAS_ATTEMPTS {
             let stored = self
                 .docs
@@ -235,7 +234,7 @@ impl CronDocuments {
     /// Not atomic with the insert, but each record prunes after its own
     /// insert, and the later of two concurrent prunes sees both inserts, so
     /// the history settles at the cap.
-    async fn prune_runs(&self, job_id: &str, job: &Value) -> Result<()> {
+    pub(super) async fn prune_runs(&self, job_id: &str, job: &Value) -> Result<()> {
         let stale = self
             .docs
             .query_all(RUNS, &newest_first(runs_of(job_id, job)))

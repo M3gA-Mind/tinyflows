@@ -67,7 +67,7 @@ async fn compare_and_swap_skips_missing_documents_and_declined_changes() {
     let store = store();
     store.ensure().await.unwrap();
     assert!(
-        compare_and_swap(&store.docs, JOBS, "missing", |_| Ok(Some(json!({}))))
+        compare_job(&store, JOBS, "missing", |_| Ok(Some(json!({}))))
             .await
             .unwrap()
             .is_none()
@@ -78,12 +78,12 @@ async fn compare_and_swap_skips_missing_documents_and_declined_changes() {
         .await
         .unwrap();
     assert!(
-        compare_and_swap(&store.docs, JOBS, "j", |_| Ok(None))
+        compare_job(&store, JOBS, "j", |_| Ok(None))
             .await
             .unwrap()
             .is_none()
     );
-    let error = compare_and_swap(&store.docs, JOBS, "j", |_| anyhow::bail!("refused"))
+    let error = compare_job(&store, JOBS, "j", |_| anyhow::bail!("refused"))
         .await
         .unwrap_err();
     assert_eq!(error.to_string(), "refused");
