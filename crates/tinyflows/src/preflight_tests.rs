@@ -319,3 +319,29 @@ async fn runtime_json_child_inputs_are_unverifiable_without_hiding_graph_output_
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `other`"), "{errors:?}");
 }
+
+/// Runtime JSON is opaque, while literal JSON and unrelated outputs remain checkable.
+#[tokio::test]
+async fn dynamic_json_child_inputs_are_unverifiable_but_literal_missing_fields_are_refused() {
+    let mut child = graph(
+        json!([
+            trigger(),
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"hello"}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
+                "subject":"=inputs.payload.subject", "body":"=nodes.shape.item.missing"
+            }}}
+        ]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    for supplied in [json!("=run.payload"), json!({}), json!({"subject":"hello"})] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        let expected = if supplied == json!({}) { 2 } else { 1 };
+        assert_eq!(errors.len(), expected, "{supplied}: {errors:?}");
+        assert!(errors.iter().any(|error| error.contains("arg `body`")), "{errors:?}");
+    }
+}
