@@ -44,7 +44,11 @@ impl<'a> Provenance<'a> {
                     output.opaque = true;
                 } else if matches!(
                     node.kind,
-                    NodeKind::Transform | NodeKind::Condition | NodeKind::Switch | NodeKind::Merge | NodeKind::Dedup
+                    NodeKind::Transform
+                        | NodeKind::Condition
+                        | NodeKind::Switch
+                        | NodeKind::Merge
+                        | NodeKind::Dedup
                 ) {
                     let predecessors: Vec<_> = graph
                         .edges

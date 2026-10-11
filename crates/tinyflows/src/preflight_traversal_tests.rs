@@ -87,6 +87,7 @@ async fn traversal_timeout_retains_errors_from_completed_mock_runs() {
             &[],
             MockInputs::root(&settled),
             Arc::new(crate::caps::mock::MockWorkflowResolver::default()),
+            (0, crate::compat::max_sub_workflow_depth(&settled)),
         )
         .await;
         assert_eq!(

@@ -317,3 +317,5 @@ mod tests;
 #[cfg(test)]
 #[path = "engine_postcondition_tests.rs"]
 mod postcondition_tests;
+
+pub(crate) use api::run_preflight_with_observer;

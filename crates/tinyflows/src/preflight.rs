@@ -116,6 +116,7 @@ async fn graph_unresolvable_tool_args(
     native_slug_prefixes: &[&str],
     inputs: MockInputs,
     resolver: Arc<dyn crate::caps::WorkflowResolver>,
+    nesting: (u64, u64),
 ) -> Vec<String> {
     let Ok(compiled) = crate::compiler::compile(graph) else {
         return Vec::new();
@@ -133,7 +134,8 @@ async fn graph_unresolvable_tool_args(
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();
     let input = crate::engine::RunInput::new(json!({})).with_inputs(inputs.values.clone());
-    let run = crate::engine::run_with_observer(&compiled, input, &caps, &observer_dyn);
+    let run =
+        crate::engine::run_preflight_with_observer(&compiled, input, &caps, &observer_dyn, nesting);
     match tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), run).await {
         Ok(Ok(_)) => {}
         // A timeout or sandbox execution error is a different class of

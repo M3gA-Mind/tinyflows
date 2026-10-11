@@ -64,6 +64,7 @@ pub(super) async fn check<R: crate::caps::WorkflowResolver + ?Sized>(
                 native_slug_prefixes,
                 inputs.clone(),
                 resolver.clone(),
+                (depth, max_depth),
             )
             .await
             .into_iter()
