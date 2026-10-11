@@ -377,3 +377,38 @@ async fn dynamic_json_child_inputs_remain_unverifiable_across_nested_children() 
         );
     }
 }
+
+#[tokio::test]
+async fn mixed_json_input_provenance_preserves_literal_siblings() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
+            "known":"=inputs.payload.known.subject", "dynamic":"=inputs.payload.dynamic.subject"
+        }}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":{"known":{},"dynamic":"=run.payload"}}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `known`"), "{errors:?}");
+}
+
+#[tokio::test]
+async fn piped_jq_reads_from_dynamic_json_inputs_are_unverifiable() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=.inputs | .payload.subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
