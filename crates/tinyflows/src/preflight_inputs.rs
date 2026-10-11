@@ -201,7 +201,11 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
                 i += 1;
             }
             let scope = &body[start..i];
-            if matches!(scope, "inputs" | "run" | "item" | "items" | "nodes") {
+            let nested = start >= 2
+                && bytes[start - 1] == b'.'
+                && (bytes[start - 2].is_ascii_alphanumeric()
+                    || matches!(bytes[start - 2], b'_' | b']'));
+            if !nested && matches!(scope, "inputs" | "run" | "item" | "items" | "nodes") {
                 let path = input_path(&format!("=inputs{}", &body[i..])).unwrap_or_default();
                 reads.push((scope.to_owned(), path));
             }

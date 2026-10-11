@@ -438,6 +438,10 @@ async fn derived_caller_input_output_is_unverifiable() {
     ];
     let errors = unresolvable_tool_args(&g, &[]).await;
     assert!(errors.is_empty(), "{errors:?}");
+    g.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.missing");
+    let errors = unresolvable_tool_args(&g, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `other`"), "{errors:?}");
 }
 
 #[tokio::test]
