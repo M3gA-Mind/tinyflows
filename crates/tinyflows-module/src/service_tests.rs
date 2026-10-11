@@ -154,3 +154,31 @@ async fn authoring_checks_reject_unparseable_graphs_with_engine_diagnostics() ->
     assert!(result.unwrap_err().to_string().contains("invalid type"));
     Ok(())
 }
+
+struct GateCallback(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
+impl GateCallback {
+    async fn resolve_workflow(&self, _: String) -> Option<serde_json::Value> { None }
+    async fn check_gate(&self, stage: String, _: serde_json::Value) -> Vec<String> {
+        self.0.lock().unwrap().push(stage.clone());
+        if stage == "connections" { vec!["account mismatch".into()] } else { vec![] }
+    }
+}
+
+#[tokio::test]
+async fn builder_gate_module_calls_host_stages_in_order_and_stops_on_failure() -> Result<()> {
+    let (_server, client) = authoring_connections().await?;
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    client.serve_at("/authoring_host".try_into()?, GateCallback(calls.clone())).await?;
+    client.request_name("test.AuthoringHost").await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let failures: Vec<String> = proxy.call("BuilderFailures", (
+        json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
+        json!({"bus_name":"test.AuthoringHost", "object_path":"/authoring_host"}),
+        Vec::<String>::new(),
+    )).await?;
+    assert_eq!(failures, ["account mismatch"]);
+    assert_eq!(*calls.lock().unwrap(), ["tool_policy", "agent_references", "connections"]);
+    Ok(())
+}
