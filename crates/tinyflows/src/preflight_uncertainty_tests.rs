@@ -1,5 +1,3 @@
-//! Runtime trigger mappings must not become proof of missing provider fields.
-
 use super::*;
 use serde_json::json;
 
@@ -32,7 +30,7 @@ async fn trigger_fields_mapped_through_transforms_remain_unverifiable() {
 
 #[tokio::test]
 async fn passthrough_trigger_fields_are_unverifiable_but_overwritten_fields_are_known() {
-    let graph: WorkflowGraph = serde_json::from_value(json!({
+    let mut graph: WorkflowGraph = serde_json::from_value(json!({
         "nodes":[
             {"id":"t","kind":"trigger","name":"Start"},
             {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":{}}}},
@@ -43,7 +41,35 @@ async fn passthrough_trigger_fields_are_unverifiable_but_overwritten_fields_are_
         ],
         "edges":[{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"relay"},{"from_node":"relay","to_node":"send"}]
     })).unwrap();
-    let errors = unresolvable_tool_args(&graph, &[]).await;
-    assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(errors[0].contains("arg `body`"), "{errors:?}");
+    for body in [json!({}), json!({"literal": "=run.subject"})] {
+        graph.nodes[1].config["set"]["body"] = body;
+        let errors = unresolvable_tool_args(&graph, &[]).await;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("arg `body`"), "{errors:?}");
+
+        let compiled = crate::compiler::compile(&graph).unwrap();
+        let observer = Arc::new(CapturingObserver::default());
+        let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();
+        let caps = crate::caps::mock::mock_capabilities_with_agent(SchemaAwareMockAgentRunner);
+        crate::engine::run_with_observer(
+            &compiled,
+            crate::engine::RunInput::new(json!({"subject": "real caller subject"})),
+            &caps,
+            &observer_dyn,
+        )
+        .await
+        .unwrap();
+        let steps = observer.steps();
+        let send = steps.iter().find(|step| step.node_id == "send").unwrap();
+        assert!(
+            send.diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.location != "args.subject")
+        );
+        assert!(
+            send.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.location == "args.body")
+        );
+    }
 }
