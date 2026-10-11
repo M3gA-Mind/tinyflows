@@ -59,10 +59,10 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, ErrorKind, IndexSpec, StorageError, Versioned,
+    CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned,
 };
 
 mod admission;
@@ -162,37 +162,26 @@ fn job_not_found(job_id: &str) -> anyhow::Error {
 /// Returns what was stored, or `None` when the document is missing or
 /// `change` returns `Ok(None)` (nothing to write).
 async fn compare_and_swap(
-    docs: &Arc<dyn DocumentStore>,
+    store: &CronDocuments,
     collection: &str,
     id: &str,
     change: impl Fn(&Value) -> Result<Option<Value>>,
 ) -> Result<Option<Versioned<Value>>> {
     for _ in 0..CAS_ATTEMPTS {
-        let Some(stored) = docs.get(collection, id).await.map_err(storage_error)? else {
-            return Ok(None);
-        };
-        let Some(next) = change(&stored.doc)? else {
-            return Ok(None);
-        };
-        match docs
-            .put(collection, id, next.clone(), stored.unchanged())
-            .await
-        {
-            Ok(version) => {
-                return Ok(Some(Versioned {
-                    id: id.to_string(),
-                    version,
-                    doc: next,
-                }));
+        let Some(stored) = store.docs.get(collection, id).await.map_err(storage_error)? else { return Ok(None) };
+        let Some(next) = change(&stored.doc)? else { return Ok(None) };
+        match store.commit_job(id, Some(&stored), Some(next.clone()), vec![]).await {
+            Ok(results) => {
+                let Some(tinystoragedrivers_core::WriteResult::Put { version }) = results.first() else {
+                    anyhow::bail!("cron store: invalid atomic write result");
+                };
+                return Ok(Some(Versioned { id: id.into(), version: *version, doc: next }));
             }
-            Err(error) if error.kind() == ErrorKind::Conflict => {}
-            Err(error) => return Err(storage_error(error)),
+            Err(error) if admission::conflict(&error) => {},
+            Err(error) => return Err(error),
         }
     }
-    Err(anyhow!(
-        "cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
-    ))
-    .context("compare-and-swap gave up")
+    Err(anyhow!("cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"))
 }
 
 #[cfg(test)]
