@@ -192,6 +192,20 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
     let mut reads = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        if bytes[i] == b'.'
+            && bytes.get(i + 1) == Some(&b'[')
+            && (i == 0
+                || !(bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b']')))
+        {
+            let literal = body[i + 2..]
+                .split_once(']')
+                .and_then(|(key, _)| serde_json::from_str::<String>(key.trim()).ok());
+            if literal.is_none() {
+                // A computed root key may name any runtime scope. The input-only
+                // sandbox cannot prove which payload it selects.
+                reads.push(("run".into(), vec![]));
+            }
+        }
         if bytes[i] == b'"' || bytes[i] == b'\'' {
             let quote = bytes[i];
             let start = i;
