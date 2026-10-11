@@ -334,3 +334,20 @@ async fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].id, second.id);
 }
+
+#[tokio::test]
+async fn old_one_shot_completion_cannot_delete_a_subsequent_claim() {
+    let store = store();
+    let job = store.add_shell_job(None, Schedule::At { at: Utc::now() + chrono::Duration::hours(1) }, "once").await.unwrap();
+    let job = store.update_job(&job.id, CronJobPatch { delete_after_run: Some(true), ..Default::default() }).await.unwrap();
+    assert!(store.claim_slot(&job, job.next_run).await.unwrap());
+    let newer = store.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.unwrap();
+    assert!(store.claim_slot(&newer, newer.next_run).await.unwrap());
+    let completion = Completion { remove: true, disable: false, next_run: None, finished_at: Utc::now(), success: true, output: "old run".into() };
+    store.complete_run(&job, &completion).await.unwrap();
+    let retained = store.get_job(&job.id).await.expect("old completion deleted the newer claim");
+    assert!(!retained.enabled);
+    assert!(retained.last_output.is_none(), "old completion overwrote newer claim bookkeeping");
+    store.complete_run(&newer, &completion).await.unwrap();
+    assert!(store.get_job(&job.id).await.is_err());
+}
