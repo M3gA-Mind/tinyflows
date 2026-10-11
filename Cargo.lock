@@ -2740,6 +2740,7 @@ dependencies = [
 [[package]]
 name = "tinybus"
 version = "0.1.3"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=8a4d8ca0c34166f0ef63a60de66d9e07e0373b03#8a4d8ca0c34166f0ef63a60de66d9e07e0373b03"
 dependencies = [
  "async-trait",
  "flate2",
@@ -2761,6 +2762,7 @@ dependencies = [
 [[package]]
 name = "tinybus-macros"
 version = "0.1.3"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=8a4d8ca0c34166f0ef63a60de66d9e07e0373b03#8a4d8ca0c34166f0ef63a60de66d9e07e0373b03"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2770,6 +2772,7 @@ dependencies = [
 [[package]]
 name = "tinybus-module"
 version = "0.1.3"
+source = "git+https://github.com/tinyhumansai/tinybus?rev=8a4d8ca0c34166f0ef63a60de66d9e07e0373b03#8a4d8ca0c34166f0ef63a60de66d9e07e0373b03"
 dependencies = [
  "async-trait",
  "serde",

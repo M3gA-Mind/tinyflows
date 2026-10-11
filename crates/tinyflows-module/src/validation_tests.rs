@@ -80,3 +80,54 @@ fn unsupported_engine_topology_is_reported_after_structural_validation() {
     );
     assert_eq!(report.errors[0].node_id.as_deref(), Some("merge"));
 }
+
+#[test]
+fn migrated_candidate_preserves_unknown_editor_metadata() {
+    let mut candidate = valid_graph();
+    candidate["editor"] = json!({"viewport": {"x": 17}, "selected": "start"});
+    candidate["nodes"][0]["position"] = json!({"x": 23, "y": 42});
+    let report = validate_graph(candidate.clone()).unwrap();
+    assert!(report.is_valid());
+    let migrated = report.graph.unwrap();
+    assert_eq!(migrated["editor"], candidate["editor"]);
+    assert_eq!(
+        migrated["nodes"][0]["position"],
+        candidate["nodes"][0]["position"]
+    );
+    assert_eq!(
+        migrated["schema_version"],
+        tinyflows::model::CURRENT_SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn input_validation_errors_identify_the_affected_field() {
+    let mut candidate = valid_graph();
+    candidate["inputs"] = json!([
+        {"name": "repo-url", "type": "string"},
+        {"name": "depth", "type": "number", "default": "3"},
+        {"name": "depth", "type": "number"}
+    ]);
+    let report = validate_graph(candidate).unwrap();
+    for (code, field) in [
+        ("invalid_input_name", "repo-url"),
+        ("input_default_type_mismatch", "depth"),
+        ("duplicate_input_name", "depth"),
+    ] {
+        let error = report
+            .errors
+            .iter()
+            .find(|error| error.code == code)
+            .unwrap();
+        assert_eq!(error.field.as_deref(), Some(field), "{code}");
+    }
+}
+
+#[test]
+fn future_schema_returns_unparseable_failure_without_a_migrated_graph() {
+    let mut candidate = valid_graph();
+    candidate["schema_version"] = json!(tinyflows::model::CURRENT_SCHEMA_VERSION + 1);
+    let report = validate_graph(candidate).unwrap();
+    assert!(report.graph.is_none());
+    assert_eq!(report.errors[0].code, "unparseable_graph");
+}

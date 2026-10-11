@@ -3,8 +3,14 @@
 use serde_json::Value;
 use tinyflows_bus::{GraphValidation, ValidationError};
 
+/// Migrates candidate JSON without dropping editor fields and locates validation failures.
 pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json::Error> {
-    let graph = match tinyflows::migrate::deserialize_graph(value) {
+    let migrated = tinyflows::migrate::migrate(value);
+    let graph = match migrated
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|value| tinyflows::migrate::deserialize_graph(value.clone()))
+    {
         Ok(graph) => graph,
         Err(message) => {
             return Ok(GraphValidation {
@@ -24,7 +30,7 @@ pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json
             code: error.code().into(),
             message: error.to_string(),
             node_id: error.node_id().map(str::to_owned),
-            field: None,
+            field: error.input_name().map(str::to_owned),
         })
         .collect();
     if errors.is_empty() {
@@ -39,7 +45,7 @@ pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json
             .collect();
     }
     Ok(GraphValidation {
-        graph: Some(serde_json::to_value(graph)?),
+        graph: migrated.ok(),
         errors,
     })
 }
