@@ -79,6 +79,49 @@ pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
 ) -> Vec<String> {
+    let max_depth = crate::compat::max_sub_workflow_depth(graph);
+    let check = async {
+        let mut pending = vec![(graph.clone(), 0_u64, String::new())];
+        let mut errors = Vec::new();
+        while let Some((current, depth, prefix)) = pending.pop() {
+            errors.extend(
+                graph_unresolvable_tool_args(&current, native_slug_prefixes)
+                    .await
+                    .into_iter()
+                    .map(|message| format!("{prefix}{message}")),
+            );
+            if depth >= max_depth {
+                continue;
+            }
+            for node in current.nodes.iter().rev() {
+                if node.kind != NodeKind::SubWorkflow {
+                    continue;
+                }
+                let Some(inline) = node.config.get("workflow") else {
+                    continue;
+                };
+                if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
+                    pending.push((
+                        child,
+                        depth + 1,
+                        format!("{prefix}Inline sub_workflow node '{}': ", node.id),
+                    ));
+                }
+            }
+        }
+        errors
+    };
+    // One bound for the whole traversal, rather than a fresh deadline for
+    // every child. An incomplete mock run remains a best-effort skip.
+    tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), check)
+        .await
+        .unwrap_or_default()
+}
+
+async fn graph_unresolvable_tool_args(
+    graph: &WorkflowGraph,
+    native_slug_prefixes: &[&str],
+) -> Vec<String> {
     let Ok(compiled) = crate::compiler::compile(graph) else {
         return Vec::new();
     };

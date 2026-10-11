@@ -18,7 +18,7 @@ impl Authoring {
     /// Report the full portable authoring gates, preserving their diagnostic order.
     async fn authoring_failures(&self, graph: Value) -> Result<Vec<String>> {
         let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
-        Ok(tinyflows::gates::failures(&graph))
+        Ok(tinyflows::gates::authoring_failures(&graph))
     }
 
     /// Mock-run outbound arguments, excluding the host's configured native slug prefixes.
