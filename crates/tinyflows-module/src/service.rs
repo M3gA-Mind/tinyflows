@@ -4,7 +4,9 @@ use serde_json::Value;
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::{BUS_NAME, GraphValidation, OBJECT_PATH};
 
-struct Authoring;
+struct Authoring {
+    connection: Connection,
+}
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Authoring")]
 impl Authoring {
@@ -30,6 +32,24 @@ impl Authoring {
         Ok(tinyflows::preflight::unresolvable_tool_args(&graph, &prefixes).await)
     }
 
+    /// Compose portable gates and context-bound host checks in cost order.
+    async fn builder_failures(
+        &self,
+        graph: Value,
+        host: tinyflows_bus::AuthoringHost,
+        native_slug_prefixes: Vec<String>,
+    ) -> Result<Vec<String>> {
+        let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
+        let ports = super::host::HostPorts {
+            connection: self.connection.clone(),
+            host,
+        };
+        let prefixes: Vec<&str> = native_slug_prefixes.iter().map(String::as_str).collect();
+        tinyflows::gates::builder_failures(&graph, &ports, &prefixes)
+            .await
+            .map_err(|error| Error::failed(error.to_string()))
+    }
+
     /// Report bindings that omit a node's required output envelope.
     async fn binding_failures(&self, graph: Value) -> Result<Vec<String>> {
         let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
@@ -40,7 +60,12 @@ impl Authoring {
 /// Serve the authoring object and claim its bus identity.
 async fn setup(connection: Connection) -> Result<()> {
     connection
-        .serve_at(OBJECT_PATH.try_into()?, Authoring)
+        .serve_at(
+            OBJECT_PATH.try_into()?,
+            Authoring {
+                connection: connection.clone(),
+            },
+        )
         .await?;
     connection.request_name(BUS_NAME).await?;
     Ok(())
@@ -52,7 +77,7 @@ mod exports {
         setup = super::setup,
         worker_threads = 2,
         provides = ["ai.tinyhumans.tinyflows.Authoring"],
-        methods = ["ValidateGraph", "BindingFailures", "AuthoringFailures", "UnresolvableToolArgs"],
+        methods = ["ValidateGraph", "BindingFailures", "AuthoringFailures", "UnresolvableToolArgs", "BuilderFailures"],
         signals = [],
         requires = [],
         optional = [],

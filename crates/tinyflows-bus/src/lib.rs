@@ -20,7 +20,37 @@ pub const METHODS: &[&str] = &[
     "BindingFailures",
     "AuthoringFailures",
     "UnresolvableToolArgs",
+    "BuilderFailures",
 ];
+
+/// Context-bound host callback interface. It serves a saved-workflow lookup
+/// and ordered product gates; the module never interprets host credentials.
+pub const HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.AuthoringHost";
+
+/// A host callback object scoped to this authoring request's identity/store.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AuthoringHost {
+    /// Destination that owns the context-bound callback object.
+    pub bus_name: String,
+    /// Object implementing [`HOST_INTERFACE`].
+    pub object_path: String,
+}
+
+/// Host callback members and gate stage strings.
+pub mod host {
+    /// `ResolveWorkflow(id: String) -> Option<Value>`; unavailable graphs are skipped.
+    pub const RESOLVE_WORKFLOW: &str = "ResolveWorkflow";
+    /// `CheckGate(stage: String, graph: Value) -> Vec<String>`; errors fail closed.
+    pub const CHECK_GATE: &str = "CheckGate";
+    /// Native-tool argument policy.
+    pub const TOOL_POLICY: &str = "tool_policy";
+    /// Host agent registry references.
+    pub const AGENT_REFERENCES: &str = "agent_references";
+    /// Connected-account references.
+    pub const CONNECTIONS: &str = "connections";
+    /// Tool catalog contracts.
+    pub const TOOL_CONTRACTS: &str = "tool_contracts";
+}
 
 /// Stable authoring member names.
 pub mod methods {
@@ -32,6 +62,8 @@ pub mod methods {
     pub const AUTHORING_FAILURES: &str = "AuthoringFailures";
     /// Mock-run outbound arguments, skipping host-provided native slug prefixes.
     pub const UNRESOLVABLE_TOOL_ARGS: &str = "UnresolvableToolArgs";
+    /// Ordered engine and host gates followed by mock argument preflight.
+    pub const BUILDER_FAILURES: &str = "BuilderFailures";
 }
 
 /// One structured graph validation failure.

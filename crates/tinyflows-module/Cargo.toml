@@ -17,6 +17,7 @@ tinyflows-bus = { path = "../tinyflows-bus" }
 tinybus = { version = "=0.1.3", default-features = false, features = ["macros", "modules"] }
 tinybus-module = "=0.1.3"
 serde_json.workspace = true
+async-trait.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
