@@ -50,9 +50,10 @@ impl Fixture {
         }
     }
     fn job(&self) -> CronJob {
-        claim_generation: 0,        let now = self.now();
+        let now = self.now();
         CronJob {
-        claim_generation: 0,            id: uuid::Uuid::new_v4().to_string(),
+            claim_generation: 0,
+            id: uuid::Uuid::new_v4().to_string(),
             expression: String::new(),
             command: "echo ok".into(),
             prompt: None,

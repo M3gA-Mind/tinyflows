@@ -186,7 +186,11 @@ pub(super) fn doc_to_job(stored: &Versioned<Value>) -> Result<CronJob> {
     };
     let owned = |field: &str| optional(doc, field).map(|value| value.map(str::to_string));
     Ok(CronJob {
-        claim_generation: doc.get("claim_generation").map(|v| serde_json::from_value(v.clone())).transpose()?.unwrap_or_default(),
+        claim_generation: doc
+            .get("claim_generation")
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()?
+            .unwrap_or_default(),
         policy: doc
             .get("policy")
             .map(|p| serde_json::from_value(p.clone()))

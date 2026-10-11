@@ -33,7 +33,10 @@ impl CronDocuments {
                 return Ok(None);
             }
             let mut next_doc = doc.as_object().cloned().unwrap_or_default();
-            let generation = job.claim_generation.checked_add(1).ok_or_else(|| anyhow::anyhow!("claim generation exhausted"))?;
+            let generation = job
+                .claim_generation
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("claim generation exhausted"))?;
             next_doc.insert("claim_generation".into(), generation.into());
             super::jobs::reschedule(
                 &mut next_doc,
@@ -59,7 +62,8 @@ impl CronDocuments {
                 };
                 let current = doc_to_job(&stored)?;
                 if current.created_at != job.created_at
-                    || Some(current.claim_generation) != job.claim_generation.checked_add(1) {
+                    || Some(current.claim_generation) != job.claim_generation.checked_add(1)
+                {
                     return Ok(());
                 }
                 if current.enabled
@@ -82,7 +86,8 @@ impl CronDocuments {
         compare_job(self, JOBS, &job.id, |doc| {
             let current = decode(&job.id, doc)?;
             if current.created_at != job.created_at
-                    || Some(current.claim_generation) != job.claim_generation.checked_add(1) {
+                || Some(current.claim_generation) != job.claim_generation.checked_add(1)
+            {
                 return Ok(None);
             }
             let same = current.schedule == job.schedule;
