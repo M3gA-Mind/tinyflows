@@ -45,10 +45,10 @@ fn encode(state: Admission) -> Result<Value> {
 }
 impl Admission {
     fn check(&self) -> Result<()> {
-        if let Some(limit) = self.limit {
-            if limit == 0 || self.jobs.values().filter(|member| member.enabled).count() > limit {
-                bail!("cron store: active job limit exceeded");
-            }
+        if let Some(limit) = self.limit
+            && (limit == 0 || self.jobs.values().filter(|member| member.enabled).count() > limit)
+        {
+            bail!("cron store: active job limit exceeded");
         }
         Ok(())
     }
