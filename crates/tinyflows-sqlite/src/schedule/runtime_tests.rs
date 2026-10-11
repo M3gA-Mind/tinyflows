@@ -268,3 +268,47 @@ fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit() {
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].id, second.id);
 }
+
+#[test]
+fn claimed_history_rejects_a_recreated_flow_job_and_keeps_matching_runs() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = CronStoreOptions::new(directory.path().join("jobs.db"));
+    let first = super::super::add_flow_schedule_job(
+        &options,
+        "history",
+        Schedule::Every { every_ms: 60_000 },
+    )
+    .unwrap();
+    let record = tinyflows_schedule::runtime::RunRecord {
+        run_id: "original-run".into(),
+        job_id: first.id.clone(),
+        job_created_at: first.created_at,
+        started_at: first.created_at,
+        finished_at: first.created_at,
+        status: "ok".into(),
+        output: "original".into(),
+        delivery_status: None,
+    };
+    super::super::record_claimed_run(&options, &record).unwrap();
+    assert_eq!(
+        super::super::list_runs(&options, &first.id, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    super::super::remove_job(&options, &first.id).unwrap();
+    let replacement =
+        super::super::add_flow_schedule_job(&options, "history", first.schedule).unwrap();
+    assert_eq!(replacement.id, first.id);
+    assert!(
+        super::super::record_claimed_run(&options, &record)
+            .unwrap_err()
+            .to_string()
+            .contains("removed job creation")
+    );
+    assert!(
+        super::super::list_runs(&options, &replacement.id, 10)
+            .unwrap()
+            .is_empty()
+    );
+}

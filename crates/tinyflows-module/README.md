@@ -9,7 +9,17 @@ Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound
 execution, delivery and direct flow-trigger callbacks through ScheduleHost.
 `StartScheduler.storage` selects module-owned persistence. Omitting it retains
-the original ScheduleHost storage callbacks for compatibility.
+the original ScheduleHost storage callbacks. Callback stores implement
+DueJobsExcluding(now, excluded_ids), filtering identities before their batch
+limit when a running job defers its occurrence. Stores without this operation
+fail that poll rather than silently starve later due jobs. The runtime retains
+the original batch size and leaves deferred occurrences unchanged.
+
+RecordRun callbacks receive job_created_at, captured from the dispatched job.
+Match that creation before appending history; an ID alone can refer to a
+replacement flow job. The module-owned backends perform this check. Completion
+follows ClaimSlot, which already disables one-shots durably; an explicit
+re-enable during execution survives completion and automatic deletion.
 
 `ScheduleStore` accepts one StoreRequest: `{storage, operation}`. Storage is
 `{backend: {kind: "sqlite", path: "<scoped jobs.db>"}, max_run_history: 50,

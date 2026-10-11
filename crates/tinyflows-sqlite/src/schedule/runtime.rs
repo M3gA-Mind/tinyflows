@@ -47,6 +47,7 @@ pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>
 
 /// Apply a computed completion. An edited schedule retains its next occurrence
 /// and enabled state; the outcome still updates the original incarnation.
+/// Call after claim_slot: enabled one-shots now mean an explicit re-enable.
 pub fn complete_run(
     options: &CronStoreOptions,
     job: &CronJob,
