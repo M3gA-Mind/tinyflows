@@ -191,6 +191,8 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(listed[0]["id"], created["id"]);
+    assert_eq!(created["claim_generation"], 0);
+    assert_eq!(listed[0]["claim_generation"], 0);
 
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
@@ -264,6 +266,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
+    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    assert_eq!(
+        stored.doc["claim_generation"], 1,
+        "compiled scheduler must durably advance the claim generation"
+    );
     assert_eq!(
         *state.triggers.lock().unwrap(),
         ["artifact-flow", "stored-flow"]
