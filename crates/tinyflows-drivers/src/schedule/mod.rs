@@ -61,9 +61,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use serde_json::Value;
-use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned,
-};
+use tinystoragedrivers_core::{CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned};
 
 mod admission;
 mod claims;
@@ -74,6 +72,8 @@ mod removal;
 mod runs;
 #[cfg(test)]
 mod test_support;
+
+pub use claims::ClaimedOccurrence;
 
 pub use tinyflows_schedule::{
     AgentJobSpec, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, truncate_cron_output,
@@ -168,20 +168,39 @@ async fn compare_and_swap(
     change: impl Fn(&Value) -> Result<Option<Value>>,
 ) -> Result<Option<Versioned<Value>>> {
     for _ in 0..CAS_ATTEMPTS {
-        let Some(stored) = store.docs.get(collection, id).await.map_err(storage_error)? else { return Ok(None) };
-        let Some(next) = change(&stored.doc)? else { return Ok(None) };
-        match store.commit_job(id, Some(&stored), Some(next.clone()), vec![]).await {
+        let Some(stored) = store
+            .docs
+            .get(collection, id)
+            .await
+            .map_err(storage_error)?
+        else {
+            return Ok(None);
+        };
+        let Some(next) = change(&stored.doc)? else {
+            return Ok(None);
+        };
+        match store
+            .commit_job(id, Some(&stored), Some(next.clone()), vec![])
+            .await
+        {
             Ok(results) => {
-                let Some(tinystoragedrivers_core::WriteResult::Put { version }) = results.first() else {
+                let Some(tinystoragedrivers_core::WriteResult::Put { version }) = results.first()
+                else {
                     anyhow::bail!("cron store: invalid atomic write result");
                 };
-                return Ok(Some(Versioned { id: id.into(), version: *version, doc: next }));
+                return Ok(Some(Versioned {
+                    id: id.into(),
+                    version: *version,
+                    doc: next,
+                }));
             }
-            Err(error) if admission::conflict(&error) => {},
+            Err(error) if admission::conflict(&error) => {}
             Err(error) => return Err(error),
         }
     }
-    Err(anyhow!("cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"))
+    Err(anyhow!(
+        "cron store: {collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
+    ))
 }
 
 #[cfg(test)]

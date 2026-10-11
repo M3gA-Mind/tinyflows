@@ -1,7 +1,10 @@
 //! Shared admission policy fences both configured and existing handles.
-use super::{CronDocuments, test_support::{daily, docs_in}};
-use tinystoragedrivers_core::MemoryStorage;
+use super::{
+    CronDocuments,
+    test_support::{daily, docs_in},
+};
 use tinyflows_schedule::CronJobPatch;
+use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]
 async fn an_existing_unlimited_handle_cannot_bypass_installed_policy() {
@@ -15,11 +18,37 @@ async fn an_existing_unlimited_handle_cannot_bypass_installed_policy() {
     );
     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
     let job = a.list_jobs().await.unwrap().pop().unwrap();
-    a.update_job(&job.id, CronJobPatch { enabled: Some(false), ..Default::default() }).await.unwrap();
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     let next = b.add_shell_job(None, daily(), "next").await.unwrap();
-    assert!(a.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.is_err());
+    assert!(
+        a.update_job(
+            &job.id,
+            CronJobPatch {
+                enabled: Some(true),
+                ..Default::default()
+            }
+        )
+        .await
+        .is_err()
+    );
     b.remove_job(&next.id).await.unwrap();
-    a.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.unwrap();
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            enabled: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

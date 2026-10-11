@@ -1,10 +1,12 @@
 //! Shared admission state, transacted with job writes to fence policy races.
+use super::codec::{doc_to_job, incarnation};
+use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, storage_error};
 use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Precondition, Query, Versioned, WriteOp, WriteResult};
-use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, storage_error};
-use super::codec::{doc_to_job, incarnation};
+use tinystoragedrivers_core::{
+    DocumentStoreExt, ErrorKind, Precondition, Query, Versioned, WriteOp, WriteResult,
+};
 
 const ADMISSION: &str = "admission";
 
@@ -33,7 +35,10 @@ impl Admission {
 fn member(doc: &Value) -> Result<Member> {
     Ok(Member {
         incarnation: incarnation(doc).map(str::to_owned),
-        enabled: doc.get("enabled").and_then(Value::as_bool).ok_or_else(|| anyhow!("cron store: invalid enabled state"))?,
+        enabled: doc
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| anyhow!("cron store: invalid enabled state"))?,
     })
 }
 
@@ -49,9 +54,18 @@ impl CronDocuments {
             let mut state: Admission = serde_json::from_value(stored.doc.clone())?;
             state.limit = limit;
             state.check()?;
-            match self.docs.put(COUNTERS, ADMISSION, serde_json::to_value(state)?, stored.unchanged()).await {
+            match self
+                .docs
+                .put(
+                    COUNTERS,
+                    ADMISSION,
+                    serde_json::to_value(state)?,
+                    stored.unchanged(),
+                )
+                .await
+            {
                 Ok(_) => return Ok(()),
-                Err(error) if error.kind() == ErrorKind::Conflict => {},
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
                 Err(error) => return Err(storage_error(error)),
             }
         }
@@ -63,23 +77,42 @@ impl CronDocuments {
     /// all consult the ledger, including those without a configured cap.
     async fn admission(&self) -> Result<Versioned<Value>> {
         for _ in 0..CAS_ATTEMPTS {
-            if let Some(stored) = self.docs.get(COUNTERS, ADMISSION).await.map_err(storage_error)? {
+            if let Some(stored) = self
+                .docs
+                .get(COUNTERS, ADMISSION)
+                .await
+                .map_err(storage_error)?
+            {
                 let state: Admission = serde_json::from_value(stored.doc.clone())?;
                 state.check()?;
                 return Ok(stored);
             }
-            let rows = self.docs.query_all(JOBS, &Query::all()).await.map_err(storage_error)?;
+            let rows = self
+                .docs
+                .query_all(JOBS, &Query::all())
+                .await
+                .map_err(storage_error)?;
             let mut state = Admission::default();
             let mut ops = Vec::new();
             for row in rows {
                 doc_to_job(&row)?;
                 state.jobs.insert(row.id.clone(), member(&row.doc)?);
-                ops.push(WriteOp::Put { collection: JOBS.into(), id: row.id.clone(), doc: row.doc.clone(), precondition: row.unchanged() });
+                ops.push(WriteOp::Put {
+                    collection: JOBS.into(),
+                    id: row.id.clone(),
+                    doc: row.doc.clone(),
+                    precondition: row.unchanged(),
+                });
             }
-            ops.push(WriteOp::Put { collection: COUNTERS.into(), id: ADMISSION.into(), doc: serde_json::to_value(state)?, precondition: Precondition::Absent });
+            ops.push(WriteOp::Put {
+                collection: COUNTERS.into(),
+                id: ADMISSION.into(),
+                doc: serde_json::to_value(state)?,
+                precondition: Precondition::Absent,
+            });
             match self.docs.atomic_batch(ops).await {
-                Ok(_) => {},
-                Err(error) if error.kind() == ErrorKind::Conflict => {},
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
                 Err(error) => return Err(storage_error(error)),
             }
         }
@@ -88,7 +121,13 @@ impl CronDocuments {
 
     /// Commits a job plus membership and optional run writes atomically. The
     /// ledger incarnation check closes the delete/re-create version ABA gap.
-    pub(super) async fn commit_job(&self, id: &str, previous: Option<&Versioned<Value>>, next: Option<Value>, mut extra: Vec<WriteOp>) -> Result<Vec<WriteResult>> {
+    pub(super) async fn commit_job(
+        &self,
+        id: &str,
+        previous: Option<&Versioned<Value>>,
+        next: Option<Value>,
+        mut extra: Vec<WriteOp>,
+    ) -> Result<Vec<WriteResult>> {
         let ledger = self.admission().await?;
         let mut state: Admission = serde_json::from_value(ledger.doc.clone())?;
         let owns = match (previous, state.jobs.get(id)) {
@@ -97,23 +136,39 @@ impl CronDocuments {
             _ => false,
         };
         if !owns {
-            return Err(storage_error(tinystoragedrivers_core::StorageError::conflict("cron job incarnation changed")));
+            return Err(storage_error(
+                tinystoragedrivers_core::StorageError::conflict("cron job incarnation changed"),
+            ));
         }
         let precondition = previous.map_or(Precondition::Absent, Versioned::unchanged);
         let op = match next {
             Some(doc) => {
                 state.jobs.insert(id.into(), member(&doc)?);
-                WriteOp::Put { collection: JOBS.into(), id: id.into(), doc, precondition }
-            },
+                WriteOp::Put {
+                    collection: JOBS.into(),
+                    id: id.into(),
+                    doc,
+                    precondition,
+                }
+            }
             None => {
                 state.jobs.remove(id);
-                WriteOp::Delete { collection: JOBS.into(), id: id.into(), precondition }
-            },
+                WriteOp::Delete {
+                    collection: JOBS.into(),
+                    id: id.into(),
+                    precondition,
+                }
+            }
         };
         state.check()?;
         let mut ops = vec![op];
         ops.append(&mut extra);
-        ops.push(WriteOp::Put { collection: COUNTERS.into(), id: ADMISSION.into(), doc: serde_json::to_value(state)?, precondition: ledger.unchanged() });
+        ops.push(WriteOp::Put {
+            collection: COUNTERS.into(),
+            id: ADMISSION.into(),
+            doc: serde_json::to_value(state)?,
+            precondition: ledger.unchanged(),
+        });
         self.docs.atomic_batch(ops).await.map_err(storage_error)
     }
 }
@@ -121,5 +176,7 @@ impl CronDocuments {
 /// A conflicted atomic write is retryable; all other errors fail closed.
 pub(super) fn conflict(error: &anyhow::Error) -> bool {
     // `storage_error` retains the storage error as an anyhow source below.
-    error.downcast_ref::<tinystoragedrivers_core::StorageError>().is_some_and(|error| error.kind() == ErrorKind::Conflict)
+    error
+        .downcast_ref::<tinystoragedrivers_core::StorageError>()
+        .is_some_and(|error| error.kind() == ErrorKind::Conflict)
 }

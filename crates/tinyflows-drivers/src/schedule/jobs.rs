@@ -11,9 +11,7 @@ use tinyflows_schedule::{
     SessionTarget, next_run_for_schedule, schedule_cron_expression, validate_agent_schedule,
     validate_schedule,
 };
-use tinystoragedrivers_core::{
-    DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult,
-};
+use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
 use uuid::Uuid;
 
 use super::codec::{
@@ -75,10 +73,15 @@ impl CronDocuments {
         self.ensure().await?;
         let doc = new_job_doc(job)?;
         for _ in 0..CAS_ATTEMPTS {
-            match self.commit_job(&job.id, None, Some(doc.clone()), vec![]).await {
+            match self
+                .commit_job(&job.id, None, Some(doc.clone()), vec![])
+                .await
+            {
                 Ok(_) => return self.get_job(&job.id).await,
-                Err(error) if super::admission::conflict(&error) => {},
-                Err(error) => return Err(error).with_context(|| format!("Failed to insert cron {what}")),
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => {
+                    return Err(error).with_context(|| format!("Failed to insert cron {what}"));
+                }
             }
         }
         anyhow::bail!("cron store: insertion kept changing")
@@ -219,9 +222,12 @@ impl CronDocuments {
             if let Some(existing) = self.find_flow_schedule_job(flow_id).await? {
                 return Ok(existing);
             }
-            match self.commit_job(&job.id, None, Some(doc.clone()), vec![]).await {
+            match self
+                .commit_job(&job.id, None, Some(doc.clone()), vec![])
+                .await
+            {
                 Ok(_) => return self.get_job(&job.id).await,
-                Err(error) if super::admission::conflict(&error) => {},
+                Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => return Err(error).context("Failed to insert cron flow-schedule job"),
             }
         }
@@ -352,14 +358,21 @@ impl CronDocuments {
                 .ok_or_else(|| job_not_found(job_id))?;
             let job = apply_patch(doc_to_job(&stored)?, patch.clone())?;
             let doc = updated_job_doc(&job, &stored.doc)?;
-            match self.commit_job(job_id, Some(&stored), Some(doc.clone()), vec![]).await {
+            match self
+                .commit_job(job_id, Some(&stored), Some(doc.clone()), vec![])
+                .await
+            {
                 Ok(results) => {
                     let Some(WriteResult::Put { version }) = results.first() else {
                         anyhow::bail!("cron store: invalid atomic write result");
                     };
-                    return doc_to_job(&Versioned { id: job_id.to_string(), version: *version, doc });
+                    return doc_to_job(&Versioned {
+                        id: job_id.to_string(),
+                        version: *version,
+                        doc,
+                    });
                 }
-                Err(error) if super::admission::conflict(&error) => {},
+                Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => return Err(error).context("Failed to update cron job"),
             }
         }

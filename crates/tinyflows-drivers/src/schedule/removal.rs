@@ -37,12 +37,20 @@ impl CronDocuments {
     /// a version check could match it and delete the new job. A document
     /// written before incarnations existed falls back to the version check.
     pub(super) async fn remove_stored(&self, stored: &Versioned<Value>) -> Result<bool> {
-        let removed = match self.commit_job(&stored.id, Some(stored), None, vec![]).await {
-            Ok(results) => matches!(results.first(), Some(tinystoragedrivers_core::WriteResult::Delete { removed: true })),
+        let removed = match self
+            .commit_job(&stored.id, Some(stored), None, vec![])
+            .await
+        {
+            Ok(results) => matches!(
+                results.first(),
+                Some(tinystoragedrivers_core::WriteResult::Delete { removed: true })
+            ),
             Err(error) if super::admission::conflict(&error) => false,
             Err(error) => return Err(error).context("Failed to delete cron job"),
         };
-        if !removed { return Ok(false); }
+        if !removed {
+            return Ok(false);
+        }
         self.delete_runs_of(stored).await?;
         Ok(true)
     }
