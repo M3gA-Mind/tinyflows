@@ -1,7 +1,6 @@
-//! Input-derived output and child mapping regressions.
-
-use super::tests::{graph, trigger};
 use super::*;
+// Input-derived output and child mapping regressions.
+use super::tests::{graph, trigger};
 use serde_json::json;
 
 #[tokio::test]

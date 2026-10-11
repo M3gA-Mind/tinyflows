@@ -117,7 +117,7 @@ async fn expression_workflow_ids_are_not_passed_to_the_saved_catalog() {
     assert!(errors.is_empty(), "{errors:?}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn completed_diagnostics_survive_a_later_child_timeout() {
     let slow = graph(
         json!([trigger(),
