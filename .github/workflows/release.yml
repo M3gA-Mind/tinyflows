@@ -226,6 +226,27 @@ jobs:
       - name: Build installable module
         run: cargo build --locked --release --package tinyflows-module
 
+      - name: Verify Unix native module through TinyBus
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux) module="$PWD/target/release/libtinyflows_module.so" ;;
+            macOS) module="$PWD/target/release/libtinyflows_module.dylib" ;;
+            *) echo "unsupported Unix runner: ${RUNNER_OS}" >&2; exit 1 ;;
+          esac
+          TINYFLOWS_MODULE_ARTIFACT="$module" bash scripts/verify-module-artifact.sh
+
+      - name: Verify Windows native module through TinyBus
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:TINYFLOWS_MODULE_ARTIFACT = (Resolve-Path 'target/release/tinyflows_module.dll').Path
+          bash scripts/verify-module-artifact.sh
+          if ($LASTEXITCODE -ne 0) { throw "native module loader verification failed" }
+
       - name: Assemble Unix module package
         if: ${{ runner.os != 'Windows' }}
         id: unix_package
@@ -355,12 +376,19 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t release_files < <(find release-assets -type f | sort)
-          gh release create "$RELEASE_TAG" "${release_files[@]}" \
-            --repo "$REPOSITORY" \
-            --verify-tag \
-            --draft \
-            --title "$RELEASE_TAG" \
-            --generate-notes
+          if is_draft="$(gh release view "$RELEASE_TAG" --repo "$REPOSITORY" --json isDraft --jq .isDraft)"; then
+            # Retry an interrupted upload/verification without changing a
+            # release that has already become public.
+            [[ "$is_draft" == true ]]
+            gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${release_files[@]}" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
 
       # Draft assets need authenticated download. Verify uploaded bytes while
       # the release is private; a broken archive/module must never be published.
@@ -377,7 +405,7 @@ jobs:
           verification_dir="$PWD/target/release-verification"
           mkdir -p "$verification_dir"
           gh release download "$RELEASE_TAG" --repo "$REPOSITORY" \
-            --pattern "$archive" --pattern checksum.toml --dir "$verification_dir"
+            --pattern "$archive" --pattern checksum.toml --dir "$verification_dir" --clobber
           cmp release-assets/checksum.toml "$verification_dir/checksum.toml"
           sha256="$(sed -n "s/^\"${archive}\" = \"\([0-9a-f]\{64\}\)\"$/\1/p" release-assets/checksum.toml)"
           test -n "$sha256"
