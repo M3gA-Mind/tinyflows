@@ -6,7 +6,14 @@ use super::CronStoreOptions;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
-use tinyflows_schedule::{CronJob, DeliveryConfig, JobType, Schedule, SessionTarget};
+use tinyflows_schedule::{CronJob, DeliveryConfig, JobOrigin, JobType, Schedule, SessionTarget};
+
+/// The `cron_jobs` columns every job SELECT reads, in the order
+/// [`map_cron_job_row`] indexes them. New columns are appended, never inserted.
+pub(super) const JOB_COLUMNS: &str =
+    "id, expression, command, schedule, job_type, prompt, name, session_target, model,
+     enabled, delivery, delete_after_run, created_at, next_run, last_run, last_status, last_output,
+     agent_id, origin";
 
 pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronJob> {
     let expression: String = row.get(1)?;
@@ -20,6 +27,8 @@ pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cron
     let next_run_raw: String = row.get(13)?;
     let last_run_raw: Option<String> = row.get(14)?;
     let created_at_raw: String = row.get(12)?;
+    let origin_raw: Option<String> = row.get(18)?;
+    let origin = decode_origin(origin_raw.as_deref()).map_err(sql_conversion_error)?;
 
     Ok(CronJob {
         id: row.get(0)?,
@@ -43,6 +52,7 @@ pub(super) fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cron
         },
         last_status: row.get(15)?,
         last_output: row.get(16)?,
+        origin,
     })
 }
 
@@ -77,8 +87,27 @@ fn decode_delivery(delivery_raw: Option<&str>) -> Result<DeliveryConfig> {
     Ok(DeliveryConfig::default())
 }
 
-fn add_column_if_missing(conn: &Connection, name: &str, sql_type: &str) -> Result<()> {
-    let mut stmt = conn.prepare("PRAGMA table_info(cron_jobs)")?;
+fn decode_origin(origin_raw: Option<&str>) -> Result<Option<JobOrigin>> {
+    match origin_raw.map(str::trim) {
+        Some(raw) if !raw.is_empty() => serde_json::from_str(raw)
+            .map(Some)
+            .with_context(|| format!("Failed to parse cron origin JSON: {raw}")),
+        _ => Ok(None),
+    }
+}
+
+/// Serializes a job origin for the `origin` column (`NULL` when absent).
+pub(super) fn encode_origin(origin: Option<&JobOrigin>) -> Result<Option<String>> {
+    origin
+        .map(serde_json::to_string)
+        .transpose()
+        .context("Failed to serialize cron origin")
+}
+
+/// Adds `table.name` when the table lacks it. `table` is one of this module's
+/// own table names, never caller input.
+fn add_column_if_missing(conn: &Connection, table: &str, name: &str, sql_type: &str) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(1)?;
@@ -93,26 +122,32 @@ fn add_column_if_missing(conn: &Connection, name: &str, sql_type: &str) -> Resul
     // Tolerate "duplicate column name" errors to handle the race where
     // another process adds the column between our PRAGMA check and ALTER.
     match conn.execute(
-        &format!("ALTER TABLE cron_jobs ADD COLUMN {name} {sql_type}"),
+        &format!("ALTER TABLE {table} ADD COLUMN {name} {sql_type}"),
         [],
     ) {
         Ok(_) => Ok(()),
         Err(rusqlite::Error::SqliteFailure(err, Some(ref msg)))
             if msg.contains("duplicate column name") =>
         {
-            tracing::debug!("Column cron_jobs.{name} already exists (concurrent migration): {err}");
+            tracing::debug!("Column {table}.{name} already exists (concurrent migration): {err}");
             Ok(())
         }
-        Err(e) => Err(e).with_context(|| format!("Failed to add cron_jobs.{name}")),
+        Err(e) => Err(e).with_context(|| format!("Failed to add {table}.{name}")),
     }
 }
 
 /// Opens the cron store and runs `f` against it.
 ///
-/// Creates the database's parent directory if needed, opens the SQLite file,
-/// and creates or migrates the schema idempotently (missing columns are added
+/// Creates the database's parent directory if needed, opens the SQLite file
+/// through the driver's native mode (see `crate::native`), and creates or
+/// migrates the schema idempotently (missing columns are added
 /// and the flow-command index is created) before handing over the connection,
 /// so a database written by an older build opens unchanged.
+///
+/// `f` runs while the driver's per-file lock is held, and that lock is not
+/// reentrant: do the work on the `Connection` passed in. Calling another
+/// store API for the same database from inside `f` (which opens the same
+/// shared handle) would wait on the lock forever.
 pub fn with_connection<T>(
     opts: &CronStoreOptions,
     f: impl FnOnce(&Connection) -> Result<T>,
@@ -123,11 +158,9 @@ pub fn with_connection<T>(
             .with_context(|| format!("Failed to create cron directory: {}", parent.display()))?;
     }
 
-    let conn = Connection::open(db_path)
-        .with_context(|| format!("Failed to open cron DB: {}", db_path.display()))?;
-
-    conn.execute_batch(
-        "PRAGMA foreign_keys = ON;
+    crate::native::run(db_path, |conn| {
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
          CREATE TABLE IF NOT EXISTS cron_jobs (
             id               TEXT PRIMARY KEY,
             expression       TEXT NOT NULL,
@@ -162,22 +195,40 @@ pub fn with_connection<T>(
         CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id ON cron_runs(job_id);
         CREATE INDEX IF NOT EXISTS idx_cron_runs_started_at ON cron_runs(started_at);
         CREATE INDEX IF NOT EXISTS idx_cron_runs_job_started ON cron_runs(job_id, started_at);",
-    )
-    .context("Failed to initialize cron schema")?;
+        )
+        .context("Failed to initialize cron schema")?;
 
-    add_column_if_missing(&conn, "schedule", "TEXT")?;
-    add_column_if_missing(&conn, "job_type", "TEXT NOT NULL DEFAULT 'shell'")?;
-    add_column_if_missing(&conn, "prompt", "TEXT")?;
-    add_column_if_missing(&conn, "name", "TEXT")?;
-    add_column_if_missing(&conn, "session_target", "TEXT NOT NULL DEFAULT 'isolated'")?;
-    add_column_if_missing(&conn, "model", "TEXT")?;
-    add_column_if_missing(&conn, "enabled", "INTEGER NOT NULL DEFAULT 1")?;
-    add_column_if_missing(&conn, "delivery", "TEXT")?;
-    add_column_if_missing(&conn, "delete_after_run", "INTEGER NOT NULL DEFAULT 0")?;
-    add_column_if_missing(&conn, "agent_id", "TEXT")?;
-    ensure_flow_command_index(&conn)?;
+        add_column_if_missing(conn, "cron_jobs", "schedule", "TEXT")?;
+        add_column_if_missing(
+            conn,
+            "cron_jobs",
+            "job_type",
+            "TEXT NOT NULL DEFAULT 'shell'",
+        )?;
+        add_column_if_missing(conn, "cron_jobs", "prompt", "TEXT")?;
+        add_column_if_missing(conn, "cron_jobs", "name", "TEXT")?;
+        add_column_if_missing(
+            conn,
+            "cron_jobs",
+            "session_target",
+            "TEXT NOT NULL DEFAULT 'isolated'",
+        )?;
+        add_column_if_missing(conn, "cron_jobs", "model", "TEXT")?;
+        add_column_if_missing(conn, "cron_jobs", "enabled", "INTEGER NOT NULL DEFAULT 1")?;
+        add_column_if_missing(conn, "cron_jobs", "delivery", "TEXT")?;
+        add_column_if_missing(
+            conn,
+            "cron_jobs",
+            "delete_after_run",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        add_column_if_missing(conn, "cron_jobs", "agent_id", "TEXT")?;
+        add_column_if_missing(conn, "cron_jobs", "origin", "TEXT")?;
+        add_column_if_missing(conn, "cron_runs", "delivery_status", "TEXT")?;
+        ensure_flow_command_index(conn)?;
 
-    f(&conn)
+        f(conn)
+    })
 }
 
 /// Creates the `idx_cron_jobs_flow_command` partial unique index, first

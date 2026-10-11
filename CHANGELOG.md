@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tinyflows-adaptive` on a `tinystoragedrivers` document port
+  (`storage-drivers` feature).** `Storage::from_documents` puts the ledger
+  (`drivers::DriverLedger`) and the vault (`drivers::DriverVault`) on the
+  host's storage backend (SQLite, MongoDB, memory), scoped with the same
+  `for_tenant` as every other backend. It is a port of the Mongo backend:
+  tenancy is a `scope_key` field (writes to the handle's bucket, reads
+  include global); counters and first-write-wins edges are compare-and-swap
+  and insert-only writes, so concurrent loops never lose an increment. Records are
+  stored as JSON strings and steps one document each, as the Mongo backend
+  does, so a MongoDB-backed port never meets a dotted key or the document size
+  limit. It passes the ledger and vault conformance and tenancy suites. Off by
+  default; needs Rust 1.88.
+
+- **`tinyflows-drivers` (new, unpublished crate).** `DriverStateStore`
+  implements the engine's `StateStore` and `DriverCheckpointer` the graph
+  `Checkpointer` over a `tinystoragedrivers` document port (git dependency at
+  `v0.5.0`, so a host that vendors the storage crates once can `[patch]` it).
+  The checkpointer stores one document per checkpoint with a per-thread
+  compare-and-swap sequence, merges pending writes under compare-and-swap,
+  pushes namespace-scoped reads down to one indexed query, reads a whole
+  `state_history` in two queries, length-prefixes every key component and
+  hashes over-long ids with SHA-256. A separate crate rather than an engine
+  feature because the published `tinyflows` package cannot carry a git
+  dependency; the engine is unchanged and keeps its MSRV, this crate needs
+  Rust 1.88.
+
+- **`tinyflows-sqlite` opens `flows.db` and `jobs.db` through the
+  tinystoragedrivers SQLite driver's native mode.** The tables, SQL,
+  `user_version` gate and column migrations are unchanged, and existing
+  databases open as they are. The driver owns the connection, so a host that
+  holds the same file open through it shares one connection and lock instead
+  of contending for SQLite's file lock. With nothing else holding the file,
+  each call still opens it fresh, so a database deleted under a live process
+  still comes back. A panicking store call is caught and its open
+  transaction rolled back, so it cannot poison the shared connection. The
+  driver runs WAL with `synchronous = NORMAL`: commits survive a process
+  crash, but an OS crash or power loss can roll back the most recent ones.
+  `tinyflows-sqlite` now needs Rust 1.88.
+
 - **Node postconditions (`tinyflows::postcondition`).** A node may declare
   `config.postcondition = { "require": ..., "field": ... }` — `non_empty`,
   `field_present` or `non_empty_list` — and the engine checks it against every
@@ -17,6 +56,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `on_error`. An unrecognised predicate or an unreadable declaration fails the
   node rather than silently passing; `validate_all` refuses both at author
   time. Ported from OpenCompany's host-side agent gate.
+- **Job origin and origin delivery (`tinyflows-schedule`, `tinyflows-sqlite`).**
+  A job can record the conversation that created it: `JobOrigin::Web
+  { thread_id, agent_id }` or `JobOrigin::Channel { channel, reply_target,
+  history_key, sender, thread_id }`, stored as `CronJob::origin` and patchable
+  (set or clear) through `CronJobPatch::origin`. `SessionTarget::Current`
+  (`"current"`) runs detached but binds context and delivery to that origin;
+  the `delivery_mode` constants add `"origin"` (commit the result into the
+  origin conversation and send it once there). Run records gain an optional
+  `CronRun::delivery_status` (`DeliveryStatus`: `delivered`, `suppressed`,
+  `failed`, `not_requested`). The SQLite store adds the nullable
+  `cron_jobs.origin` and `cron_runs.delivery_status` columns on open, so older
+  databases load with no origin and no status; `AgentJobSpec` +
+  `add_agent_job_from_spec` create an agent job with an origin, and
+  `record_run_with_delivery` records a run with its delivery status. Existing
+  creation and `record_run` calls are unchanged and store `NULL`. Both new
+  fields are omitted from JSON when absent, so existing job and run bytes are
+  unchanged. Hosts that match `SessionTarget` exhaustively must handle
+  `Current`.
 - **`crates/tinyflows-schedule`** — the schedule model (`Schedule`,
   `ActiveHours`, the job/run records) and its pure logic: cron-expression
   normalisation, time-zone and active-window aware next-run computation,
@@ -33,6 +90,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A nested inline `sub_workflow` case in the engine-compatibility tests.
 
 ### Changed
+
+- **`tinystoragedrivers` moves to `v0.5.0`** in `tinyflows-drivers`,
+  `tinyflows-sqlite` and `tinyflows-adaptive`. That release adds
+  driver-enforced write fencing (`Fence`, `StorageBackend::for_scope_fenced`,
+  `ErrorKind::Fenced`). The change is additive, and nothing here changes. A
+  host that `[patch]`es the storage crates must vendor `v0.5.0` or later.
 
 - **The repository is a virtual workspace; every crate lives under `crates/`.**
   The engine moved from the repository root to `crates/tinyflows` (with its

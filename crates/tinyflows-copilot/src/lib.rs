@@ -12,6 +12,8 @@
 //!   ([`builder::render_prompt`]).
 //! - [`trail_off`] — the text heuristics behind the "did the turn end on a
 //!   question?" backstop.
+//! - [`fallback`] — a guaranteed fallback question from correlated authoring
+//!   results, preserving the model's original words.
 //!
 //! # The harness is the host's
 //!
@@ -27,6 +29,7 @@
 //! guards, on top of a brief that told the model not to.
 
 pub mod builder;
+pub mod fallback;
 pub mod prompts;
 pub mod resources;
 pub mod trail_off;

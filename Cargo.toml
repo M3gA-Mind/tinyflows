@@ -15,7 +15,12 @@ members = ["crates/*"]
 # `worktrees/` holds `git worktree` checkouts of this same repository. Each one
 # contains a full copy of this manifest and every crate under it, so without
 # this entry cargo walks into them and reports duplicate packages.
-exclude = ["worktrees"]
+exclude = ["worktrees", "vendor/tinybus"]
+
+# Pin unpublished module APIs to a source available in non-recursive clones and archives.
+[patch.crates-io]
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "8a4d8ca0c34166f0ef63a60de66d9e07e0373b03" }
+tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "8a4d8ca0c34166f0ef63a60de66d9e07e0373b03" }
 
 [workspace.package]
 edition = "2024"

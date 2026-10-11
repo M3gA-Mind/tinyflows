@@ -25,6 +25,9 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment: Production
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      next_version: ${{ steps.version.outputs.next_version }}
     env:
       CRATE_NAME: tinyflows
     steps:
@@ -141,3 +144,283 @@ jobs:
         run: cargo publish --locked -p "$CRATE_NAME"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Build the loadable module after the existing manual crate release succeeds.
+  # Distribution-specific artifacts retain their own module digest, and a
+  # release-level checksum manifest pins the complete eleven-platform set.
+  native-bundles:
+    name: Module bundle (${{ matrix.id }})
+    needs: publish-rust
+    strategy:
+      # One unavailable runner should not cost the other ten artifacts; the
+      # asset-count check in `github-release` is what refuses a partial set.
+      fail-fast: false
+      matrix:
+        include:
+          - id: ubuntu-22.04-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - id: ubuntu-22.04-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - id: ubuntu-24.04-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - id: ubuntu-24.04-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - id: macos-15-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - id: macos-15-arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+          - id: macos-26-x86_64
+            os: macos-26-intel
+            target: x86_64-apple-darwin
+          - id: macos-26-arm64
+            os: macos-26
+            target: aarch64-apple-darwin
+          - id: windows-2022-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - id: windows-2025-x86_64
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - id: windows-11-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tag the version job just created, so the artifact matches the
+          # released source rather than whatever `main` has moved on to.
+          ref: ${{ needs.publish-rust.outputs.tag }}
+          persist-credentials: false
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # rust-cache's default key only knows OS family and CPU arch, so the
+      # ubuntu-22.04 and ubuntu-24.04 legs of this matrix shared one cache.
+      # A build script compiled on 24.04 (glibc 2.39) was restored onto the
+      # 22.04 runner (glibc 2.35) and failed to start (waproto, v0.1.9).
+      # Keying on the bundle id keeps every distro's artifacts separate.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.id }}
+
+      # The whole point of the per-distro matrix is that each `id` describes the
+      # machine the artifact was built on. A runner image that silently changed
+      # architecture would produce a correctly-named artifact that cannot load.
+      - name: Verify native Rust target
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          actual_target="$(rustc -vV | sed -n 's/^host: //p')"
+          [[ "$actual_target" == "$EXPECTED_TARGET" ]]
+
+      - name: Build installable module
+        run: cargo build --locked --release --package tinyflows-module
+
+      - name: Verify Unix native module through TinyBus
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux) module="$PWD/target/release/libtinyflows_module.so" ;;
+            macOS) module="$PWD/target/release/libtinyflows_module.dylib" ;;
+            *) echo "unsupported Unix runner: ${RUNNER_OS}" >&2; exit 1 ;;
+          esac
+          TINYFLOWS_MODULE_ARTIFACT="$module" bash scripts/verify-module-artifact.sh
+
+      - name: Verify Windows native module through TinyBus
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:TINYFLOWS_MODULE_ARTIFACT = (Resolve-Path 'target/release/tinyflows_module.dll').Path
+          bash scripts/verify-module-artifact.sh
+          if ($LASTEXITCODE -ne 0) { throw "native module loader verification failed" }
+
+      - name: Assemble Unix module package
+        if: ${{ runner.os != 'Windows' }}
+        id: unix_package
+        shell: bash
+        env:
+          BUNDLE_ID: ${{ matrix.id }}
+          VERSION: ${{ needs.publish-rust.outputs.next_version }}
+        run: |
+          set -euo pipefail
+
+          library_name="tinyflows_module"
+          case "$RUNNER_OS" in
+            Linux) module="target/release/lib${library_name}.so" ;;
+            macOS) module="target/release/lib${library_name}.dylib" ;;
+            *) echo "unsupported Unix runner: ${RUNNER_OS}" >&2; exit 1 ;;
+          esac
+          package_name="tinyflows-module-${VERSION}-${BUNDLE_ID}"
+          package_root="dist/${package_name}"
+          mkdir -p "$package_root"
+          install -m 755 "$module" "$package_root/"
+          install -m 644 LICENSE README.md "$package_root/"
+          # The in-archive digest is the module's own; the release-level
+          # `checksum.toml` covers the archives. The host checks both.
+          module_name="$(basename "$module")"
+          # macOS runners don't ship GNU coreutils' `sha256sum`; only `shasum`
+          # is guaranteed. Prefer `sha256sum` where it exists (Linux) and fall
+          # back to `shasum -a 256` (macOS) rather than assuming either.
+          if command -v sha256sum >/dev/null 2>&1; then
+            module_hash="$(sha256sum "$package_root/$module_name" | awk '{print $1}')"
+          else
+            module_hash="$(shasum -a 256 "$package_root/$module_name" | awk '{print $1}')"
+          fi
+          printf '"%s" = "%s"\n' "$module_name" "$module_hash" \
+            > "$package_root/modules.toml"
+          tar -C "$package_root" -czf "dist/${package_name}.tar.gz" .
+          echo "archive=dist/${package_name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble Windows module package
+        if: ${{ runner.os == 'Windows' }}
+        id: windows_package
+        shell: pwsh
+        env:
+          BUNDLE_ID: ${{ matrix.id }}
+          VERSION: ${{ needs.publish-rust.outputs.next_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $libraryName = 'tinyflows_module'
+          $module = "target/release/$libraryName.dll"
+          $packageName = "tinyflows-module-$env:VERSION-$env:BUNDLE_ID"
+          $packageRoot = "dist/$packageName"
+          New-Item -ItemType Directory -Force $packageRoot | Out-Null
+          Copy-Item -LiteralPath $module, 'LICENSE', 'README.md' -Destination $packageRoot
+          $hash = (Get-FileHash -LiteralPath $module -Algorithm SHA256).Hash.ToLowerInvariant()
+          $moduleName = Split-Path -Leaf $module
+          "`"$moduleName`" = `"$hash`"`n" |
+            Set-Content -Path "$packageRoot/modules.toml" -Encoding utf8NoBOM
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath "dist/$packageName.zip"
+          "archive=dist/$packageName.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Unix module package
+        if: ${{ runner.os != 'Windows' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tinyflows-module-${{ matrix.id }}
+          path: ${{ steps.unix_package.outputs.archive }}
+          if-no-files-found: error
+
+      - name: Upload Windows module package
+        if: ${{ runner.os == 'Windows' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tinyflows-module-${{ matrix.id }}
+          path: ${{ steps.windows_package.outputs.archive }}
+          if-no-files-found: error
+
+  github-release:
+    name: Create GitHub release
+    needs:
+      - publish-rust
+      - native-bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.publish-rust.outputs.tag }}
+          persist-credentials: false
+          submodules: true
+
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: tinyflows-module-*
+          path: release-assets
+          merge-multiple: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # TinyBus writes the manifest the host compares against, so the format
+      # cannot drift from what the loader parses. `fail-fast: false` above means
+      # a missing runner yields a partial set — refuse it rather than publish a
+      # release some platforms silently cannot install from.
+      - name: Create release checksum manifest with TinyBus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(
+            find release-assets -type f \
+              \( -name '*.tar.gz' -o -name '*.zip' \) \
+              | sort
+          )
+          if [[ ${#assets[@]} -ne 11 ]]; then
+            printf 'expected 11 module archives, found %s:\n' "${#assets[@]}" >&2
+            find release-assets -type f -print >&2 || true
+            exit 1
+          fi
+          checksum_args=()
+          for asset in "${assets[@]}"; do checksum_args+=(--path "$asset"); done
+          cargo run --manifest-path vendor/tinybus/Cargo.toml --locked \
+            --package tinybus --all-features --bin tinybus -- \
+            modules checksum "${checksum_args[@]}" --output release-assets/checksum.toml
+
+      - name: Create draft release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mapfile -t release_files < <(find release-assets -type f | sort)
+          if is_draft="$(gh release view "$RELEASE_TAG" --repo "$REPOSITORY" --json isDraft --jq .isDraft)"; then
+            # Retry an interrupted upload/verification without changing a
+            # release that has already become public.
+            [[ "$is_draft" == true ]]
+            gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${release_files[@]}" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
+
+      # Draft assets need authenticated download. Verify uploaded bytes while
+      # the release is private; a broken archive/module must never be published.
+      - name: Verify the uploaded draft module through TinyBus
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.publish-rust.outputs.next_version }}
+        run: |
+          set -euo pipefail
+          archive="tinyflows-module-${VERSION}-ubuntu-24.04-x86_64.tar.gz"
+          verification_dir="$PWD/target/release-verification"
+          mkdir -p "$verification_dir"
+          gh release download "$RELEASE_TAG" --repo "$REPOSITORY" \
+            --pattern "$archive" --pattern checksum.toml --dir "$verification_dir" --clobber
+          cmp release-assets/checksum.toml "$verification_dir/checksum.toml"
+          sha256="$(sed -n "s/^\"${archive}\" = \"\([0-9a-f]\{64\}\)\"$/\1/p" release-assets/checksum.toml)"
+          test -n "$sha256"
+          (cd "$verification_dir" && printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check)
+          tar -xzf "$verification_dir/$archive" -C "$verification_dir"
+          mapfile -t modules < <(find "$verification_dir" -type f -name libtinyflows_module.so)
+          test "${#modules[@]}" -eq 1
+          TINYFLOWS_MODULE_ARTIFACT="${modules[0]}" bash scripts/verify-module-artifact.sh
+
+      - name: Publish verified module release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish-rust.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --draft=false
