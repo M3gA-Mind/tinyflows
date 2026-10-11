@@ -192,3 +192,20 @@ fn completion_preserves_auto_delete_canceled_during_execution() {
     assert!(!kept.delete_after_run);
     assert_eq!(kept.last_output.as_deref(), Some("done"));
 }
+
+#[test]
+fn completion_preserves_one_shot_reenabled_during_execution() {
+    for (success, remove) in [(false, false), (true, false), (true, true)] {
+        let directory = tempfile::tempdir().unwrap();
+        let options = CronStoreOptions::new(directory.path().join("jobs.db"));
+        let job = add_shell_job(&options, None, Schedule::At { at: Utc::now() }, "once").unwrap();
+        let job = update_job(&options, &job.id, CronJobPatch { delete_after_run: Some(remove), ..Default::default() }).unwrap();
+        assert!(claim_slot(&options, &job, job.next_run).unwrap());
+        update_job(&options, &job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).unwrap();
+        let completion = Completion { remove, disable: !remove, next_run: None, finished_at: Utc::now(), success, output: "done".into() };
+        complete_run(&options, &job, &completion).unwrap();
+        let kept = get_job(&options, &job.id).unwrap();
+        assert!(kept.enabled, "completion overwrote the explicit re-enable");
+        assert_eq!(kept.last_output.as_deref(), Some("done"));
+    }
+}
