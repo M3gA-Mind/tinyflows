@@ -162,18 +162,33 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
 #[tokio::test]
 async fn module_owned_job_storage_preserves_policy_updates_and_run_history() {
     let (_server, host, _) = connections().await;
-    let proxy = host.proxy(schedule::BUS_NAME, schedule::OBJECT_PATH, schedule::INTERFACE).unwrap();
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let storage = json!({"backend":{"kind":"sqlite","path":directory.path().join("jobs.db")},"max_run_history":2,"max_tasks":5});
     let call = |operation| json!({"storage":storage,"operation":operation});
     let created: Value = proxy.call("ScheduleStore", &(call(json!({"op":"add_shell","name":"system_seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seeded"})),)).await.unwrap();
     let id = created["id"].as_str().unwrap();
     let updated: Value = proxy.call("ScheduleStore", &(call(json!({"op":"update","job_id":id,"patch":{"policy":{"retries":4,"single_flight":true}}})),)).await.unwrap();
-    assert_eq!(updated["policy"]["retries"],4);
+    assert_eq!(updated["policy"]["retries"], 4);
     let _: Value = proxy.call("ScheduleStore", &(call(json!({"op":"record_run","job_id":id,"started_at":"2026-01-01T00:00:00Z","finished_at":"2026-01-01T00:00:01Z","status":"ok","output":"ran","duration_ms":1000,"delivery_status":"not_requested"})),)).await.unwrap();
-    let history: Value = proxy.call("ScheduleStore", &(call(json!({"op":"list_runs","job_id":id,"limit":10})),)).await.unwrap();
-    assert_eq!(history[0]["output"],"ran");
-    let list: Value = proxy.call("ScheduleStore", &(call(json!({"op":"list"})),)).await.unwrap();
-    assert_eq!(list[0]["name"],"system_seed");
-    assert_eq!(list[0]["policy"]["single_flight"],true);
+    let history: Value = proxy
+        .call(
+            "ScheduleStore",
+            &(call(json!({"op":"list_runs","job_id":id,"limit":10})),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history[0]["output"], "ran");
+    let list: Value = proxy
+        .call("ScheduleStore", &(call(json!({"op":"list"})),))
+        .await
+        .unwrap();
+    assert_eq!(list[0]["name"], "system_seed");
+    assert_eq!(list[0]["policy"]["single_flight"], true);
 }

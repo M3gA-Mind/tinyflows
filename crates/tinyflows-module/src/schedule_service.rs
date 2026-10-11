@@ -52,6 +52,15 @@ fn failure(error: impl std::fmt::Display) -> Error {
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Schedule")]
 impl ScheduleService {
+    async fn schedule_store(
+        &self,
+        request: tinyflows_bus::schedule::StoreRequest,
+    ) -> Result<Value> {
+        super::schedule_store::Store::request(self.connection.clone(), request)
+            .await
+            .map_err(failure)
+    }
+
     async fn start_scheduler(&self, request: StartScheduler) -> Result<String> {
         let config: SchedulerConfig = serde_json::from_value(request.config).map_err(failure)?;
         let ports = HostCallbacks::ports(self.connection.clone(), request.callback);

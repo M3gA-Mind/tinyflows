@@ -83,8 +83,12 @@ pub struct StoreConfig {
     #[serde(default = "task_limit")]
     pub max_tasks: usize,
 }
-fn history_limit() -> usize { 50 }
-fn task_limit() -> usize { 64 }
+fn history_limit() -> usize {
+    50
+}
+fn task_limit() -> usize {
+    64
+}
 
 /// Module-owned SQLite or a context-bound host document port.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -115,9 +119,23 @@ pub struct StoreRequest {
 /// Supported `operation.op` values. Other fields use existing job/spec/patch
 /// JSON shapes. Run timestamps are RFC3339 and durations are milliseconds.
 pub const STORE_OPERATIONS: &[&str] = &[
-    "add", "add_shell", "add_agent", "add_flow", "find_flow", "list", "get",
-    "remove", "clear", "dedup", "due", "update", "record_last_run",
-    "reschedule", "record_run", "delete_queued_runs", "list_runs",
+    "add",
+    "add_shell",
+    "add_agent",
+    "add_flow",
+    "find_flow",
+    "list",
+    "get",
+    "remove",
+    "clear",
+    "dedup",
+    "due",
+    "update",
+    "record_last_run",
+    "reschedule",
+    "record_run",
+    "delete_queued_runs",
+    "list_runs",
 ];
 
 /// Context-bound document callback interface. The only member is `Document`;
