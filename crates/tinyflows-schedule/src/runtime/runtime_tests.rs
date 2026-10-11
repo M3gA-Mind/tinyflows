@@ -88,7 +88,29 @@ impl Clock for Fixture {
 #[async_trait]
 impl JobStore for Fixture {
     async fn due_jobs(&self, _: DateTime<Utc>) -> Result<Vec<CronJob>> {
-        Ok(self.jobs.lock().unwrap().iter().take(self.max_tasks).cloned().collect())
+        Ok(self
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .take(self.max_tasks)
+            .cloned()
+            .collect())
+    }
+    async fn due_jobs_excluding(
+        &self,
+        _: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        Ok(self
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|job| !excluded.contains(&job.id))
+            .take(self.max_tasks)
+            .cloned()
+            .collect())
     }
     async fn claim_slot(&self, _: &CronJob, _: DateTime<Utc>) -> Result<()> {
         anyhow::ensure!(!self.claim_fails, "durable claim rejected");

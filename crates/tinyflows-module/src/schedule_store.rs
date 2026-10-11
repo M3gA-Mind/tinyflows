@@ -183,6 +183,16 @@ impl tinyflows_schedule::runtime::JobStore for Store {
             Self::Documents(documents) => documents.due_jobs(now).await,
         }
     }
+    async fn due_jobs_excluding(
+        &self,
+        now: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        match self {
+            Self::Sqlite(options) => sql::due_jobs_excluding(options, now, excluded),
+            Self::Documents(documents) => documents.due_jobs_excluding(now, excluded).await,
+        }
+    }
     async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
         let claimed = match self {
             Self::Sqlite(options) => sql::claim_slot(options, job, next)?,

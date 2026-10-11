@@ -58,6 +58,20 @@ pub struct Completion {
 pub trait JobStore: Send + Sync {
     /// Read enabled jobs due at `now` within the store's configured batch limit.
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>>;
+    /// Read due jobs after excluding examined identities, before applying the
+    /// configured batch limit. Bounded stores must override this operation;
+    /// its default fails closed instead of silently starving later jobs.
+    async fn due_jobs_excluding(
+        &self,
+        now: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        anyhow::ensure!(
+            excluded.is_empty(),
+            "job store does not support due-job exclusions"
+        );
+        self.due_jobs(now).await
+    }
     /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
     /// One-shots must be durably disabled before returning success.
     /// Return an error on storage failure or when another writer won the claim.
