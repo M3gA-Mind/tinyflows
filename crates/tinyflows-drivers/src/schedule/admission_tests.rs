@@ -299,3 +299,28 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
         .unwrap();
     assert_eq!(stored.doc, serde_json::json!({"members_json": "{}"}));
 }
+
+#[tokio::test]
+async fn policy_installation_reconciles_legacy_rows_written_before_adoption() {
+    use tinystoragedrivers_core::Precondition;
+    let a = super::test_support::store();
+    let first = a.add_shell_job(None, daily(), "upgraded").await.unwrap();
+    // An older writer during a rolling upgrade did not know the ledger.
+    // All such writers have stopped before installing the operator policy.
+    let mut legacy = first.clone();
+    legacy.id = "legacy-during-upgrade".into();
+    a.docs
+        .put(
+            super::JOBS,
+            &legacy.id,
+            super::codec::job_to_doc(&legacy).unwrap(),
+            Precondition::Absent,
+        )
+        .await
+        .unwrap();
+    assert!(a.set_max_active_jobs(Some(1)).await.is_err());
+    a.set_max_active_jobs(Some(2)).await.unwrap();
+    assert!(a.add_shell_job(None, daily(), "over cap").await.is_err());
+    a.remove_job(&legacy.id).await.unwrap();
+    a.add_shell_job(None, daily(), "new slot").await.unwrap();
+}
