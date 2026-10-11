@@ -30,7 +30,6 @@ async fn trigger_fields_mapped_through_transforms_remain_unverifiable() {
     }
 }
 
-
 #[tokio::test]
 async fn passthrough_trigger_fields_are_unverifiable_but_overwritten_fields_are_known() {
     let graph: WorkflowGraph = serde_json::from_value(json!({

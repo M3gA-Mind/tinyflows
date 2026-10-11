@@ -1,16 +1,31 @@
-//! Conservative field provenance for outputs derived from unavailable caller data.
+//! Field provenance for outputs derived from unavailable caller data.
 
 use super::input_scope::{MockInputs, scope_reads};
 use crate::model::{NodeKind, WorkflowGraph};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type Paths = Vec<Vec<String>>;
+
+#[derive(Clone, Default, PartialEq, Eq)]
+struct Output {
+    opaque: bool,
+    paths: Paths,
+    // Literal overlays close these fields even when the remaining payload is opaque.
+    known: HashSet<String>,
+}
+
+impl Output {
+    fn is_unknown(&self, path: &[String]) -> bool {
+        intersects(&self.paths, path)
+            || (self.opaque && !path.first().is_some_and(|field| self.known.contains(field)))
+    }
+}
 
 pub(super) struct Provenance<'a> {
     graph: &'a WorkflowGraph,
     inputs: &'a MockInputs,
-    outputs: HashMap<String, Paths>,
+    outputs: HashMap<String, Output>,
 }
 
 impl<'a> Provenance<'a> {
@@ -20,51 +35,50 @@ impl<'a> Provenance<'a> {
             inputs,
             outputs: HashMap::new(),
         };
-        // A monotone fixed point handles graph order and dependent chains.
+        // A fixed point handles node declaration order and dependent chains.
         for _ in 0..=graph.nodes.len() {
             let mut changed = false;
             for node in &graph.nodes {
-                let mut paths = Vec::new();
-                if node.kind == NodeKind::Transform {
-                    let set = node.config.get("set").and_then(Value::as_object);
-                    for edge in graph.edges.iter().filter(|edge| edge.to_node == node.id) {
-                        for path in result.outputs.get(&edge.from_node).into_iter().flatten() {
-                            if !path
-                                .first()
-                                .is_some_and(|field| set.is_some_and(|set| set.contains_key(field)))
-                            {
-                                paths.push(path.clone());
+                let mut output = Output::default();
+                if node.kind == NodeKind::Trigger {
+                    output.opaque = true;
+                } else if node.kind == NodeKind::Transform {
+                    let predecessors: Vec<_> = graph
+                        .edges
+                        .iter()
+                        .filter(|edge| edge.to_node == node.id)
+                        .filter_map(|edge| result.outputs.get(&edge.from_node))
+                        .collect();
+                    if let Some(first) = predecessors.first() {
+                        output.known = first.known.clone();
+                    }
+                    for predecessor in predecessors {
+                        output.opaque |= predecessor.opaque;
+                        output.paths.extend(predecessor.paths.iter().cloned());
+                        output
+                            .known
+                            .retain(|field| predecessor.known.contains(field));
+                    }
+                    // TransformNode overlays only `set`, preserving all other fields.
+                    if let Some(Value::Object(fields)) = node.config.get("set") {
+                        for (field, value) in fields {
+                            output.paths.retain(|path| path.first() != Some(field));
+                            if result.value_is_unknown(value, &node.id) {
+                                output.known.remove(field);
+                                output.paths.push(vec![field.clone()]);
+                            } else {
+                                output.known.insert(field.clone());
                             }
                         }
-                    }
-                    for key in ["set", "template"] {
-                        if let Some(Value::Object(fields)) = node.config.get(key) {
-                            for (field, value) in fields {
-                                if result.value_is_unknown(value, &node.id) {
-                                    paths.push(vec![field.clone()]);
-                                }
-                            }
-                        }
-                    }
-                    // Non-field transform expressions can change the whole output.
-                    if node.config.as_object().is_some_and(|config| {
-                        config.iter().any(|(key, value)| {
-                            key != "set"
-                                && key != "template"
-                                && result.value_is_unknown(value, &node.id)
-                        })
-                    }) {
-                        paths.push(Vec::new());
                     }
                 } else if result.value_is_unknown(&node.config, &node.id) {
-                    paths.push(Vec::new());
+                    output.opaque = true;
                 }
-                let entry = result.outputs.entry(node.id.clone()).or_default();
-                for path in paths {
-                    if !entry.contains(&path) {
-                        entry.push(path);
-                        changed = true;
-                    }
+                output.paths.sort();
+                output.paths.dedup();
+                if result.outputs.get(&node.id) != Some(&output) {
+                    result.outputs.insert(node.id.clone(), output);
+                    changed = true;
                 }
             }
             if !changed {
@@ -104,12 +118,11 @@ impl<'a> Provenance<'a> {
                 "run" => true,
                 "nodes" => {
                     let Some((id, rest)) = path.split_first() else {
-                        return self.outputs.values().any(|paths| !paths.is_empty());
+                        return self.outputs.values().any(|output| output.is_unknown(&[]));
                     };
-                    let rest = output_path(rest);
                     self.outputs
                         .get(id)
-                        .is_some_and(|paths| intersects(paths, rest))
+                        .is_some_and(|output| output.is_unknown(output_path(rest)))
                 }
                 "item" | "items" => self
                     .graph
@@ -117,7 +130,7 @@ impl<'a> Provenance<'a> {
                     .iter()
                     .filter(|edge| edge.to_node == node)
                     .any(|edge| {
-                        self.outputs.get(&edge.from_node).is_some_and(|paths| {
+                        self.outputs.get(&edge.from_node).is_some_and(|output| {
                             let path = if scope == "items"
                                 && path.first().is_some_and(|key| key.parse::<usize>().is_ok())
                             {
@@ -125,7 +138,7 @@ impl<'a> Provenance<'a> {
                             } else {
                                 path.as_slice()
                             };
-                            intersects(paths, path)
+                            output.is_unknown(path)
                         })
                     }),
                 _ => false,
