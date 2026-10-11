@@ -60,6 +60,9 @@ const RUN_TIMEOUT_SECS: u64 = 15;
 /// reports is exactly a null read from an upstream node whose real output the
 /// sandbox does produce — see the module doc for the three cases deliberately
 /// skipped instead.
+/// Inline children are checked in node order within the root's depth budget;
+/// their diagnostics include the containing node path. The whole traversal
+/// shares one timeout, and malformed children retain their structural errors.
 ///
 /// # Why the plain mock invoker, and not a validating one
 ///
