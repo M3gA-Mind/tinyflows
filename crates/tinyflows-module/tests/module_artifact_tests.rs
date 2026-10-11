@@ -108,6 +108,76 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert_eq!(state.records.lock().unwrap()[0]["status"], "ok");
     assert_eq!(state.completions.lock().unwrap()[0]["disable"], true);
 
+    assert_eq!(
+        state.records.lock().unwrap()[0]["job_created_at"],
+        "2026-01-01T00:00:00Z"
+    );
+
+    // A held first occurrence must not hide a later job in a one-job batch.
+    // Notify handshakes synchronize the compiled runtime with no sleeps.
+    let deferred = Arc::new(callbacks::State::default());
+    deferred
+        .defer_first
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    connection
+        .serve_at(
+            "/test/DeferredScheduleCallbacks".try_into().unwrap(),
+            callbacks::Callbacks(deferred.clone()),
+        )
+        .await
+        .unwrap();
+    let request = tinyflows_bus::schedule::StartScheduler {
+        scope: "artifact-deferred-scope".into(),
+        callback: tinyflows_bus::schedule::CallbackAddress {
+            destination: "test.ScheduleCallbacks".into(),
+            object_path: "/test/DeferredScheduleCallbacks".into(),
+        },
+        config: json!({}),
+        manual_ticks: true,
+        storage: None,
+    };
+    let handle: String = schedule_proxy
+        .call("StartScheduler", (request,))
+        .await
+        .unwrap();
+    assert_eq!(
+        schedule_proxy
+            .call::<usize>("TickScheduler", (&handle,))
+            .await
+            .unwrap(),
+        1
+    );
+    deferred.started.notified().await;
+    assert_eq!(
+        schedule_proxy
+            .call::<usize>("TickScheduler", (&handle,))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        *deferred.exclusions.lock().unwrap(),
+        [vec!["artifact-flow-job".to_owned()]]
+    );
+    deferred.release.notify_one();
+    schedule_proxy
+        .call::<()>("DrainScheduler", (&handle,))
+        .await
+        .unwrap();
+    schedule_proxy
+        .call::<()>("StopScheduler", (&handle,))
+        .await
+        .unwrap();
+    assert_eq!(deferred.records.lock().unwrap().len(), 2);
+    assert!(
+        deferred
+            .triggers
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|flow| flow == "later-flow")
+    );
+
     // Persist through the actual cdylib for both backend selections. The host
     // forwards document I/O only; schema, policy and schedule behavior is module-owned.
     let directory = tempfile::tempdir().unwrap();
