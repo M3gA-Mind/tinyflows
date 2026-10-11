@@ -395,6 +395,16 @@ async fn mixed_json_input_provenance_preserves_literal_siblings() {
     let errors = unresolvable_tool_args(&parent, &[]).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `known`"), "{errors:?}");
+    let mut wrapper = graph(
+        json!([trigger(), {"id":"nested","kind":"sub_workflow","name":"Nested","config":{"workflow":child,"inputs":{"payload":"=inputs.payload"}}}]),
+        json!([{"from_node":"t","to_node":"nested"}]),
+    );
+    wrapper.inputs = child.inputs.clone();
+    let mut nested = parent;
+    nested.nodes[1].config["workflow"] = serde_json::to_value(wrapper).unwrap();
+    let errors = unresolvable_tool_args(&nested, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `known`"), "{errors:?}");
 }
 
 #[tokio::test]

@@ -76,6 +76,10 @@ impl MockInputs {
             }
             Value::String(expression) if crate::expr::is_expression(expression) => {
                 if let Some(source) = input_path(expression) {
+                    if source.is_empty() && !self.unknown.is_empty() {
+                        out.push(destination.to_vec());
+                        return;
+                    }
                     for unknown in &self.unknown {
                         if source.starts_with(unknown) {
                             out.push(destination.to_vec());
