@@ -25,6 +25,7 @@ struct Admission {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdmissionRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
     // Job ids can contain Mongo-sensitive key characters. Keep the map in a
     // JSON string, matching the cron store's existing nested-value convention.

@@ -263,3 +263,39 @@ async fn installing_policy_fences_an_unlimited_write_already_in_flight() {
     assert!(create.await.unwrap().is_err());
     assert_eq!(a.list_jobs().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
+    let a = super::test_support::store();
+    a.set_max_active_jobs(Some(2)).await.unwrap();
+    let stored = a
+        .docs
+        .get(super::COUNTERS, "admission")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.doc,
+        serde_json::json!({"limit": 2, "members_json": "{}"})
+    );
+    a.add_flow_schedule_job("dot.$key", daily()).await.unwrap();
+    let stored = a
+        .docs
+        .get(super::COUNTERS, "admission")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(stored.doc.get("jobs").is_none());
+    let members: serde_json::Value =
+        serde_json::from_str(stored.doc["members_json"].as_str().unwrap()).unwrap();
+    assert!(members.get("flow:dot.$key").is_some());
+    a.clear_all_jobs().await.unwrap();
+    a.set_max_active_jobs(None).await.unwrap();
+    let stored = a
+        .docs
+        .get(super::COUNTERS, "admission")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.doc, serde_json::json!({"members_json": "{}"}));
+}

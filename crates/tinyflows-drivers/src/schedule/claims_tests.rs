@@ -372,3 +372,51 @@ async fn competing_claims_with_overlapping_snapshots_have_one_winner() {
         1
     );
 }
+
+#[tokio::test]
+async fn completion_already_in_flight_cannot_write_into_a_recreated_job() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let backend = MemoryStorage::new();
+    let setup = CronDocuments::new(docs_in(&backend, "complete-overlap"));
+    let job = setup.add_flow_schedule_job("flow", daily()).await.unwrap();
+    let old = setup
+        .claim_due_job(&job.id, "old", job.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    let gate = Arc::new(tokio::sync::Barrier::new(2));
+    let docs = Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "complete-overlap"),
+        transactions: true,
+        fail_batch: AtomicBool::new(false),
+        batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+    });
+    let completing = CronDocuments::new(docs.clone());
+    let finish = tokio::spawn(async move {
+        completing
+            .complete_claim(&old, old.occurrence(), true, "obsolete", None)
+            .await
+    });
+    while docs.batch_barrier.lock().unwrap().is_some() {
+        tokio::task::yield_now().await;
+    }
+    setup.remove_job(&job.id).await.unwrap();
+    let replacement = setup.add_flow_schedule_job("flow", daily()).await.unwrap();
+    let fresh = setup
+        .claim_due_job(&job.id, "fresh", replacement.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    gate.wait().await;
+    assert!(!finish.await.unwrap().unwrap());
+    assert!(setup.get_job(&job.id).await.unwrap().last_output.is_none());
+    assert!(setup.list_runs(&job.id, 10).await.unwrap().is_empty());
+    assert!(
+        setup
+            .complete_claim(&fresh, replacement.next_run, true, "new incarnation", None)
+            .await
+            .unwrap()
+    );
+    assert_eq!(setup.list_runs(&job.id, 10).await.unwrap().len(), 1);
+}
