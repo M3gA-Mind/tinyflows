@@ -84,7 +84,10 @@ async fn authoring_gate_reports_preserve_prompt_schema_and_language_checks() -> 
                 "output_parser":{"schema":{"properties":{}}}
             }},
             {"id":"code", "name":"Code", "kind":"code",
-                "config":{"language":"shell"}}
+                "config":{"language":"shell"}},
+            {"id":"notify", "name":"Notify", "kind":"tool_call", "config": {
+                "slug":"host:send", "args":{"title":"=nodes.agent.item.json.title"}
+            }}
         ], "edges":[]
     }),)).await?;
     assert!(failures.iter().any(|failure| failure.contains("prompt")), "{failures:?}");
