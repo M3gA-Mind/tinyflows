@@ -300,7 +300,18 @@ fn claimed_history_rejects_a_recreated_flow_job_and_keeps_matching_runs() {
     super::super::remove_job(&options, &first.id).unwrap();
     let replacement =
         super::super::add_flow_schedule_job(&options, "history", first.schedule).unwrap();
-    assert_eq!(replacement.id, first.id);
+    // SQLite ordinarily uses fresh UUIDs. Restore the fixed identity explicitly
+    // to exercise the same imported/seeded-job replacement fence.
+    super::super::schema::with_connection(&options, |connection| {
+        connection.execute(
+            "UPDATE cron_jobs SET id=?1 WHERE id=?2",
+            rusqlite::params![first.id, replacement.id],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let replacement = get_job(&options, &first.id).unwrap();
+    assert_ne!(replacement.created_at, first.created_at);
     assert!(
         super::super::record_claimed_run(&options, &record)
             .unwrap_err()
