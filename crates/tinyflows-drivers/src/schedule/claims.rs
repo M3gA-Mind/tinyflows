@@ -9,7 +9,7 @@ use serde_json::Value;
 use tinyflows_schedule::{
     CronJob, DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output,
 };
-use tinystoragedrivers_core::{Precondition, Versioned, WriteOp};
+use tinystoragedrivers_core::{Capability, Precondition, Versioned, WriteOp};
 use uuid::Uuid;
 
 const LEASE: &str = "occurrence_lease";
@@ -107,6 +107,10 @@ impl CronDocuments {
             bail!("cron store: lease owner must not be empty");
         }
         let expires_at = expiry(now, duration)?;
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
         self.ensure().await?;
         for _ in 0..CAS_ATTEMPTS {
             let Some(stored) = self.docs.get(JOBS, job_id).await.map_err(storage_error)? else {
@@ -176,6 +180,10 @@ impl CronDocuments {
         now: DateTime<Utc>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<bool> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
         self.ensure().await?;
         for _ in 0..CAS_ATTEMPTS {
             let Some(stored) = self
@@ -224,6 +232,10 @@ impl CronDocuments {
         output: &str,
         delivery_status: Option<DeliveryStatus>,
     ) -> Result<bool> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
         self.ensure().await?;
         if finished_at < claim.lease.started_at {
             bail!("cron store: completion precedes acquisition");

@@ -13,8 +13,7 @@ use super::codec;
 use super::codec::{doc_to_run, incarnation, integer, nanos, run_id, run_to_doc, set_last_run};
 use super::jobs::{reschedule, runs_of};
 use super::{
-    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_job, job_not_found,
-    storage_error,
+    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_job, job_not_found, storage_error,
 };
 
 /// The counter document run numbers are drawn from.

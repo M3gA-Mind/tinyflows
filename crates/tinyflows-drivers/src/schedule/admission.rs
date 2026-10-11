@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tinystoragedrivers_core::{
-    DocumentStoreExt, ErrorKind, Precondition, Query, Versioned, WriteOp, WriteResult,
+    Capability, DocumentStoreExt, ErrorKind, Precondition, Query, Versioned, WriteOp, WriteResult,
 };
 
 const ADMISSION: &str = "admission";
@@ -48,6 +48,10 @@ impl CronDocuments {
     /// below the existing count. All participating writers need atomic batches;
     /// unsupported backends fail closed, without a local fallback.
     pub async fn set_max_active_jobs(&self, limit: Option<usize>) -> Result<()> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
         self.ensure().await?;
         for _ in 0..CAS_ATTEMPTS {
             let stored = self.admission().await?;
@@ -128,6 +132,35 @@ impl CronDocuments {
         next: Option<Value>,
         mut extra: Vec<WriteOp>,
     ) -> Result<Vec<WriteResult>> {
+        if !self.docs.capabilities().contains(Capability::Transactions) {
+            // This backend cannot install admission policy, so absent policy
+            // is a stable fact, not a race with another participating writer.
+            if self
+                .docs
+                .get(COUNTERS, ADMISSION)
+                .await
+                .map_err(storage_error)?
+                .is_some()
+                || !extra.is_empty()
+            {
+                anyhow::bail!("cron store: transactions required for stored admission policy");
+            }
+            let precondition = previous.map_or(Precondition::Absent, Versioned::unchanged);
+            return match next {
+                Some(doc) => self
+                    .docs
+                    .put(JOBS, id, doc, precondition)
+                    .await
+                    .map(|version| vec![WriteResult::Put { version }])
+                    .map_err(storage_error),
+                None => self
+                    .docs
+                    .delete(JOBS, id, precondition)
+                    .await
+                    .map(|removed| vec![WriteResult::Delete { removed }])
+                    .map_err(storage_error),
+            };
+        }
         let ledger = self.admission().await?;
         let mut state: Admission = serde_json::from_value(ledger.doc.clone())?;
         let owns = match (previous, state.jobs.get(id)) {
@@ -140,7 +173,16 @@ impl CronDocuments {
                 tinystoragedrivers_core::StorageError::conflict("cron job incarnation changed"),
             ));
         }
-        let precondition = previous.map_or(Precondition::Absent, Versioned::unchanged);
+        let current = self.docs.get(JOBS, id).await.map_err(storage_error)?;
+        let precondition = match (previous, current.as_ref()) {
+            (None, None) => Precondition::Absent,
+            (Some(old), Some(current)) if old.doc == current.doc => current.unchanged(),
+            _ => {
+                return Err(storage_error(
+                    tinystoragedrivers_core::StorageError::conflict("cron job changed"),
+                ));
+            }
+        };
         let op = match next {
             Some(doc) => {
                 state.jobs.insert(id.into(), member(&doc)?);
