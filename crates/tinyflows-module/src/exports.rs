@@ -49,7 +49,14 @@ fn manifest() -> TbSlice {
                     tinyflows_bus::schedule::METHODS,
                 ),
             ],
-            requires: vec![],
+            requires: vec![Dependency {
+                interface: InterfaceVersion::consumed(
+                    InterfaceName::new(tinyflows_bus::HOST_INTERFACE).expect("static interface"),
+                    version.clone(),
+                ),
+                optional: true,
+                reason: String::new(),
+            }],
             environment: vec![],
             capabilities: vec![],
             lazy_init: false,

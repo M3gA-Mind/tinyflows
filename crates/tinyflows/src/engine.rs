@@ -279,6 +279,7 @@ use routing::{
 };
 
 mod api;
+pub(crate) use api::run_preflight_with_observer;
 pub(crate) use api::run_sub_workflow;
 pub use api::{
     MAX_GRAPH_CONCURRENCY, MAX_SUB_WORKFLOW_DEPTH, run, run_cancellable,

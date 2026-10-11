@@ -53,6 +53,29 @@ pub async fn run_with_observer(
     Ok(outcome)
 }
 
+/// Observe a preflight child with the traversal's inherited depth counters.
+/// The overlay takes precedence over any cap on the child's own trigger.
+pub(crate) async fn run_preflight_with_observer(
+    workflow: &CompiledWorkflow,
+    input: RunInput,
+    capabilities: &Capabilities,
+    observer: &Arc<dyn RunObserver>,
+    nesting: (u64, u64),
+) -> Result<RunOutcome> {
+    let (_graph, _thread_id, outcome, _run_ids) = build_and_run(
+        workflow,
+        input,
+        capabilities,
+        observer,
+        RunConfig::new(workflow)?.with_overlay(json!({
+            "sub_workflow_depth": nesting.0,
+            "max_sub_workflow_depth": nesting.1,
+        })),
+    )
+    .await?;
+    Ok(outcome)
+}
+
 /// Like [`run`], but observes `token`: cancelling it stops the run from
 /// scheduling further node work at the next node boundary, and the returned
 /// [`RunOutcome`] has [`cancelled`](RunOutcome::cancelled) set. A node already

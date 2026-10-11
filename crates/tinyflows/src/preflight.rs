@@ -17,10 +17,12 @@
 //! A gate that refuses a graph that would have worked is worse than no gate, so
 //! this one skips more than it reports:
 //!
-//! - **Trigger-scoped data.** The sandbox runs on an empty trigger payload, so
+//! - **Caller-supplied data.** The sandbox runs on an empty trigger payload, so
 //!   anything reading `run`, or reading `item`/`items` fed entirely by the
 //!   trigger, is null *here* and populated in a real run. Rejecting those would
-//!   reject nearly every workflow ever written.
+//!   reject nearly every workflow ever written. Declared workflow inputs
+//!   likewise carry runtime data. Child mappings known to be literal remain
+//!   checkable; nested reads from dynamic child inputs are unverifiable.
 //! - **Opaque upstream tool output.** A mock renders a `tool_call` as an echo
 //!   and can never produce the provider's real output fields, so a binding onto
 //!   one is *unverifiable*, not broken. A dry run reports it; this refuses it
@@ -41,6 +43,14 @@ use crate::caps::mock_schema_aware::{SchemaAwareMockAgentRunner, SchemaAwareMock
 use crate::model::{NodeKind, WorkflowGraph};
 use crate::observability::CapturingObserver;
 
+#[path = "preflight_inputs.rs"]
+mod input_scope;
+use input_scope::MockInputs;
+#[path = "preflight_provenance.rs"]
+mod provenance;
+#[path = "preflight_traversal.rs"]
+mod traversal;
+
 /// Wall-clock bound on the sandbox run.
 ///
 /// Deliberately short. An opt-in dry run can afford to be slow; this one is
@@ -60,6 +70,9 @@ const RUN_TIMEOUT_SECS: u64 = 15;
 /// reports is exactly a null read from an upstream node whose real output the
 /// sandbox does produce — see the module doc for the three cases deliberately
 /// skipped instead.
+/// Inline children are checked in node order within the root's depth budget;
+/// their diagnostics include the containing node path. The whole traversal
+/// shares one timeout, and malformed children retain their structural errors.
 ///
 /// # Why the plain mock invoker, and not a validating one
 ///
@@ -79,6 +92,32 @@ pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
 ) -> Vec<String> {
+    unresolvable_tool_args_with_resolver(
+        graph,
+        native_slug_prefixes,
+        None::<&dyn crate::caps::WorkflowResolver>,
+    )
+    .await
+}
+
+/// Preflight saved children with the host resolver as well as inline children.
+/// Lookup failures remain best-effort skips; all lookups and mock runs share
+/// the root depth budget and the whole-traversal deadline.
+pub async fn unresolvable_tool_args_with_resolver<R: crate::caps::WorkflowResolver + ?Sized>(
+    graph: &WorkflowGraph,
+    native_slug_prefixes: &[&str],
+    host: Option<&R>,
+) -> Vec<String> {
+    traversal::check(graph, native_slug_prefixes, host).await
+}
+
+async fn graph_unresolvable_tool_args(
+    graph: &WorkflowGraph,
+    native_slug_prefixes: &[&str],
+    inputs: MockInputs,
+    resolver: Arc<dyn crate::caps::WorkflowResolver>,
+    nesting: (u64, u64),
+) -> Vec<String> {
     let Ok(compiled) = crate::compiler::compile(graph) else {
         return Vec::new();
     };
@@ -90,10 +129,13 @@ pub async fn unresolvable_tool_args(
     // reject a correct graph (which is why `propose_workflow` was rejecting
     // valid graphs). The schema-aware mock LLM honors the schema instead.
     caps.llm = Arc::new(SchemaAwareMockLlm);
+    caps.resolver = resolver;
 
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();
-    let run = crate::engine::run_with_observer(&compiled, json!({}), &caps, &observer_dyn);
+    let input = crate::engine::RunInput::new(json!({})).with_inputs(inputs.values.clone());
+    let run =
+        crate::engine::run_preflight_with_observer(&compiled, input, &caps, &observer_dyn, nesting);
     match tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), run).await {
         Ok(Ok(_)) => {}
         // A timeout or sandbox execution error is a different class of
@@ -123,6 +165,7 @@ pub async fn unresolvable_tool_args(
         .find(|n| n.kind == NodeKind::Trigger)
         .map(|n| n.id.as_str());
 
+    let provenance = provenance::Provenance::new(graph, &inputs);
     let mut errors = Vec::new();
     for step in observer.steps() {
         let Some(&slug) = tool_call_slugs.get(step.node_id.as_str()) else {
@@ -144,7 +187,10 @@ pub async fn unresolvable_tool_args(
             let Some(field) = diag.location.strip_prefix("args.") else {
                 continue;
             };
-            if is_trigger_scoped_expression(&diag.expression, graph, &step.node_id, trigger_id) {
+            if inputs.is_unverifiable(&diag.expression)
+                || provenance.is_unverifiable(&diag.expression, &step.node_id)
+                || is_trigger_scoped_expression(&diag.expression, graph, &step.node_id, trigger_id)
+            {
                 // Legitimately empty in this gate's `{}` mock run — the real
                 // trigger (webhook/app-event/manual) will populate it. Not
                 // the broken-wiring case this gate exists to catch.
@@ -381,3 +427,19 @@ pub fn mock_opaque_tool_call_upstream_ref<'a>(
 #[cfg(test)]
 #[path = "preflight_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "preflight_uncertainty_tests.rs"]
+mod uncertainty_tests;
+
+#[cfg(test)]
+#[path = "preflight_input_provenance_tests.rs"]
+mod input_provenance_tests;
+
+#[cfg(test)]
+#[path = "preflight_traversal_tests.rs"]
+mod traversal_tests;
+
+#[cfg(test)]
+#[path = "preflight_mapping_tests.rs"]
+mod mapping_tests;

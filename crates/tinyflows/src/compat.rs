@@ -34,7 +34,7 @@
 use std::collections::HashSet;
 
 mod referenced;
-pub use referenced::referenced_workflow_errors;
+pub use referenced::{referenced_workflow_errors, referenced_workflow_errors_async};
 
 use crate::model::{NodeKind, WorkflowGraph};
 

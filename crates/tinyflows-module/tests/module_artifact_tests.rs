@@ -10,6 +10,26 @@ use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
 use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
 
+struct HostCallback;
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
+impl HostCallback {
+    async fn resolve_workflow(&self, _: String) -> tinybus::Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+    async fn check_gate(
+        &self,
+        stage: String,
+        _: serde_json::Value,
+    ) -> tinybus::Result<Vec<String>> {
+        Ok(if stage == "connections" {
+            vec!["artifact callback refused account".into()]
+        } else {
+            vec![]
+        })
+    }
+}
+
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
@@ -18,6 +38,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let broker = Broker::new();
     let host = ModuleHost::new(broker.clone());
     let info = host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    assert!(
+        info.manifest
+            .requires
+            .iter()
+            .any(|dependency| dependency.optional
+                && dependency.interface.interface.as_str() == tinyflows_bus::HOST_INTERFACE)
+    );
     let provided = info
         .manifest
         .provides
@@ -275,6 +302,30 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     );
 
     let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
+    connection
+        .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
+        .await
+        .unwrap();
+    connection
+        .request_name("test.ArtifactAuthoringHost")
+        .await
+        .unwrap();
+    let failures: Vec<String> = proxy
+        .call(
+            methods::BUILDER_FAILURES,
+            (
+                json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
+                tinyflows_bus::AuthoringHost {
+                    bus_name: "test.ArtifactAuthoringHost".into(),
+                    object_path: "/authoring_host".into(),
+                },
+                Vec::<String>::new(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures, ["artifact callback refused account"]);
+
     let report: GraphValidation = proxy
         .call(
             methods::VALIDATE_GRAPH,
@@ -314,4 +365,43 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("=nodes.fetch.item.json.title"));
+
+    let failures: Vec<String> = proxy
+        .call(
+            methods::AUTHORING_FAILURES,
+            (json!({
+                "nodes":[{"id":"code", "name":"Code", "kind":"code",
+                          "config":{"language":"shell"}}], "edges":[]
+            }),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("language"));
+
+    let graph = json!({"nodes":[
+        {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
+        {"id":"shape", "name":"Shape", "kind":"transform",
+         "config":{"set":{"subject":{}}}},
+        {"id":"send", "name":"Send", "kind":"tool_call",
+         "config":{"slug":"host:send", "args":{"subject":"=nodes.shape.item.subject.missing"}}}
+    ], "edges":[{"from_node":"t", "to_node":"shape"},
+                 {"from_node":"shape", "to_node":"send"}]});
+    let failures: Vec<String> = proxy
+        .call(
+            methods::UNRESOLVABLE_TOOL_ARGS,
+            (graph.clone(), Vec::<String>::new()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("subject"));
+    let failures: Vec<String> = proxy
+        .call(
+            methods::UNRESOLVABLE_TOOL_ARGS,
+            (graph, vec!["host:".to_owned()]),
+        )
+        .await
+        .unwrap();
+    assert!(failures.is_empty(), "{failures:?}");
 }
