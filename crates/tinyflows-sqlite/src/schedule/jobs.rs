@@ -220,13 +220,7 @@ pub fn list_jobs(opts: &CronStoreOptions) -> Result<Vec<CronJob>> {
 
         let mut jobs = Vec::new();
         for row in rows {
-            let job = row?;
-            if !excluded.contains(&job.id) {
-                jobs.push(job);
-                if jobs.len() == opts.max_tasks.max(1) {
-                    break;
-                }
-            }
+            jobs.push(row?);
         }
         Ok(jobs)
     })
@@ -373,7 +367,13 @@ pub fn due_jobs_excluding(
 
         let mut jobs = Vec::new();
         for row in rows {
-            jobs.push(row?);
+            let job = row?;
+            if !excluded.contains(&job.id) {
+                jobs.push(job);
+                if jobs.len() == opts.max_tasks.max(1) {
+                    break;
+                }
+            }
         }
         Ok(jobs)
     })
