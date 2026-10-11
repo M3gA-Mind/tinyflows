@@ -11,6 +11,7 @@ pub(super) async fn check(
     host: Option<&dyn crate::caps::WorkflowResolver>,
 ) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
+    let completed = std::sync::Mutex::new(Vec::new());
     let check = async {
         let mut saved: std::collections::HashMap<String, WorkflowGraph> =
             std::collections::HashMap::new();
@@ -57,19 +58,17 @@ pub(super) async fn check(
         }
         let resolver: Arc<dyn crate::caps::WorkflowResolver> = Arc::new(resolver);
         let mut pending = vec![(graph.clone(), 0_u64, String::new(), MockInputs::root(graph))];
-        let mut errors = Vec::new();
         while let Some((current, depth, prefix, inputs)) = pending.pop() {
-            errors.extend(
-                graph_unresolvable_tool_args(
-                    &current,
-                    native_slug_prefixes,
-                    inputs.clone(),
-                    resolver.clone(),
-                )
-                .await
-                .into_iter()
-                .map(|message| format!("{prefix}{message}")),
-            );
+            let findings = graph_unresolvable_tool_args(
+                &current,
+                native_slug_prefixes,
+                inputs.clone(),
+                resolver.clone(),
+            )
+            .await
+            .into_iter()
+            .map(|message| format!("{prefix}{message}"));
+            completed.lock().expect("completed checks").extend(findings);
             if depth >= max_depth {
                 continue;
             }
@@ -99,11 +98,21 @@ pub(super) async fn check(
                 }
             }
         }
-        errors
     };
-    // One bound for the whole traversal, rather than a fresh deadline for
-    // every child. An incomplete mock run remains a best-effort skip.
-    tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), check)
+    within_deadline(check, &completed).await
+}
+
+/// Bound unfinished work while retaining diagnostics from settled mock runs.
+pub(super) async fn within_deadline(
+    check: impl std::future::Future<Output = ()>,
+    completed: &std::sync::Mutex<Vec<String>>,
+) -> Vec<String> {
+    if tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), check)
         .await
-        .unwrap_or_default()
+        .is_err()
+    {
+        Vec::new()
+    } else {
+        std::mem::take(&mut *completed.lock().expect("completed checks"))
+    }
 }

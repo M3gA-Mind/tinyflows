@@ -72,3 +72,33 @@ async fn dynamic_workflow_ids_do_not_resolve_unrelated_literal_catalog_entries()
             .await;
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+#[tokio::test(start_paused = true)]
+async fn traversal_timeout_retains_errors_from_completed_mock_runs() {
+    let settled = graph(
+        json!([trigger(), {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":{}}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=item.subject.missing"}}}]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    let completed = std::sync::Mutex::new(Vec::new());
+    let check = async {
+        let findings = graph_unresolvable_tool_args(
+            &settled,
+            &[],
+            MockInputs::root(&settled),
+            Arc::new(crate::caps::mock::MockWorkflowResolver::default()),
+        )
+        .await;
+        assert_eq!(
+            findings.len(),
+            1,
+            "the settled engine run must reject the known missing field"
+        );
+        completed.lock().unwrap().extend(findings);
+        // A later lookup or child check never answers; virtual time reaches the shared deadline.
+        std::future::pending::<()>().await;
+    };
+    let errors = traversal::within_deadline(check, &completed).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+}
