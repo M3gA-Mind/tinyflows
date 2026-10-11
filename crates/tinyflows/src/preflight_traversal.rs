@@ -28,9 +28,13 @@ pub(super) async fn check(
                     if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
                         lookup.push((child, depth + 1));
                     }
-                } else if let (Some(host), Some(id)) =
-                    (host, node.config.get("workflow_id").and_then(Value::as_str))
-                {
+                } else if let (Some(host), Some(id)) = (
+                    host,
+                    node.config
+                        .get("workflow_id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !crate::expr::is_expression(id)),
+                ) {
                     let child_depth = depth + 1;
                     if shallowest.get(id).is_none_or(|seen| child_depth < *seen) {
                         let child = if let Some(child) = saved.get(id) {

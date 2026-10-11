@@ -68,7 +68,8 @@ async fn mixed_known_inputs_and_runtime_scopes_keep_child_values_unverifiable() 
         json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}]),
         json!([{"from_node":"t","to_node":"send"}]),
     );
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
     for mapping in ["=.inputs.base + .run.extra", "=inputs.a // run.b"] {
         let root = graph(
             json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":mapping}}}]),

@@ -67,6 +67,8 @@ async fn dynamic_workflow_ids_do_not_resolve_unrelated_literal_catalog_entries()
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
     );
     let host = SavedHost(HashMap::from([("=run.workflow_id".into(), leaf)]));
-    let errors = unresolvable_tool_args_with_resolver(&saved_child("=run.workflow_id"), &[], Some(&host)).await;
+    let errors =
+        unresolvable_tool_args_with_resolver(&saved_child("=run.workflow_id"), &[], Some(&host))
+            .await;
     assert!(errors.is_empty(), "{errors:?}");
 }

@@ -75,6 +75,13 @@ impl MockInputs {
                 }
             }
             Value::String(expression) if crate::expr::is_expression(expression) => {
+                if scope_reads(expression)
+                    .iter()
+                    .any(|(scope, _)| scope != "inputs")
+                {
+                    out.push(destination.to_vec());
+                    return;
+                }
                 if let Some(source) = input_path(expression) {
                     if source.is_empty() && !self.unknown.is_empty() {
                         out.push(destination.to_vec());
@@ -223,7 +230,10 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
                 && (bytes[start - 2].is_ascii_alphanumeric()
                     || matches!(bytes[start - 2], b'_' | b']'));
             let root = body[..start].trim().is_empty()
-                || (start > 0 && bytes[start - 1] == b'.' && !nested);
+                || (start > 0 && bytes[start - 1] == b'.' && !nested)
+                || (!nested
+                    && body[i..].starts_with(['.', '['])
+                    && (start == 0 || bytes[start - 1] != b'$'));
             if root && matches!(scope, "inputs" | "run" | "item" | "items" | "nodes") {
                 let path = input_path(&format!("=inputs{}", &body[i..])).unwrap_or_default();
                 reads.push((scope.to_owned(), path));

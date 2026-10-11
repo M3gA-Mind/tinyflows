@@ -71,7 +71,17 @@ pub async fn builder_failures(
     Ok(crate::preflight::unresolvable_tool_args_with_resolver(
         graph,
         native_slug_prefixes,
-        Some(host),
+        Some(&GateResolver(host)),
     )
     .await)
+}
+
+/// Forward saved-workflow lookup without Rust 1.86 trait-object upcasting.
+struct GateResolver<'a>(&'a dyn BuilderGateHost);
+
+#[async_trait::async_trait]
+impl WorkflowResolver for GateResolver<'_> {
+    async fn resolve(&self, id: &str) -> Result<WorkflowGraph> {
+        self.0.resolve(id).await
+    }
 }
