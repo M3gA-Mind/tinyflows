@@ -58,3 +58,15 @@ async fn shallower_saved_workflow_visits_discover_descendants_with_remaining_bud
         "{errors:?}"
     );
 }
+
+#[tokio::test]
+async fn dynamic_workflow_ids_do_not_resolve_unrelated_literal_catalog_entries() {
+    let leaf = graph(
+        json!([trigger(), {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":{}}}},
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=item.subject.missing"}}}]),
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    );
+    let host = SavedHost(HashMap::from([("=run.workflow_id".into(), leaf)]));
+    let errors = unresolvable_tool_args_with_resolver(&saved_child("=run.workflow_id"), &[], Some(&host)).await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
