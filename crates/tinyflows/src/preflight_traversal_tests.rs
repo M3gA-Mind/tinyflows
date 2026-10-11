@@ -102,3 +102,17 @@ async fn traversal_timeout_retains_errors_from_completed_mock_runs() {
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `subject`"), "{errors:?}");
 }
+
+#[tokio::test]
+async fn expression_workflow_ids_are_not_passed_to_the_saved_catalog() {
+    struct RejectLookup;
+    #[async_trait::async_trait]
+    impl crate::caps::WorkflowResolver for RejectLookup {
+        async fn resolve(&self, id: &str) -> crate::error::Result<WorkflowGraph> {
+            panic!("dynamic ID passed to catalog: {id}");
+        }
+    }
+    let root = saved_child("=run.workflow_id");
+    let errors = unresolvable_tool_args_with_resolver(&root, &[], Some(&RejectLookup)).await;
+    assert!(errors.is_empty(), "{errors:?}");
+}
