@@ -196,3 +196,7 @@ async fn compare_and_swap(
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "claims_tests.rs"]
+mod claims_tests;
