@@ -56,10 +56,11 @@ impl Admission {
 fn member(doc: &Value) -> Result<Member> {
     Ok(Member {
         incarnation: incarnation(doc).map(str::to_owned),
-        enabled: doc
-            .get("enabled")
-            .and_then(Value::as_bool)
-            .ok_or_else(|| anyhow!("cron store: invalid enabled state"))?,
+        enabled: match doc.get("enabled") {
+            None => false,
+            Some(Value::Bool(enabled)) => *enabled,
+            Some(_) => return Err(anyhow!("cron store: invalid enabled state")),
+        },
     })
 }
 

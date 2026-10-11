@@ -114,13 +114,18 @@ async fn a_legacy_row_without_enabled_is_imported_as_disabled() {
     use tinystoragedrivers_core::Precondition;
     let backend = MemoryStorage::new();
     let a = CronDocuments::new(Arc::new(FaultDocuments {
-        inner: docs_in(&backend, "legacy-disabled"), transactions: false,
-        fail_batch: AtomicBool::new(false), batch_barrier: Default::default(),
+        inner: docs_in(&backend, "legacy-disabled"),
+        transactions: false,
+        fail_batch: AtomicBool::new(false),
+        batch_barrier: Default::default(),
     }));
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
     let mut doc = a.docs.get(JOBS, &job.id).await.unwrap().unwrap().doc;
     doc.as_object_mut().unwrap().remove("enabled");
-    a.docs.put(JOBS, &job.id, doc, Precondition::None).await.unwrap();
+    a.docs
+        .put(JOBS, &job.id, doc, Precondition::None)
+        .await
+        .unwrap();
     let b = CronDocuments::new(docs_in(&backend, "legacy-disabled"));
     assert!(!b.get_job(&job.id).await.unwrap().enabled);
     b.set_max_active_jobs(Some(1)).await.unwrap();
