@@ -433,7 +433,7 @@ async fn deferred_active_head_does_not_starve_later_due_jobs_in_a_limited_batch(
     *fixture.jobs.lock().unwrap() = vec![first.clone(), second.clone()];
     let scope = uuid::Uuid::new_v4().to_string();
     let held = RunClaim::acquire(&scope, &first.id).unwrap();
-    let mut scheduler = Scheduler::new(scope, RuntimeConfig::default(), fixture.ports());
+    let mut scheduler = Scheduler::new(scope, SchedulerConfig::default(), fixture.ports());
     assert_eq!(scheduler.tick().await.unwrap(), 1);
     scheduler.drain().await.unwrap();
     assert_eq!(fixture.records.lock().unwrap()[0].job_id, second.id);
