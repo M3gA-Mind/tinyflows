@@ -31,7 +31,7 @@ async fn an_arg_reading_a_field_an_upstream_node_never_produces_is_refused() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": null } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "GMAIL_SEND_EMAIL",
                 "args": { "subject": "=nodes.shape.item.subject" }
@@ -103,7 +103,7 @@ async fn a_hosts_native_tool_call_is_skipped_entirely() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": null } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "oh:send_message",
                 "args": { "subject": "=nodes.shape.item.subject" }
@@ -131,7 +131,7 @@ async fn a_dynamic_slug_is_skipped() {
         json!([
             trigger(),
             { "id": "shape", "kind": "transform", "name": "Shape",
-              "config": { "expression": "={ body: \"hi\" }" } },
+              "config": { "set": { "subject": null } } },
             { "id": "send", "kind": "tool_call", "name": "Send", "config": {
                 "slug": "=item.slug",
                 "args": { "subject": "=nodes.shape.item.subject" }
@@ -305,12 +305,18 @@ async fn runtime_json_child_inputs_are_unverifiable_without_hiding_graph_output_
         let errors = unresolvable_tool_args(&parent, &[]).await;
         assert!(errors.is_empty(), "{expression}: {errors:?}");
     }
-    child.nodes.insert(1, serde_json::from_value(json!({"id":"shape","kind":"transform","name":"Shape","config":{"set":{"actual":"ok"}}})).unwrap());
+    child.nodes.insert(
+        1,
+        serde_json::from_value(
+            json!({"id":"shape","kind":"transform","name":"Shape","config":{"set":{"actual":{}}}}),
+        )
+        .unwrap(),
+    );
     child.edges = serde_json::from_value(
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
     )
     .unwrap();
-    child.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.missing");
+    child.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.actual.missing");
     let parent = graph(
         json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
         json!([{"from_node":"t","to_node":"child"}]),
@@ -326,9 +332,9 @@ async fn dynamic_json_child_inputs_are_unverifiable_but_literal_missing_fields_a
     let mut child = graph(
         json!([
             trigger(),
-            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"hello"}}},
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":{}}}},
             {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
-                "subject":"=inputs.payload.subject", "body":"=nodes.shape.item.missing"
+                "subject":"=inputs.payload.subject", "body":"=nodes.shape.item.body.missing"
             }}}
         ]),
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
@@ -471,10 +477,10 @@ async fn outputs_derived_from_unknown_inputs_remain_unverifiable() {
     let mut g = graph(
         json!([
             trigger(),
-            {"id":"stable","kind":"transform","name":"Stable","config":{"set":{"body":"hello"}}},
+            {"id":"stable","kind":"transform","name":"Stable","config":{"set":{"body":{}}}},
             {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"subject":"=if .inputs.enabled then \"hello\" else null end"}}},
             {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{
-                "subject":"=nodes.shape.item.subject", "body":"=nodes.stable.item.missing"
+                "subject":"=nodes.shape.item.subject", "body":"=nodes.stable.item.body.missing"
             }}}
         ]),
         json!([{"from_node":"t","to_node":"stable"},{"from_node":"stable","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
