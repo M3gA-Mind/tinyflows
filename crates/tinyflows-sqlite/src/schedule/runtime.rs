@@ -26,6 +26,7 @@ pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>
         };
         if !current.enabled
             || current.created_at != job.created_at
+            || !current.same_execution_definition(job)
             || current.schedule != job.schedule
             || current.next_run != job.next_run
         {

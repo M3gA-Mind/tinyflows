@@ -18,6 +18,7 @@ struct Fixture {
     fail_count: usize,
     permanent: bool,
     delivery_fails: bool,
+    delivery_status_failed: bool,
     claim_fails: bool,
 }
 impl Fixture {
@@ -33,6 +34,7 @@ impl Fixture {
             fail_count: 0,
             permanent: false,
             delivery_fails: false,
+            delivery_status_failed: false,
             claim_fails: false,
         })
     }
@@ -116,7 +118,11 @@ impl RunDelivery for Fixture {
         if self.delivery_fails {
             anyhow::bail!("delivery unavailable");
         }
-        Ok(DeliveryStatus::NotRequested)
+        Ok(if self.delivery_status_failed {
+            DeliveryStatus::Failed
+        } else {
+            DeliveryStatus::NotRequested
+        })
     }
 }
 #[async_trait]
@@ -355,4 +361,63 @@ async fn one_shot_execution_requires_a_durable_claim() {
     assert!(scheduler.dispatch(vec![job]).await.is_err());
     scheduler.drain().await.unwrap();
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn execution_definition_includes_every_execution_and_delivery_input() {
+    let f = Fixture::new();
+    let job = f.job();
+    let original = serde_json::to_value(&job).unwrap();
+    for (field, value) in [
+        ("command", serde_json::json!("changed")),
+        ("prompt", serde_json::json!("changed")),
+        ("job_type", serde_json::json!("agent")),
+        ("session_target", serde_json::json!("main")),
+        ("model", serde_json::json!("changed")),
+        ("agent_id", serde_json::json!("changed")),
+        (
+            "delivery",
+            serde_json::json!({"mode":"announce","best_effort":false}),
+        ),
+        (
+            "origin",
+            serde_json::json!({"kind":"web","thread_id":"changed"}),
+        ),
+        (
+            "policy",
+            serde_json::json!({"retries":0,"single_flight":true}),
+        ),
+        ("delete_after_run", serde_json::json!(true)),
+    ] {
+        let mut edited = original.clone();
+        edited[field] = value;
+        let edited: CronJob = serde_json::from_value(edited).unwrap();
+        assert!(!job.same_execution_definition(&edited), "{field}");
+    }
+    let mut bookkeeping = job.clone();
+    bookkeeping.name = Some("renamed".into());
+    bookkeeping.last_output = Some("completed".into());
+    assert!(job.same_execution_definition(&bookkeeping));
+}
+
+#[tokio::test]
+async fn explicit_failed_delivery_prevents_auto_delete_only_when_required() {
+    for best_effort in [false, true] {
+        let mut f = Fixture::new();
+        Arc::get_mut(&mut f).unwrap().delivery_status_failed = true;
+        let mut job = f.job();
+        job.schedule = Schedule::At { at: f.now() };
+        job.delete_after_run = true;
+        job.delivery.best_effort = best_effort;
+        let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), f.ports());
+        scheduler.dispatch(vec![job]).await.unwrap();
+        scheduler.drain().await.unwrap();
+        let completions = f.completions.lock().unwrap();
+        assert_eq!(completions[0].success, best_effort);
+        assert_eq!(completions[0].remove, best_effort);
+        assert_eq!(completions[0].disable, !best_effort);
+        let records = f.records.lock().unwrap();
+        assert_eq!(records[0].status, if best_effort { "ok" } else { "error" });
+        assert_eq!(records[0].delivery_status, Some(DeliveryStatus::Failed));
+    }
 }

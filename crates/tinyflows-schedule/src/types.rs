@@ -332,6 +332,23 @@ pub struct CronJob {
     pub origin: Option<JobOrigin>,
 }
 
+impl CronJob {
+    /// Compare the inputs that determine execution and delivery, excluding
+    /// display names and last-run bookkeeping that may change independently.
+    pub fn same_execution_definition(&self, other: &Self) -> bool {
+        self.command == other.command
+            && self.prompt == other.prompt
+            && self.job_type == other.job_type
+            && self.session_target == other.session_target
+            && self.model == other.model
+            && self.agent_id == other.agent_id
+            && self.delivery == other.delivery
+            && self.origin == other.origin
+            && self.policy == other.policy
+            && self.delete_after_run == other.delete_after_run
+    }
+}
+
 /// What happened to a run's result after the run finished.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
