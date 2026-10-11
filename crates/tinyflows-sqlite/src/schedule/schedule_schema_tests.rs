@@ -63,6 +63,7 @@ fn legacy_database_is_migrated_in_place_and_keeps_its_rows() {
 
     let opts = CronStoreOptions::new(&path);
     let job = get_job(&opts, "old").unwrap();
+    assert_eq!(job.claim_generation, 0);
     assert_eq!(job.command, "echo old");
     assert_eq!(job.expression, "*/5 * * * *");
     assert!(job.enabled);

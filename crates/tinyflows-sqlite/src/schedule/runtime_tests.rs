@@ -357,7 +357,12 @@ fn old_one_shot_completion_cannot_delete_a_subsequent_claim() {
         },
     )
     .unwrap();
+    assert!(
+        !claim_slot(&options, &job, job.next_run).unwrap(),
+        "stale due selection reclaimed the occurrence"
+    );
     assert!(claim_slot(&options, &newer, newer.next_run).unwrap());
+    assert_eq!(get_job(&options, &job.id).unwrap().claim_generation, 2);
     let completion = Completion {
         remove: true,
         disable: false,

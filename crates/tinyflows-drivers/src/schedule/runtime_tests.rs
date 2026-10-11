@@ -369,7 +369,12 @@ async fn old_one_shot_completion_cannot_delete_a_subsequent_claim() {
         )
         .await
         .unwrap();
+    assert!(
+        !store.claim_slot(&job, job.next_run).await.unwrap(),
+        "stale due selection reclaimed the occurrence"
+    );
     assert!(store.claim_slot(&newer, newer.next_run).await.unwrap());
+    assert_eq!(store.get_job(&job.id).await.unwrap().claim_generation, 2);
     let completion = Completion {
         remove: true,
         disable: false,

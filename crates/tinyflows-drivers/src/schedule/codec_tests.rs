@@ -170,3 +170,24 @@ fn nanoseconds_saturate_toward_the_side_they_overflow() {
     assert_eq!(nanos(late), i64::MAX);
     assert!(nanos(early) < nanos(Utc::now()));
 }
+
+#[test]
+fn legacy_documents_default_claim_generation_and_keep_newer_generations() {
+    let mut value = job();
+    value.claim_generation = 17;
+    let mut doc = job_to_doc(&value).unwrap();
+    assert_eq!(
+        doc_to_job(&stored(doc.clone())).unwrap().claim_generation,
+        17
+    );
+    doc.as_object_mut().unwrap().remove("claim_generation");
+    assert_eq!(doc_to_job(&stored(doc)).unwrap().claim_generation, 0);
+    let mut wire = serde_json::to_value(&value).unwrap();
+    wire.as_object_mut().unwrap().remove("claim_generation");
+    assert_eq!(
+        serde_json::from_value::<CronJob>(wire)
+            .unwrap()
+            .claim_generation,
+        0
+    );
+}
