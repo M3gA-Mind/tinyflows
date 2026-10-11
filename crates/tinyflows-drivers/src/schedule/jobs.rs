@@ -45,6 +45,7 @@ fn updated_job_doc(job: &CronJob, previous: &Value) -> Result<Value> {
 /// A fresh job of `job_type` on `schedule`, due at its next occurrence.
 fn new_job(job_type: JobType, schedule: Schedule, now: DateTime<Utc>) -> Result<CronJob> {
     Ok(CronJob {
+        policy: Default::default(),
         id: Uuid::new_v4().to_string(),
         expression: schedule_cron_expression(&schedule).unwrap_or_default(),
         next_run: next_run_for_schedule(&schedule, now)?,
