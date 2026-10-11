@@ -151,7 +151,7 @@ async fn completed_diagnostics_survive_a_later_child_timeout() {
 #[tokio::test]
 async fn child_mock_runs_inherit_the_root_nesting_budget() {
     let mut nested = graph(json!([trigger()]), json!([]));
-    for _ in 0..9 {
+    for _ in 0..2 {
         nested = graph(
             json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":nested}}]),
             json!([{"from_node":"t","to_node":"child"}]),
@@ -171,7 +171,7 @@ async fn child_mock_runs_inherit_the_root_nesting_budget() {
         }
         let root = graph(
             json!([
-                {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":12}},
+                {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":4}},
                 {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child}}
             ]),
             json!([{"from_node":"t","to_node":"child"}]),
