@@ -56,7 +56,8 @@ impl CronDocuments {
                 if current.created_at != job.created_at {
                     return Ok(());
                 }
-                if !current.delete_after_run
+                if current.enabled
+                    || !current.delete_after_run
                     || current.schedule != job.schedule
                     || current.command != job.command
                     || current.prompt != job.prompt
@@ -91,7 +92,9 @@ impl CronDocuments {
             {
                 super::jobs::reschedule(&mut next, time, false);
             }
-            if same && completion.disable {
+            // One-shots were disabled at claim time; enabled now means
+            // an explicit re-enable that this old run must preserve.
+            if same && completion.disable && !matches!(job.schedule, Schedule::At { .. }) {
                 next.insert("enabled".into(), Value::Bool(false));
             }
             Ok(Some(Value::Object(next)))

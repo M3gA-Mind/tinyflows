@@ -69,6 +69,7 @@ pub fn complete_run(
         }
         let same = current.schedule == job.schedule;
         if completion.remove
+            && !current.enabled
             && current.delete_after_run
             && same
             && current.command == job.command
@@ -80,7 +81,10 @@ pub fn complete_run(
                 .next_run
                 .filter(|next| same && *next >= current.next_run)
                 .unwrap_or(current.next_run);
-            let enabled = current.enabled && !(same && completion.disable);
+            // A one-shot was disabled by claim_slot. A currently enabled row
+            // is an operator re-enable and must survive this old completion.
+            let enabled = current.enabled
+                && !(same && completion.disable && !matches!(job.schedule, Schedule::At { .. }));
             tx.execute("UPDATE cron_jobs SET next_run=?1, enabled=?2, last_run=?3, last_status=?4, last_output=?5 WHERE id=?6", params![next.to_rfc3339(), enabled, completion.finished_at.to_rfc3339(), if completion.success {"ok"} else {"error"}, truncate_cron_output(&completion.output), job.id])?;
         }
         tx.commit()?;

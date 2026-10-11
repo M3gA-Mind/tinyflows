@@ -80,6 +80,7 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
             )
             .await
             .unwrap();
+        assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
             remove,
             disable: !remove,
@@ -129,6 +130,7 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
             )
             .await
             .unwrap();
+        assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
             remove,
             disable: !remove,
@@ -265,11 +267,45 @@ async fn completion_preserves_auto_delete_canceled_during_execution() {
 async fn completion_preserves_one_shot_reenabled_during_execution() {
     for (success, remove) in [(false, false), (true, false), (true, true)] {
         let store = store();
-        let job = store.add_shell_job(None, Schedule::At { at: Utc::now() + chrono::Duration::hours(1) }, "once").await.unwrap();
-        let job = store.update_job(&job.id, CronJobPatch { delete_after_run: Some(remove), ..Default::default() }).await.unwrap();
+        let job = store
+            .add_shell_job(
+                None,
+                Schedule::At {
+                    at: Utc::now() + chrono::Duration::hours(1),
+                },
+                "once",
+            )
+            .await
+            .unwrap();
+        let job = store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    delete_after_run: Some(remove),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
-        store.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.unwrap();
-        let completion = Completion { remove, disable: !remove, next_run: None, finished_at: Utc::now(), success, output: "done".into() };
+        store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    enabled: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let completion = Completion {
+            remove,
+            disable: !remove,
+            next_run: None,
+            finished_at: Utc::now(),
+            success,
+            output: "done".into(),
+        };
         store.complete_run(&job, &completion).await.unwrap();
         let kept = store.get_job(&job.id).await.unwrap();
         assert!(kept.enabled, "completion overwrote the explicit re-enable");
