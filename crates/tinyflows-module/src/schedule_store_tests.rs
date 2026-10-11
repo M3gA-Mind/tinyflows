@@ -55,7 +55,11 @@ async fn old_run_history_does_not_attach_to_a_recreated_flow_job() {
     };
     let mut scheduler = Scheduler::new("history-fence", SchedulerConfig::default(), ports);
     scheduler.dispatch(vec![job.clone()]).await.unwrap();
-    let _ = scheduler.drain().await;
+    let error = scheduler.drain().await.unwrap_err();
+    assert!(
+        error.to_string().contains("removed job creation"),
+        "{error:#}"
+    );
     assert!(
         documents.list_runs(&job.id, 10).await.unwrap().is_empty(),
         "old execution contaminated the replacement job history"

@@ -312,3 +312,25 @@ async fn completion_preserves_one_shot_reenabled_during_execution() {
         assert_eq!(kept.last_output.as_deref(), Some("done"));
     }
 }
+
+#[tokio::test]
+async fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit() {
+    let store = store().with_limits(50, 1);
+    let command = "first";
+    let first = store
+        .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, command)
+        .await
+        .unwrap();
+    let command = "second";
+    let second = store
+        .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, command)
+        .await
+        .unwrap();
+    let now = second.next_run + chrono::Duration::days(1);
+    let due = store
+        .due_jobs_excluding(now, &[first.id.clone()])
+        .await
+        .unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].id, second.id);
+}

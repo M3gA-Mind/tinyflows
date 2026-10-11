@@ -241,3 +241,30 @@ fn completion_preserves_one_shot_reenabled_during_execution() {
         assert_eq!(kept.last_output.as_deref(), Some("done"));
     }
 }
+
+#[test]
+fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = CronStoreOptions::new(directory.path().join("jobs.db"));
+    options.max_tasks = 1;
+    let command = "first";
+    let first = add_shell_job(
+        &options,
+        None,
+        Schedule::Every { every_ms: 60_000 },
+        command,
+    )
+    .unwrap();
+    let command = "second";
+    let second = add_shell_job(
+        &options,
+        None,
+        Schedule::Every { every_ms: 60_000 },
+        command,
+    )
+    .unwrap();
+    let now = second.next_run + chrono::Duration::days(1);
+    let due = super::super::due_jobs_excluding(&options, now, &[first.id.clone()]).unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].id, second.id);
+}
