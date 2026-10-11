@@ -4,13 +4,15 @@
 //!   persists. Their serde shapes are a wire contract (a host's job store and
 //!   RPC surface carry them), pinned by `wire_tests`.
 //! * [`schedule`] — next-run computation, validation, cron-expression
-//!   normalisation and the minimum-cadence check.
+//!   normalisation (POSIX crontab weekdays into the `cron` crate's numbering)
+//!   and the minimum-cadence check.
 //!
 //! * [`store`] — what every job store shares: [`AgentJobSpec`] and the
 //!   bound on stored run output.
 //!
 //! [`runtime`] owns dispatch, retries and rescheduling over host I/O ports.
 
+mod posix_weekday;
 pub mod runtime;
 pub mod schedule;
 pub mod store;
