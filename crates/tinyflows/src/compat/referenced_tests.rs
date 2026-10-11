@@ -185,3 +185,33 @@ async fn async_saved_workflow_gate_keeps_root_depth_budget() {
     );
     assert_eq!(*resolver.seen.lock().unwrap(), ["mid"]);
 }
+
+#[tokio::test]
+async fn sibling_lookups_precede_lifo_child_descent_for_both_resolvers() {
+    let mut root = calls("first");
+    let mut second = root.nodes[1].clone();
+    second.id = "second-call".into();
+    second.config = json!({"workflow_id":"second"});
+    root.nodes.push(second);
+    let resolver = AsyncStore {
+        graphs: [
+            ("first".into(), calls("leaf-one")),
+            ("second".into(), calls("leaf-two")),
+        ]
+        .into(),
+        seen: Default::default(),
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let sync = |id: &str| {
+        seen.borrow_mut().push(id.to_owned());
+        resolver.graphs.get(id).cloned()
+    };
+    assert!(referenced_workflow_errors(&root, &sync).is_empty());
+    assert_eq!(*seen.borrow(), ["first", "second", "leaf-two", "leaf-one"]);
+    assert!(
+        referenced_workflow_errors_async(&root, &resolver)
+            .await
+            .is_empty()
+    );
+    assert_eq!(*resolver.seen.lock().unwrap(), *seen.borrow());
+}
