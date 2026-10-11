@@ -15,7 +15,12 @@ pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Authoring";
 /// Version of this wire contract.
 pub const CONTRACT_VERSION: u32 = 1;
 /// Authoring members provided by the module.
-pub const METHODS: &[&str] = &["ValidateGraph", "BindingFailures"];
+pub const METHODS: &[&str] = &[
+    "ValidateGraph",
+    "BindingFailures",
+    "AuthoringFailures",
+    "UnresolvableToolArgs",
+];
 
 /// Stable authoring member names.
 pub mod methods {
@@ -23,6 +28,10 @@ pub mod methods {
     pub const VALIDATE_GRAPH: &str = "ValidateGraph";
     /// Check bindings that omit the required node-output envelope.
     pub const BINDING_FAILURES: &str = "BindingFailures";
+    /// Check portable binding, agent prompt/schema, and code-language gates.
+    pub const AUTHORING_FAILURES: &str = "AuthoringFailures";
+    /// Mock-run outbound arguments, skipping host-provided native slug prefixes.
+    pub const UNRESOLVABLE_TOOL_ARGS: &str = "UnresolvableToolArgs";
 }
 
 /// One structured graph validation failure.

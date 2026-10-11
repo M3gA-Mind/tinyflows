@@ -13,6 +13,23 @@ impl Authoring {
         super::validation::validate_graph(graph).map_err(|error| Error::failed(error.to_string()))
     }
 
+    /// Report the full portable authoring gates, preserving their diagnostic order.
+    async fn authoring_failures(&self, graph: Value) -> Result<Vec<String>> {
+        let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
+        Ok(tinyflows::gates::failures(&graph))
+    }
+
+    /// Mock-run outbound arguments, excluding the host's configured native slug prefixes.
+    async fn unresolvable_tool_args(
+        &self,
+        graph: Value,
+        native_slug_prefixes: Vec<String>,
+    ) -> Result<Vec<String>> {
+        let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
+        let prefixes: Vec<&str> = native_slug_prefixes.iter().map(String::as_str).collect();
+        Ok(tinyflows::preflight::unresolvable_tool_args(&graph, &prefixes).await)
+    }
+
     /// Report bindings that omit a node's required output envelope.
     async fn binding_failures(&self, graph: Value) -> Result<Vec<String>> {
         let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
@@ -35,7 +52,7 @@ mod exports {
         setup = super::setup,
         worker_threads = 2,
         provides = ["ai.tinyhumans.tinyflows.Authoring"],
-        methods = ["ValidateGraph", "BindingFailures"],
+        methods = ["ValidateGraph", "BindingFailures", "AuthoringFailures", "UnresolvableToolArgs"],
         signals = [],
         requires = [],
         optional = [],

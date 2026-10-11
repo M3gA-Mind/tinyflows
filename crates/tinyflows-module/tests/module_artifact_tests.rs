@@ -69,4 +69,43 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("=nodes.fetch.item.json.title"));
+
+    let failures: Vec<String> = proxy
+        .call(
+            methods::AUTHORING_FAILURES,
+            (json!({
+                "nodes":[{"id":"code", "name":"Code", "kind":"code",
+                          "config":{"language":"shell"}}], "edges":[]
+            }),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("language"));
+
+    let graph = json!({"nodes":[
+        {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
+        {"id":"shape", "name":"Shape", "kind":"transform",
+         "config":{"expression":"={ body: \"hi\" }"}},
+        {"id":"send", "name":"Send", "kind":"tool_call",
+         "config":{"slug":"host:send", "args":{"subject":"=nodes.shape.item.subject"}}}
+    ], "edges":[{"from_node":"t", "to_node":"shape"},
+                 {"from_node":"shape", "to_node":"send"}]});
+    let failures: Vec<String> = proxy
+        .call(
+            methods::UNRESOLVABLE_TOOL_ARGS,
+            (graph.clone(), Vec::<String>::new()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("subject"));
+    let failures: Vec<String> = proxy
+        .call(
+            methods::UNRESOLVABLE_TOOL_ARGS,
+            (graph, vec!["host:".to_owned()]),
+        )
+        .await
+        .unwrap();
+    assert!(failures.is_empty(), "{failures:?}");
 }
