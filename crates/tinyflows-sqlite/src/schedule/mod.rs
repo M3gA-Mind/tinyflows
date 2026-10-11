@@ -68,3 +68,7 @@ mod schedule_schema_tests;
 #[cfg(test)]
 #[path = "schedule_tests.rs"]
 mod schedule_tests;
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod policy_tests;

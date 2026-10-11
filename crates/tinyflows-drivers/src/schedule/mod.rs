@@ -68,6 +68,7 @@ use tinystoragedrivers_core::{
 mod codec;
 mod jobs;
 mod patch;
+mod policy;
 mod removal;
 mod runs;
 #[cfg(test)]
@@ -142,6 +143,7 @@ impl CronDocuments {
                 .await
                 .map_err(storage_error)?;
         }
+        self.migrate_policies().await?;
         Ok(())
     }
 }

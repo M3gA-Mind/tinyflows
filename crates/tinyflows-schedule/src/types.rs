@@ -7,13 +7,9 @@ pub enum JobType {
     #[default]
     Shell,
     Agent,
-    /// A `flows::Flow` schedule trigger binding (issue B2). The job's
-    /// `command` column carries the bound flow's id (there is no shell
-    /// command / agent prompt to run); on fire the scheduler publishes
-    /// `DomainEvent::FlowScheduleTick { flow_id }` instead of running
-    /// anything itself — `flows::bus::FlowTriggerSubscriber` does the actual
-    /// dispatch. Created by `flows::ops::flows_set_enabled` (via
-    /// `cron::add_flow_schedule_job`), never via the `cron_add` agent tool.
+    /// A flow schedule trigger binding. The job's
+    /// `command` column carries the bound flow id. The runtime dispatches
+    /// it directly through `runtime::TriggerSink`, without a host event bus.
     Flow,
 }
 
@@ -283,8 +279,23 @@ fn default_true() -> bool {
     true
 }
 
+/// Per-job retry override and single-flight missed-slot recording.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobPolicy {
+    /// None uses scheduler defaults; Some(0) runs exactly once.
+    pub retries: Option<u32>,
+    pub single_flight: bool,
+}
+impl JobPolicy {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CronJob {
+    #[serde(default, skip_serializing_if = "JobPolicy::is_default")]
+    pub policy: JobPolicy,
     pub id: String,
     pub expression: String,
     pub schedule: Schedule,
@@ -392,6 +403,8 @@ where
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CronJobPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<JobPolicy>,
     pub schedule: Option<Schedule>,
     pub command: Option<String>,
     pub prompt: Option<String>,

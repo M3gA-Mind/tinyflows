@@ -9,11 +9,13 @@
 //! * [`store`] — what every job store shares: [`AgentJobSpec`] and the
 //!   bound on stored run output.
 //!
-//! No runtime, storage or configuration lives here; a host supplies those.
+//! [`runtime`] owns dispatch, retries and rescheduling over host I/O ports.
 
+pub mod runtime;
 pub mod schedule;
 pub mod store;
 pub mod types;
+pub mod validation;
 
 pub use schedule::{
     MIN_AGENT_JOB_INTERVAL, TooFrequent, next_run_for_schedule, normalize_expression,
@@ -24,7 +26,7 @@ pub use store::{
 };
 pub use types::{
     ActiveHours, CronJob, CronJobPatch, CronRun, DeliveryConfig, DeliveryStatus, JobOrigin,
-    JobType, Schedule, SessionTarget, delivery_mode,
+    JobPolicy, JobType, Schedule, SessionTarget, delivery_mode,
 };
 
 #[cfg(test)]
