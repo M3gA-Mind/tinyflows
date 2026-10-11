@@ -268,15 +268,21 @@ async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
     );
     child.inputs =
         vec![crate::model::WorkflowInput::new("repo", crate::model::InputType::String).required()];
-    let parent = graph(
-        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"repo":"acme/api"}}}]),
-        json!([{"from_node":"t","to_node":"child"}]),
-    );
-    let errors = unresolvable_tool_args(&parent, &[]).await;
-    assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(
-        errors[0].contains("Inline sub_workflow node 'child': "),
-        "{errors:?}"
-    );
-    assert!(errors[0].contains("subject"), "{errors:?}");
+    for supplied in [json!("acme/api"), json!("=run.repo"), json!("=inputs.repo")] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"repo":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].contains("Inline sub_workflow node 'child': "),
+            "{errors:?}"
+        );
+        assert!(errors[0].contains("subject"), "{errors:?}");
+        let mut valid = parent;
+        valid.nodes[1].config["workflow"]["nodes"][2]["config"]["args"]["subject"] =
+            json!("=nodes.shape.item.body");
+        assert!(unresolvable_tool_args(&valid, &[]).await.is_empty());
+    }
 }
