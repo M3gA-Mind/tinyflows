@@ -83,6 +83,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         },
         config: json!({}),
         manual_ticks: true,
+        storage: None,
     };
     let handle: String = schedule_proxy
         .call("StartScheduler", (request,))
