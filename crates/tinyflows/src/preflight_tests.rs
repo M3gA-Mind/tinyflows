@@ -461,15 +461,18 @@ async fn constant_child_expression_preserves_missing_field_diagnostics() {
     );
     child.inputs =
         vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
-    let parent = graph(
+    let mut parent = graph(
         json!([
             trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"={}"}}}
         ]),
         json!([{"from_node":"t","to_node":"child"}]),
     );
-    let errors = unresolvable_tool_args(&parent, &[]).await;
-    assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+    for mapping in ["={}", "={run: \"literal\"}", "={inputs: \"literal\"}"] {
+        parent.nodes[1].config["inputs"]["payload"] = json!(mapping);
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(errors.len(), 1, "{mapping}: {errors:?}");
+        assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+    }
 }
 
 #[tokio::test]
