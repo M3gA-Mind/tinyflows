@@ -16,7 +16,12 @@ impl MockInputs {
     /// Root declared inputs are supplied by a real caller, outside this mock run.
     pub(super) fn root(graph: &WorkflowGraph) -> Self {
         Self {
-            values: Map::new(),
+            values: graph
+                .inputs
+                .iter()
+                .filter(|input| input.required)
+                .map(|input| (input.name.clone(), placeholder(input.ty)))
+                .collect(),
             unknown: graph
                 .inputs
                 .iter()
@@ -42,12 +47,7 @@ impl MockInputs {
             if !misses.is_empty() || self.contains_unknown_read(raw) {
                 child.unknown.insert(input.name.clone());
                 if !input.ty.accepts(&value) {
-                    value = match input.ty {
-                        InputType::String => json!("preflight"),
-                        InputType::Number => json!(0),
-                        InputType::Boolean => json!(false),
-                        InputType::Json => json!({}),
-                    };
+                    value = placeholder(input.ty);
                 }
             }
             child.values.insert(input.name.clone(), value);
@@ -87,5 +87,15 @@ impl MockInputs {
             Value::Array(values) => values.iter().any(|value| self.contains_unknown_read(value)),
             _ => false,
         }
+    }
+}
+
+/// A type-correct value lets the mock run reach unrelated tool bindings.
+fn placeholder(ty: InputType) -> Value {
+    match ty {
+        InputType::String => json!("preflight"),
+        InputType::Number => json!(0),
+        InputType::Boolean => json!(false),
+        InputType::Json => json!({}),
     }
 }

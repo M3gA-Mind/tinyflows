@@ -240,6 +240,9 @@ async fn required_root_inputs_do_not_hide_deterministic_missing_tool_arguments()
             }}}
         ]));
         graph.inputs = vec![crate::model::WorkflowInput::new("value", ty).required()];
+        if ty == crate::model::InputType::Json {
+            graph.nodes[2].config["args"]["caller"] = json!("=inputs.value.subject");
+        }
         graph.edges = serde_json::from_value(json!([
             {"from_node":"start","to_node":"shape"}, {"from_node":"shape","to_node":"send"}
         ]))
