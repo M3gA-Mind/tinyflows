@@ -151,3 +151,38 @@ async fn one_shot_claim_is_durable_without_history_or_completion() {
     assert!(!store.claim_slot(&job, job.next_run).await.unwrap());
     assert!(store.due_jobs(job.next_run).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn claim_rejects_an_execution_definition_edited_after_due_selection() {
+    let store = store();
+    let job = store
+        .add_shell_job(None, Schedule::Every { every_ms: 60000 }, "old command")
+        .await
+        .unwrap();
+    let edited = store
+        .update_job(
+            &job.id,
+            CronJobPatch {
+                command: Some("new command".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        !store
+            .claim_slot(&job, job.next_run + chrono::Duration::minutes(1))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store.get_job(&job.id).await.unwrap().next_run,
+        edited.next_run
+    );
+    assert!(
+        store
+            .claim_slot(&edited, edited.next_run + chrono::Duration::minutes(1))
+            .await
+            .unwrap()
+    );
+}

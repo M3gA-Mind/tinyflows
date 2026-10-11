@@ -97,3 +97,38 @@ fn one_shot_claim_is_durable_without_history_or_completion() {
             .is_empty()
     );
 }
+
+#[test]
+fn claim_rejects_an_execution_definition_edited_after_due_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = CronStoreOptions::new(directory.path().join("jobs.db"));
+    let job = add_shell_job(
+        &options,
+        None,
+        Schedule::Every { every_ms: 60000 },
+        "old command",
+    )
+    .unwrap();
+    let edited = update_job(
+        &options,
+        &job.id,
+        CronJobPatch {
+            command: Some("new command".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(!claim_slot(&options, &job, job.next_run + chrono::Duration::minutes(1)).unwrap());
+    assert_eq!(
+        get_job(&options, &job.id).unwrap().next_run,
+        edited.next_run
+    );
+    assert!(
+        claim_slot(
+            &options,
+            &edited,
+            edited.next_run + chrono::Duration::minutes(1)
+        )
+        .unwrap()
+    );
+}
