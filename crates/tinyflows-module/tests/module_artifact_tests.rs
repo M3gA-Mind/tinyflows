@@ -125,22 +125,32 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = scoped.documents().clone();
+    let conflict_once = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let atomic_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     connection
         .serve_at(
             "/test/Documents".try_into().unwrap(),
             document_callbacks::Documents {
                 docs: docs.clone(),
-                conflict_once: std::sync::atomic::AtomicBool::new(true),
+                conflict_once: conflict_once.clone(),
+                atomic_calls: atomic_calls.clone(),
             },
         )
         .await
         .unwrap();
     let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleCallbacks","object_path":"/test/Documents"}}});
-    // The first insertion uses Absent, not a CAS retry, so consume the injected
-    // conflict through a policy migration below instead.
-    let failed: tinybus::Result<serde_json::Value> = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await;
-    assert!(failed.is_err());
+    // Admission retries a real transaction conflict without creating a second job.
     let flow: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await.unwrap();
+    assert!(!conflict_once.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(atomic_calls.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+    let listed: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"list"}}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
     let id = flow["id"].as_str().unwrap();
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();

@@ -86,4 +86,25 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert!(storage.get("other_domain", "job").await.unwrap().is_none());
+    let error = documents
+        .atomic_batch(vec![
+            WriteOp::Put {
+                collection: "cron_jobs".into(),
+                id: "job".into(),
+                doc: json!({"enabled":false}),
+                precondition: Precondition::Any,
+            },
+            WriteOp::Delete {
+                collection: "other_domain".into(),
+                id: "job".into(),
+                precondition: Precondition::Any,
+            },
+        ])
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(
+        storage.get("cron_jobs", "job").await.unwrap().unwrap().doc["enabled"],
+        true
+    );
 }

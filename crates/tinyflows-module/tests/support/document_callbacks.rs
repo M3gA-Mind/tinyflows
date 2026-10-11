@@ -3,7 +3,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tinystoragedrivers_core::{DocumentStore, Result, StorageError};
 fn decode<T: DeserializeOwned>(value: &Value) -> Result<T> {
@@ -14,7 +14,8 @@ fn encode<T: Serialize>(value: T) -> Result<Value> {
 }
 pub struct Documents {
     pub docs: Arc<dyn DocumentStore>,
-    pub conflict_once: AtomicBool,
+    pub conflict_once: Arc<AtomicBool>,
+    pub atomic_calls: Arc<AtomicUsize>,
 }
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleDocuments")]
 impl Documents {
@@ -33,6 +34,16 @@ impl Documents {
         let collection = request["collection"].as_str().unwrap_or("");
         let id = request["id"].as_str().unwrap_or("");
         match request["op"].as_str().unwrap_or("") {
+            "capabilities" => Ok(
+                json!({"transactions":self.docs.capabilities().contains(tinystoragedrivers_core::Capability::Transactions)}),
+            ),
+            "atomic_batch" => {
+                self.atomic_calls.fetch_add(1, Ordering::SeqCst);
+                if self.conflict_once.swap(false, Ordering::SeqCst) {
+                    return Err(StorageError::conflict("injected concurrent atomic write"));
+                }
+                encode(self.docs.atomic_batch(decode(&request["ops"])?).await?)
+            }
             "ensure" => {
                 self.docs
                     .ensure_collection(&decode(&request["spec"])?)
@@ -40,21 +51,16 @@ impl Documents {
                 Ok(Value::Null)
             }
             "get" => encode(self.docs.get(collection, id).await?),
-            "put" => {
-                if self.conflict_once.swap(false, Ordering::SeqCst) {
-                    return Err(StorageError::conflict("injected concurrent write"));
-                }
-                encode(
-                    self.docs
-                        .put(
-                            collection,
-                            id,
-                            request["doc"].clone(),
-                            decode(&request["precondition"])?,
-                        )
-                        .await?,
-                )
-            }
+            "put" => encode(
+                self.docs
+                    .put(
+                        collection,
+                        id,
+                        request["doc"].clone(),
+                        decode(&request["precondition"])?,
+                    )
+                    .await?,
+            ),
             "delete" => encode(
                 self.docs
                     .delete(collection, id, decode(&request["precondition"])?)
