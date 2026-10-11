@@ -243,3 +243,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "schedule_store_tests.rs"]
+mod tests;
