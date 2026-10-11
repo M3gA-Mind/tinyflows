@@ -222,3 +222,34 @@ async fn builder_accepts_dynamic_json_child_input_fields() {
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(host.calls.lock().unwrap().len(), 4);
 }
+
+/// Required caller inputs must not prevent detection of unrelated broken wiring.
+#[tokio::test]
+async fn required_root_inputs_do_not_hide_deterministic_missing_tool_arguments() {
+    for ty in [
+        crate::model::InputType::String,
+        crate::model::InputType::Number,
+        crate::model::InputType::Boolean,
+        crate::model::InputType::Json,
+    ] {
+        let mut graph = graph(json!([
+            {"id":"start","name":"Start","kind":"trigger"},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"body":"hello"}}},
+            {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{
+                "caller":"=inputs.value", "subject":"=nodes.shape.item.missing"
+            }}}
+        ]));
+        graph.inputs = vec![crate::model::WorkflowInput::new("value", ty).required()];
+        graph.edges = serde_json::from_value(json!([
+            {"from_node":"start","to_node":"shape"}, {"from_node":"shape","to_node":"send"}
+        ]))
+        .unwrap();
+        let host = Host {
+            calls: Default::default(),
+            refuse: None,
+        };
+        let errors = builder_failures(&graph, &host, &[]).await.unwrap();
+        assert_eq!(errors.len(), 1, "{ty:?}: {errors:?}");
+        assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+    }
+}
