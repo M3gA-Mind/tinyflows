@@ -200,7 +200,11 @@ impl CronDocuments {
             let mut doc = stored.doc.clone();
             match expires_at {
                 Some(expires_at) => {
-                    doc[LEASE]["expires_at"] = serde_json::to_value(expires_at)?;
+                    let current_expiry = lease(&stored.doc)?
+                        .ok_or_else(|| anyhow::anyhow!("cron store: missing lease"))?
+                        .expires_at;
+                    doc[LEASE]["expires_at"] =
+                        serde_json::to_value(expires_at.max(current_expiry))?;
                 }
                 None => {
                     doc.as_object_mut()

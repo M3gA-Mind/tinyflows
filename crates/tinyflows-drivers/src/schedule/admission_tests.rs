@@ -62,3 +62,174 @@ async fn policy_installation_counts_existing_jobs_and_refuses_a_lower_cap() {
     a.clear_all_jobs().await.unwrap();
     a.add_shell_job(None, daily(), "c").await.unwrap();
 }
+
+#[tokio::test]
+async fn unsupported_backends_keep_unlimited_crud_but_refuse_policy_and_claims() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let backend = MemoryStorage::new();
+    let docs = Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "legacy"),
+        transactions: false,
+        fail_batch: AtomicBool::new(false),
+    });
+    let a = CronDocuments::new(docs);
+    let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
+    assert!(a.set_max_active_jobs(Some(1)).await.is_err());
+    assert!(
+        a.claim_due_job(&job.id, "w", job.next_run, chrono::Duration::minutes(1))
+            .await
+            .is_err()
+    );
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    a.remove_job(&job.id).await.unwrap();
+    assert!(a.list_jobs().await.unwrap().is_empty());
+    assert!(
+        a.docs
+            .get(super::COUNTERS, "admission")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn transaction_refusal_and_completion_failure_leave_jobs_unchanged() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let backend = MemoryStorage::new();
+    let docs = Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "failure"),
+        transactions: true,
+        fail_batch: AtomicBool::new(true),
+    });
+    let a = CronDocuments::new(docs.clone());
+    assert!(a.set_max_active_jobs(Some(1)).await.is_err());
+    assert!(a.add_shell_job(None, daily(), "refused").await.is_err());
+    assert!(a.list_jobs().await.unwrap().is_empty());
+    docs.fail_batch.store(false, Ordering::SeqCst);
+    a.set_max_active_jobs(Some(1)).await.unwrap();
+    let job = a.add_shell_job(None, daily(), "job").await.unwrap();
+    let claim = a
+        .claim_due_job(&job.id, "w", job.next_run, chrono::Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    docs.fail_batch.store(true, Ordering::SeqCst);
+    assert!(
+        a.complete_claim(&claim, job.next_run, true, "never recorded", None)
+            .await
+            .is_err()
+    );
+    assert!(a.get_job(&job.id).await.unwrap().last_output.is_none());
+    assert_eq!(a.get_job(&job.id).await.unwrap().next_run, job.next_run);
+    assert!(a.list_runs(&job.id, 10).await.unwrap().is_empty());
+    assert!(a.remove_job(&job.id).await.is_err());
+    assert!(
+        a.update_job(
+            &job.id,
+            CronJobPatch {
+                enabled: Some(false),
+                ..Default::default()
+            }
+        )
+        .await
+        .is_err()
+    );
+    docs.fail_batch.store(false, Ordering::SeqCst);
+    assert!(
+        a.add_shell_job(None, daily(), "cap still occupied")
+            .await
+            .is_err()
+    );
+    assert!(
+        a.complete_claim(&claim, job.next_run, true, "recorded", None)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn malformed_admission_and_capability_downgrades_fail_closed() {
+    use super::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    use tinystoragedrivers_core::Precondition;
+    let backend = MemoryStorage::new();
+    let a = CronDocuments::new(docs_in(&backend, "downgrade"));
+    a.set_max_active_jobs(Some(1)).await.unwrap();
+    let b = CronDocuments::new(Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "downgrade"),
+        transactions: false,
+        fail_batch: AtomicBool::new(false),
+    }));
+    assert!(b.add_shell_job(None, daily(), "bypass").await.is_err());
+    a.docs
+        .put(
+            super::COUNTERS,
+            "admission",
+            serde_json::json!({"limit":"one","jobs":{}}),
+            Precondition::None,
+        )
+        .await
+        .unwrap();
+    assert!(a.add_shell_job(None, daily(), "bad").await.is_err());
+    assert!(a.set_max_active_jobs(None).await.is_err());
+}
+
+#[tokio::test]
+async fn concurrent_reenable_and_installation_preserve_the_cap() {
+    let backend = MemoryStorage::new();
+    let a = CronDocuments::new(docs_in(&backend, "race"));
+    let b = CronDocuments::new(docs_in(&backend, "race"));
+    let first = a.add_shell_job(None, daily(), "a").await.unwrap();
+    let second = a.add_shell_job(None, daily(), "b").await.unwrap();
+    for id in [&first.id, &second.id] {
+        a.update_job(
+            id,
+            CronJobPatch {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+    a.set_max_active_jobs(Some(1)).await.unwrap();
+    let (first, second) = tokio::join!(
+        a.update_job(
+            &first.id,
+            CronJobPatch {
+                enabled: Some(true),
+                ..Default::default()
+            }
+        ),
+        b.update_job(
+            &second.id,
+            CronJobPatch {
+                enabled: Some(true),
+                ..Default::default()
+            }
+        )
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    a.clear_all_jobs().await.unwrap();
+    a.set_max_active_jobs(None).await.unwrap();
+    let (policy, create) = tokio::join!(
+        a.set_max_active_jobs(Some(1)),
+        b.add_shell_job(None, daily(), "racer")
+    );
+    policy.unwrap();
+    create.unwrap();
+    assert!(b.add_shell_job(None, daily(), "over cap").await.is_err());
+}

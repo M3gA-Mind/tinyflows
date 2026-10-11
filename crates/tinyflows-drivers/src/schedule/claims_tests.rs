@@ -67,9 +67,21 @@ async fn renewal_never_shortens_an_existing_lease() {
     let a = super::test_support::store();
     let job = a.add_shell_job(None, daily(), "echo").await.unwrap();
     let now = job.next_run;
-    let claim = a.claim_due_job(&job.id, "worker", now, Duration::seconds(60)).await.unwrap().unwrap();
-    assert!(a.renew_claim(&claim, now, Duration::seconds(1)).await.unwrap());
-    assert!(a.complete_claim(&claim, now + Duration::seconds(30), true, "ok", None).await.unwrap());
+    let claim = a
+        .claim_due_job(&job.id, "worker", now, Duration::seconds(60))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        a.renew_claim(&claim, now, Duration::seconds(1))
+            .await
+            .unwrap()
+    );
+    assert!(
+        a.complete_claim(&claim, now + Duration::seconds(30), true, "ok", None)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -78,44 +90,132 @@ async fn edited_canceled_and_recreated_jobs_reject_the_old_completion() {
     let a = super::test_support::store();
     let job = a.add_flow_schedule_job("flow", daily()).await.unwrap();
     let now = job.next_run;
-    let old = a.claim_due_job(&job.id, "worker", now, Duration::minutes(1)).await.unwrap().unwrap();
-    a.update_job(&job.id, CronJobPatch { enabled: Some(false), ..Default::default() }).await.unwrap();
-    assert!(!a.complete_claim(&old, now, true, "canceled", None).await.unwrap());
-    a.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.unwrap();
+    let old = a
+        .claim_due_job(&job.id, "worker", now, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        !a.complete_claim(&old, now, true, "canceled", None)
+            .await
+            .unwrap()
+    );
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            enabled: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     let current = a.get_job(&job.id).await.unwrap();
-    let old = a.claim_due_job(&job.id, "worker", current.next_run, Duration::minutes(1)).await.unwrap().unwrap();
-    a.update_job(&job.id, CronJobPatch { schedule: Some(daily()), ..Default::default() }).await.unwrap();
-    assert!(!a.complete_claim(&old, current.next_run, true, "edited", None).await.unwrap());
+    let old = a
+        .claim_due_job(&job.id, "worker", current.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    a.update_job(
+        &job.id,
+        CronJobPatch {
+            schedule: Some(daily()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        !a.complete_claim(&old, current.next_run, true, "edited", None)
+            .await
+            .unwrap()
+    );
     let current = a.get_job(&job.id).await.unwrap();
-    let old = a.claim_due_job(&job.id, "worker", current.next_run, Duration::minutes(1)).await.unwrap().unwrap();
+    let old = a
+        .claim_due_job(&job.id, "worker", current.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
     a.remove_job(&job.id).await.unwrap();
     let replacement = a.add_flow_schedule_job("flow", daily()).await.unwrap();
-    assert!(!a.complete_claim(&old, current.next_run, true, "replaced", None).await.unwrap());
-    assert!(!a.renew_claim(&old, current.next_run, Duration::minutes(1)).await.unwrap());
+    assert!(
+        !a.complete_claim(&old, current.next_run, true, "replaced", None)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !a.renew_claim(&old, current.next_run, Duration::minutes(1))
+            .await
+            .unwrap()
+    );
     assert!(!a.release_claim(&old, current.next_run).await.unwrap());
     assert!(a.list_runs(&replacement.id, 20).await.unwrap().is_empty());
-    assert!(a.get_job(&replacement.id).await.unwrap().last_output.is_none());
+    assert!(
+        a.get_job(&replacement.id)
+            .await
+            .unwrap()
+            .last_output
+            .is_none()
+    );
 }
 
 #[tokio::test]
 async fn one_shot_claim_releases_admission_and_retains_delivery_history() {
-    use tinyflows_schedule::{Schedule, DeliveryStatus};
+    use tinyflows_schedule::{DeliveryStatus, Schedule};
     let a = super::test_support::store();
     a.set_max_active_jobs(Some(1)).await.unwrap();
     let at = chrono::Utc::now() + Duration::hours(1) + Duration::nanoseconds(333);
-    let job = a.add_shell_job(None, Schedule::At { at }, "once").await.unwrap();
-    assert!(a.claim_due_job(&job.id, "w", at - Duration::nanoseconds(1), Duration::minutes(1)).await.unwrap().is_none());
-    let claim = a.claim_due_job(&job.id, "w", at, Duration::minutes(1)).await.unwrap().unwrap();
+    let job = a
+        .add_shell_job(None, Schedule::At { at }, "once")
+        .await
+        .unwrap();
+    assert!(
+        a.claim_due_job(
+            &job.id,
+            "w",
+            at - Duration::nanoseconds(1),
+            Duration::minutes(1)
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    let claim = a
+        .claim_due_job(&job.id, "w", at, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(claim.job().id, job.id);
     assert_eq!(claim.occurrence(), at);
     assert_eq!(claim.owner(), "w");
     assert!(!claim.token().is_empty());
     assert!(!claim.incarnation().is_empty());
     assert_eq!(claim.expires_at(), at + Duration::minutes(1));
-    assert!(a.complete_claim(&claim, at, true, "sent", Some(DeliveryStatus::Delivered)).await.unwrap());
+    assert!(
+        a.complete_claim(&claim, at, true, "sent", Some(DeliveryStatus::Delivered))
+            .await
+            .unwrap()
+    );
     assert!(!a.get_job(&job.id).await.unwrap().enabled);
-    assert!(a.claim_due_job(&job.id, "w", at, Duration::minutes(1)).await.unwrap().is_none());
-    assert!(!a.complete_claim(&claim, at, true, "duplicate", None).await.unwrap());
+    assert!(
+        a.claim_due_job(&job.id, "w", at, Duration::minutes(1))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        !a.complete_claim(&claim, at, true, "duplicate", None)
+            .await
+            .unwrap()
+    );
     assert_eq!(a.list_runs(&job.id, 10).await.unwrap().len(), 1);
     a.add_shell_job(None, daily(), "next").await.unwrap();
 }
@@ -126,38 +226,121 @@ async fn release_and_restart_recovery_issue_fresh_tokens() {
     let a = CronDocuments::new(docs_in(&backend, "restart"));
     let job = a.add_shell_job(None, daily(), "echo").await.unwrap();
     let now = job.next_run;
-    let first = a.claim_due_job(&job.id, "a", now, Duration::seconds(30)).await.unwrap().unwrap();
-    assert!(a.renew_claim(&first, now, Duration::seconds(60)).await.unwrap());
+    let first = a
+        .claim_due_job(&job.id, "a", now, Duration::seconds(30))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        a.renew_claim(&first, now, Duration::seconds(60))
+            .await
+            .unwrap()
+    );
     assert!(a.release_claim(&first, now).await.unwrap());
     assert!(!a.release_claim(&first, now).await.unwrap());
-    let second = a.claim_due_job(&job.id, "a", now, Duration::seconds(30)).await.unwrap().unwrap();
+    let second = a
+        .claim_due_job(&job.id, "a", now, Duration::seconds(30))
+        .await
+        .unwrap()
+        .unwrap();
     assert_ne!(first.token(), second.token());
     drop(a);
     let b = CronDocuments::new(docs_in(&backend, "restart"));
-    assert!(b.claim_due_job(&job.id, "b", now + Duration::seconds(29), Duration::seconds(30)).await.unwrap().is_none());
-    let third = b.claim_due_job(&job.id, "b", now + Duration::seconds(30), Duration::seconds(30)).await.unwrap().unwrap();
+    assert!(
+        b.claim_due_job(
+            &job.id,
+            "b",
+            now + Duration::seconds(29),
+            Duration::seconds(30)
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    let third = b
+        .claim_due_job(
+            &job.id,
+            "b",
+            now + Duration::seconds(30),
+            Duration::seconds(30),
+        )
+        .await
+        .unwrap()
+        .unwrap();
     assert_ne!(second.token(), third.token());
-    assert!(b.complete_claim(&third, now + Duration::seconds(31), false, "failed", None).await.unwrap());
-    assert_eq!(b.get_job(&job.id).await.unwrap().last_status.as_deref(), Some("error"));
+    assert!(
+        b.complete_claim(&third, now + Duration::seconds(31), false, "failed", None)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        b.get_job(&job.id).await.unwrap().last_status.as_deref(),
+        Some("error")
+    );
 }
 
 #[tokio::test]
 async fn invalid_inputs_and_malformed_stored_leases_fail_closed() {
-    use tinystoragedrivers_core::Precondition;
     use serde_json::json;
+    use tinystoragedrivers_core::Precondition;
     let a = super::test_support::store();
     let job = a.add_shell_job(None, daily(), "echo").await.unwrap();
     let now = job.next_run;
-    assert!(a.claim_due_job(&job.id, "", now, Duration::seconds(1)).await.is_err());
-    assert!(a.claim_due_job(&job.id, "w", now, Duration::zero()).await.is_err());
-    assert!(a.claim_due_job(&job.id, "w", chrono::DateTime::MAX_UTC, Duration::seconds(1)).await.is_err());
-    assert!(a.claim_due_job("missing", "w", now, Duration::seconds(1)).await.unwrap().is_none());
-    let claim = a.claim_due_job(&job.id, "w", now, Duration::minutes(1)).await.unwrap().unwrap();
-    assert!(a.complete_claim(&claim, now - Duration::seconds(1), true, "bad", None).await.is_err());
+    assert!(
+        a.claim_due_job(&job.id, "", now, Duration::seconds(1))
+            .await
+            .is_err()
+    );
+    assert!(
+        a.claim_due_job(&job.id, "w", now, Duration::zero())
+            .await
+            .is_err()
+    );
+    assert!(
+        a.claim_due_job(
+            &job.id,
+            "w",
+            chrono::DateTime::MAX_UTC,
+            Duration::seconds(1)
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        a.claim_due_job("missing", "w", now, Duration::seconds(1))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let claim = a
+        .claim_due_job(&job.id, "w", now, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        a.complete_claim(&claim, now - Duration::seconds(1), true, "bad", None)
+            .await
+            .is_err()
+    );
     let mut stored = a.docs.get(super::JOBS, &job.id).await.unwrap().unwrap().doc;
     stored["occurrence_lease"] = json!({"token": 1});
-    a.docs.put(super::JOBS, &job.id, stored, Precondition::None).await.unwrap();
-    assert!(a.claim_due_job(&job.id, "w", now, Duration::minutes(1)).await.is_err());
-    assert!(a.renew_claim(&claim, now, Duration::minutes(1)).await.is_err());
-    assert!(a.complete_claim(&claim, now, true, "bad", None).await.is_err());
+    a.docs
+        .put(super::JOBS, &job.id, stored, Precondition::None)
+        .await
+        .unwrap();
+    assert!(
+        a.claim_due_job(&job.id, "w", now, Duration::minutes(1))
+            .await
+            .is_err()
+    );
+    assert!(
+        a.renew_claim(&claim, now, Duration::minutes(1))
+            .await
+            .is_err()
+    );
+    assert!(
+        a.complete_claim(&claim, now, true, "bad", None)
+            .await
+            .is_err()
+    );
 }
