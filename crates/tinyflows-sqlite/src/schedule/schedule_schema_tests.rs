@@ -128,6 +128,7 @@ fn schema_created_on_a_fresh_database_matches_the_pinned_layout() {
             "origin",
             "retries",
             "single_flight",
+            "claim_generation",
         ]
         .iter()
         .map(|s| s.to_string())
