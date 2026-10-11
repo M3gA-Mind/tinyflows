@@ -84,11 +84,11 @@ pub async fn unresolvable_tool_args(
 ) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
     let check = async {
-        let mut pending = vec![(graph.clone(), 0_u64, String::new())];
+        let mut pending = vec![(graph.clone(), 0_u64, String::new(), serde_json::Map::new())];
         let mut errors = Vec::new();
-        while let Some((current, depth, prefix)) = pending.pop() {
+        while let Some((current, depth, prefix, inputs)) = pending.pop() {
             errors.extend(
-                graph_unresolvable_tool_args(&current, native_slug_prefixes)
+                graph_unresolvable_tool_args(&current, native_slug_prefixes, inputs.clone())
                     .await
                     .into_iter()
                     .map(|message| format!("{prefix}{message}")),
@@ -104,10 +104,12 @@ pub async fn unresolvable_tool_args(
                     continue;
                 };
                 if let Ok(child) = serde_json::from_value::<WorkflowGraph>(inline.clone()) {
+                    let child_inputs = mock_child_inputs(&child, &node.config, &inputs);
                     pending.push((
                         child,
                         depth + 1,
                         format!("{prefix}Inline sub_workflow node '{}': ", node.id),
+                        child_inputs,
                     ));
                 }
             }
@@ -121,9 +123,40 @@ pub async fn unresolvable_tool_args(
         .unwrap_or_default()
 }
 
+// Literal child inputs survive unchanged. Parent-input expressions can be
+// resolved from the traversal's input scope; other dynamic values use a
+// type-correct mock so required inputs do not prevent unrelated diagnostics.
+fn mock_child_inputs(
+    graph: &WorkflowGraph,
+    config: &Value,
+    parent_inputs: &serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    let Some(supplied) = config.get("inputs").and_then(Value::as_object) else {
+        return serde_json::Map::new();
+    };
+    graph
+        .inputs
+        .iter()
+        .filter_map(|input| {
+            let raw = supplied.get(&input.name)?;
+            let mut value = crate::expr::resolve(raw, &json!({"inputs":parent_inputs}));
+            if raw.as_str().is_some_and(|text| text.starts_with('=')) && !input.ty.accepts(&value) {
+                value = match input.ty {
+                    crate::model::InputType::String => json!("preflight"),
+                    crate::model::InputType::Number => json!(0),
+                    crate::model::InputType::Boolean => json!(false),
+                    crate::model::InputType::Json => json!({}),
+                };
+            }
+            Some((input.name.clone(), value))
+        })
+        .collect()
+}
+
 async fn graph_unresolvable_tool_args(
     graph: &WorkflowGraph,
     native_slug_prefixes: &[&str],
+    inputs: serde_json::Map<String, Value>,
 ) -> Vec<String> {
     let Ok(compiled) = crate::compiler::compile(graph) else {
         return Vec::new();
@@ -139,7 +172,8 @@ async fn graph_unresolvable_tool_args(
 
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();
-    let run = crate::engine::run_with_observer(&compiled, json!({}), &caps, &observer_dyn);
+    let input = crate::engine::RunInput::new(json!({})).with_inputs(inputs);
+    let run = crate::engine::run_with_observer(&compiled, input, &caps, &observer_dyn);
     match tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), run).await {
         Ok(Ok(_)) => {}
         // A timeout or sandbox execution error is a different class of
