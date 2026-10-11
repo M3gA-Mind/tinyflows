@@ -41,7 +41,7 @@ async fn passthrough_trigger_fields_are_unverifiable_but_overwritten_fields_are_
         ],
         "edges":[{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"relay"},{"from_node":"relay","to_node":"send"}]
     })).unwrap();
-    for body in [json!({}), json!({"literal": "=run.subject"})] {
+    for body in [json!({}), json!({"literal": "=run.subject"}), json!("run.subject"), json!("item.subject")] {
         graph.nodes[1].config["set"]["body"] = body;
         let errors = unresolvable_tool_args(&graph, &[]).await;
         assert_eq!(errors.len(), 1, "{errors:?}");
