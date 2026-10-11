@@ -162,8 +162,11 @@ Only its unexpired owner can renew, release, or complete it. An edit or
 cancellation invalidates the claim; deleting and re-registering the same flow
 creates a new incarnation. Stale completion changes neither outcome nor history.
 Successful completion stores the run and schedule advance atomically, disabling
-one-shots while keeping their history. Apply `delete_after_run` separately if
-removal is wanted. History pruning remains a subsequent operation.
+one-shots while keeping their history. For `delete_after_run`, call
+`remove_completed_claim(&claim)` after successful completion. This fences the
+completion token and incarnation; a later acquisition or edit invalidates the
+receipt. Never use `remove_job(id)` for this follow-up, since the id may already
+belong to a replacement. History pruning remains a subsequent operation.
 
 Lease time is supplied by the host. Replicas need clocks consistent within the
 lease tolerance. Recovery after expiry permits another execution of the same

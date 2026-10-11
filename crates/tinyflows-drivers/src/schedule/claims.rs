@@ -13,6 +13,7 @@ use tinystoragedrivers_core::{Capability, Precondition, Versioned, WriteOp};
 use uuid::Uuid;
 
 const LEASE: &str = "occurrence_lease";
+const COMPLETED: &str = "completed_occurrence";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Lease {
@@ -132,6 +133,9 @@ impl CronDocuments {
                 .map(str::to_owned)
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
             doc[INCARNATION] = Value::String(incarnation.clone());
+            doc.as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
+                .remove(COMPLETED);
             let acquired = Lease {
                 owner: owner.into(),
                 token: Uuid::new_v4().to_string(),
@@ -234,10 +238,63 @@ impl CronDocuments {
         bail!("cron store: occurrence kept changing during lease update")
     }
 
+    /// Deletes the job completed by this receipt only while its incarnation
+    /// and completion token still match and no later acquisition or edit has
+    /// invalidated it. Use this for `delete_after_run` after successful
+    /// completion. A replaced or changed job returns `false`.
+    ///
+    /// Deletion and admission are atomic. History cleanup is a subsequent
+    /// write restricted to the removed incarnation, preserving replacements.
+    ///
+    /// # Errors
+    /// Malformed state, unavailable transactions, exhausted retries, or backend
+    /// failure. A history-cleanup failure can occur after the job was deleted.
+    pub async fn remove_completed_claim(&self, claim: &ClaimedOccurrence) -> Result<bool> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
+        self.ensure().await?;
+        for _ in 0..CAS_ATTEMPTS {
+            let Some(stored) = self
+                .docs
+                .get(JOBS, &claim.job.id)
+                .await
+                .map_err(storage_error)?
+            else {
+                return Ok(false);
+            };
+            let completed: Option<Lease> = stored
+                .doc
+                .get(COMPLETED)
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?;
+            let Some(completed) = completed else {
+                return Ok(false);
+            };
+            if completed.token != claim.lease.token
+                || completed.owner != claim.lease.owner
+                || completed.incarnation != claim.lease.incarnation
+                || completed.occurrence != claim.lease.occurrence
+                || incarnation(&stored.doc) != Some(claim.lease.incarnation.as_str())
+                || lease(&stored.doc)?.is_some()
+            {
+                return Ok(false);
+            }
+            if self.remove_unchanged(&stored).await? {
+                return Ok(true);
+            }
+        }
+        bail!("cron store: completed occurrence kept changing during removal")
+    }
+
     /// Atomically records a run and advances its still-owned occurrence.
     /// Stale, expired, edited, canceled or re-created jobs return false
     /// without any outcome write. A one-shot is disabled, retaining history.
-    /// The host applies delete_after_run separately when it wants removal.
+    /// The host applies delete_after_run with [`Self::remove_completed_claim`]
+    /// separately when it wants removal. Never follow completion with
+    /// `remove_job(job_id)`: that id may already belong to a replacement.
     ///
     /// # Errors
     /// Completion predates acquisition, state/schedule is malformed, transactions
@@ -277,6 +334,7 @@ impl CronDocuments {
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?;
             body.remove(LEASE);
+            body.insert(COMPLETED.into(), serde_json::to_value(&claim.lease)?);
             set_last_run(body, finished_at, success, truncate_cron_output(output));
             reschedule(
                 body,
