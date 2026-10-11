@@ -170,7 +170,7 @@ async fn child_mock_runs_inherit_the_root_nesting_budget() {
         if let Some(cap) = child_cap {
             child.nodes[0].config["max_sub_workflow_depth"] = json!(cap);
         }
-        let root = graph(
+        let mut root = graph(
             json!([
                 {"id":"t","kind":"trigger","name":"Start","config":{"max_sub_workflow_depth":4}},
                 {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child}}
@@ -180,5 +180,11 @@ async fn child_mock_runs_inherit_the_root_nesting_budget() {
         let errors = unresolvable_tool_args(&root, &[]).await;
         assert_eq!(errors.len(), 1, "child cap {child_cap:?}: {errors:?}");
         assert!(errors[0].contains("arg `subject`"), "{errors:?}");
+        root.nodes[0].config["max_sub_workflow_depth"] = json!(2);
+        let errors = unresolvable_tool_args(&root, &[]).await;
+        assert!(
+            errors.is_empty(),
+            "out-of-budget runs must stay best effort: {errors:?}"
+        );
     }
 }
