@@ -44,6 +44,14 @@ impl JobStore for HostCallbacks {
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
         self.call(callbacks::DUE_JOBS, &(now,)).await
     }
+    async fn due_jobs_excluding(
+        &self,
+        now: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        self.call(callbacks::DUE_JOBS_EXCLUDING, &(now, excluded))
+            .await
+    }
     async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()> {
         self.call(callbacks::CLAIM_SLOT, &(job, next_run)).await
     }

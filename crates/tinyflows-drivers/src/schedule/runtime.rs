@@ -43,7 +43,9 @@ impl CronDocuments {
         .is_some())
     }
     /// Record the outcome while preserving concurrent schedule/enable edits and
-    /// newer next occurrences. Deletes use the observed document version.
+    /// newer next occurrences. Call only after claim_slot disabled one-shots;
+    /// enabled one-shots now represent an explicit re-enable. Deletes use the
+    /// observed document version and preserve such re-enables.
     pub async fn complete_run(&self, job: &CronJob, completion: &Completion) -> Result<()> {
         self.ensure().await?;
         if completion.remove {
@@ -56,7 +58,8 @@ impl CronDocuments {
                 if current.created_at != job.created_at {
                     return Ok(());
                 }
-                if !current.delete_after_run
+                if current.enabled
+                    || !current.delete_after_run
                     || current.schedule != job.schedule
                     || current.command != job.command
                     || current.prompt != job.prompt
@@ -91,7 +94,9 @@ impl CronDocuments {
             {
                 super::jobs::reschedule(&mut next, time, false);
             }
-            if same && completion.disable {
+            // One-shots were disabled at claim time; enabled now means
+            // an explicit re-enable that this old run must preserve.
+            if same && completion.disable && !matches!(job.schedule, Schedule::At { .. }) {
                 next.insert("enabled".into(), Value::Bool(false));
             }
             Ok(Some(Value::Object(next)))

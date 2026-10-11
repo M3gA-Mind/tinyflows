@@ -80,6 +80,7 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
             )
             .await
             .unwrap();
+        assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
             remove,
             disable: !remove,
@@ -129,6 +130,7 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
             )
             .await
             .unwrap();
+        assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
             remove,
             disable: !remove,
@@ -259,4 +261,76 @@ async fn completion_preserves_auto_delete_canceled_during_execution() {
     assert!(!kept.enabled);
     assert!(!kept.delete_after_run);
     assert_eq!(kept.last_output.as_deref(), Some("done"));
+}
+
+#[tokio::test]
+async fn completion_preserves_one_shot_reenabled_during_execution() {
+    for (success, remove) in [(false, false), (true, false), (true, true)] {
+        let store = store();
+        let job = store
+            .add_shell_job(
+                None,
+                Schedule::At {
+                    at: Utc::now() + chrono::Duration::hours(1),
+                },
+                "once",
+            )
+            .await
+            .unwrap();
+        let job = store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    delete_after_run: Some(remove),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(store.claim_slot(&job, job.next_run).await.unwrap());
+        store
+            .update_job(
+                &job.id,
+                CronJobPatch {
+                    enabled: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let completion = Completion {
+            remove,
+            disable: !remove,
+            next_run: None,
+            finished_at: Utc::now(),
+            success,
+            output: "done".into(),
+        };
+        store.complete_run(&job, &completion).await.unwrap();
+        let kept = store.get_job(&job.id).await.unwrap();
+        assert!(kept.enabled, "completion overwrote the explicit re-enable");
+        assert_eq!(kept.last_output.as_deref(), Some("done"));
+    }
+}
+
+#[tokio::test]
+async fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit() {
+    let store = store().with_limits(50, 1);
+    let command = "first";
+    let first = store
+        .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, command)
+        .await
+        .unwrap();
+    let command = "second";
+    let second = store
+        .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, command)
+        .await
+        .unwrap();
+    let now = second.next_run + chrono::Duration::days(1);
+    let due = store
+        .due_jobs_excluding(now, std::slice::from_ref(&first.id))
+        .await
+        .unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].id, second.id);
 }

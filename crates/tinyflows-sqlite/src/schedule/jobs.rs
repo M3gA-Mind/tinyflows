@@ -346,22 +346,28 @@ pub fn dedup_named_jobs(opts: &CronStoreOptions) -> Result<usize> {
 
 /// Returns enabled jobs due at `now`, earliest first, at most `max_tasks`.
 pub fn due_jobs(opts: &CronStoreOptions, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
+    due_jobs_excluding(opts, now, &[])
+}
+
+/// Due jobs excluding examined identities before the configured batch limit.
+pub fn due_jobs_excluding(
+    opts: &CronStoreOptions,
+    now: DateTime<Utc>,
+    excluded: &[String],
+) -> Result<Vec<CronJob>> {
     let lim = i64::try_from(opts.max_tasks.max(1)).context("Scheduler max_tasks overflows i64")?;
+    let excluded = serde_json::to_string(excluded)?;
     with_connection(opts, |conn| {
         let mut stmt = conn.prepare(&format!(
             "SELECT {JOB_COLUMNS} FROM cron_jobs
                  WHERE enabled = 1 AND next_run <= ?1
+                   AND id NOT IN (SELECT value FROM json_each(?2))
                  ORDER BY next_run ASC
-                 LIMIT ?2"
+                 LIMIT ?3"
         ))?;
-
-        let rows = stmt.query_map(params![now.to_rfc3339(), lim], map_cron_job_row)?;
-
-        let mut jobs = Vec::new();
-        for row in rows {
-            jobs.push(row?);
-        }
-        Ok(jobs)
+        let rows = stmt.query_map(params![now.to_rfc3339(), excluded, lim], map_cron_job_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     })
 }
 

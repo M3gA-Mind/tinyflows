@@ -24,6 +24,9 @@ pub struct RunRecord {
     pub run_id: String,
     /// Identity of the job that produced this run.
     pub job_id: String,
+    /// Dispatch-time creation identity. Stores must reject a replacement with
+    /// the same job ID instead of attaching this outcome to its history.
+    pub job_created_at: DateTime<Utc>,
     /// Execution start, before the first attempt.
     pub started_at: DateTime<Utc>,
     /// Execution finish before delivery; skipped runs use the same start/end.
@@ -39,9 +42,11 @@ pub struct RunRecord {
 /// Final mutation computed by the runtime. Stores apply it mechanically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Completion {
-    /// Remove a successful auto-delete one-shot, including its stored history.
+    /// Remove a successful auto-delete one-shot, including its stored history,
+    /// unless a concurrent edit re-enabled or otherwise retained it.
     pub remove: bool,
-    /// Retain but disable a one-shot that was not successfully auto-deleted.
+    /// Retain a one-shot already disabled at claim time. A store must preserve
+    /// an explicit re-enable made after that claim.
     pub disable: bool,
     /// Recurrence computed after delivery; absent for one-shot jobs.
     pub next_run: Option<DateTime<Utc>>,
@@ -58,13 +63,29 @@ pub struct Completion {
 pub trait JobStore: Send + Sync {
     /// Read enabled jobs due at `now` within the store's configured batch limit.
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>>;
+    /// Read due jobs after excluding examined identities, before applying the
+    /// configured batch limit. Bounded stores must override this operation;
+    /// its default fails closed instead of silently starving later jobs.
+    async fn due_jobs_excluding(
+        &self,
+        now: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        anyhow::ensure!(
+            excluded.is_empty(),
+            "job store does not support due-job exclusions"
+        );
+        self.due_jobs(now).await
+    }
     /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
     /// One-shots must be durably disabled before returning success.
     /// Return an error on storage failure or when another writer won the claim.
     async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()>;
-    /// Append a run outcome without changing the job's schedule.
+    /// Append a run outcome without changing the job's schedule. Match its
+    /// dispatch-time job_created_at; reject a replacement with the same ID.
     async fn record_run(&self, record: RunRecord) -> Result<()>;
-    /// Apply the computed terminal mutation and last-run fields.
+    /// Apply the computed terminal mutation and last-run fields after a claim,
+    /// preserving explicit re-enables and edits made while the run executed.
     async fn complete(&self, job: &CronJob, completion: Completion) -> Result<()>;
 }
 
