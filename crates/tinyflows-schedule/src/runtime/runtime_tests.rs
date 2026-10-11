@@ -18,6 +18,7 @@ struct Fixture {
     fail_count: usize,
     permanent: bool,
     delivery_fails: bool,
+    claim_fails: bool,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -32,6 +33,7 @@ impl Fixture {
             fail_count: 0,
             permanent: false,
             delivery_fails: false,
+            claim_fails: false,
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -85,6 +87,7 @@ impl JobStore for Fixture {
         Ok(self.jobs.lock().unwrap().clone())
     }
     async fn claim_slot(&self, _: &CronJob, _: DateTime<Utc>) -> Result<()> {
+        anyhow::ensure!(!self.claim_fails, "durable claim rejected");
         Ok(())
     }
     async fn record_run(&self, record: RunRecord) -> Result<()> {
@@ -327,4 +330,17 @@ async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
     scheduler.shutdown().await;
     assert!(ids.iter().all(|id| !RunClaim::is_running(&scope, id)));
     assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
+}
+
+#[tokio::test]
+async fn rejected_durable_claim_never_dispatches_and_releases_local_claim() {
+    let mut f = Fixture::new();
+    Arc::get_mut(&mut f).unwrap().claim_fails = true;
+    let job = f.job();
+    let scope = job.id.clone();
+    let mut scheduler = Scheduler::new(scope.clone(), SchedulerConfig::default(), f.ports());
+    assert!(scheduler.dispatch(vec![job.clone()]).await.is_err());
+    scheduler.drain().await.unwrap();
+    assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    assert!(!RunClaim::is_running(&scope, &job.id));
 }
