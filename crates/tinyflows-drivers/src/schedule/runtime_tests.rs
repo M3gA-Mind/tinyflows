@@ -132,3 +132,22 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
         );
     }
 }
+
+#[tokio::test]
+async fn one_shot_claim_is_durable_without_history_or_completion() {
+    let store = store();
+    let job = store
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: Utc::now() + chrono::Duration::seconds(1),
+            },
+            "once",
+        )
+        .await
+        .unwrap();
+    assert!(store.claim_slot(&job, job.next_run).await.unwrap());
+    assert!(!store.get_job(&job.id).await.unwrap().enabled);
+    assert!(!store.claim_slot(&job, job.next_run).await.unwrap());
+    assert!(store.due_jobs(job.next_run).await.unwrap().is_empty());
+}

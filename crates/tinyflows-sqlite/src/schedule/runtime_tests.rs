@@ -74,3 +74,26 @@ fn completed_one_shot_is_disabled_and_successful_auto_delete_is_atomic() {
         }
     }
 }
+
+#[test]
+fn one_shot_claim_is_durable_without_history_or_completion() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = CronStoreOptions::new(directory.path().join("jobs.db"));
+    let job = add_shell_job(
+        &options,
+        None,
+        Schedule::At {
+            at: Utc::now() + chrono::Duration::seconds(1),
+        },
+        "once",
+    )
+    .unwrap();
+    assert!(claim_slot(&options, &job, job.next_run).unwrap());
+    assert!(!get_job(&options, &job.id).unwrap().enabled);
+    assert!(!claim_slot(&options, &job, job.next_run).unwrap());
+    assert!(
+        super::super::due_jobs(&options, job.next_run)
+            .unwrap()
+            .is_empty()
+    );
+}

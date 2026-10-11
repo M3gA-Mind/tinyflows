@@ -344,3 +344,15 @@ async fn rejected_durable_claim_never_dispatches_and_releases_local_claim() {
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
     assert!(!RunClaim::is_running(&scope, &job.id));
 }
+
+#[tokio::test]
+async fn one_shot_execution_requires_a_durable_claim() {
+    let mut f = Fixture::new();
+    Arc::get_mut(&mut f).unwrap().claim_fails = true;
+    let mut job = f.job();
+    job.schedule = Schedule::At { at: f.now() };
+    let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), f.ports());
+    assert!(scheduler.dispatch(vec![job]).await.is_err());
+    scheduler.drain().await.unwrap();
+    assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+}
