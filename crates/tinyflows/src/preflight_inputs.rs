@@ -13,6 +13,18 @@ pub(super) struct MockInputs {
 }
 
 impl MockInputs {
+    /// Root declared inputs are supplied by a real caller, outside this mock run.
+    pub(super) fn root(graph: &WorkflowGraph) -> Self {
+        Self {
+            values: Map::new(),
+            unknown: graph
+                .inputs
+                .iter()
+                .map(|input| input.name.clone())
+                .collect(),
+        }
+    }
+
     /// Preserve literals and known parent inputs; retain uncertainty across child mappings.
     pub(super) fn child(&self, graph: &WorkflowGraph, config: &Value) -> Self {
         let mut child = Self::default();

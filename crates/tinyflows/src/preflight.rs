@@ -21,7 +21,8 @@
 //!   anything reading `run`, or reading `item`/`items` fed entirely by the
 //!   trigger, is null *here* and populated in a real run. Rejecting those would
 //!   reject nearly every workflow ever written. Declared workflow inputs
-//!   likewise carry runtime data, so nested reads from them are unverifiable.
+//!   likewise carry runtime data. Child mappings known to be literal remain
+//!   checkable; nested reads from dynamic child inputs are unverifiable.
 //! - **Opaque upstream tool output.** A mock renders a `tool_call` as an echo
 //!   and can never produce the provider's real output fields, so a binding onto
 //!   one is *unverifiable*, not broken. A dry run reports it; this refuses it
@@ -89,7 +90,7 @@ pub async fn unresolvable_tool_args(
 ) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
     let check = async {
-        let mut pending = vec![(graph.clone(), 0_u64, String::new(), MockInputs::default())];
+        let mut pending = vec![(graph.clone(), 0_u64, String::new(), MockInputs::root(graph))];
         let mut errors = Vec::new();
         while let Some((current, depth, prefix, inputs)) = pending.pop() {
             errors.extend(
@@ -307,8 +308,6 @@ fn explicit_nodes_ref(expr: &str) -> Option<&str> {
 ///
 /// - `=run...` always addresses the trigger payload/metadata directly
 ///   (see `nodes::expr_scope`) — always trigger-scoped.
-/// - Declared `=inputs.<name>...` reads are caller-scoped, including nested
-///   JSON fields and bracket notation; similarly named undeclared keys are not.
 /// - `=nodes.<id>...` / `=.nodes["<id>"]...` explicitly names an upstream
 ///   node. Trigger-scoped only if `<id>` IS the trigger node; naming any
 ///   other node is exactly the broken-wiring case this gate exists to catch, so it is never treated as trigger-scoped.
@@ -332,25 +331,6 @@ fn is_trigger_scoped_expression(
     let body = body.strip_prefix('.').unwrap_or(body);
 
     if body == "run" || body.starts_with("run.") || body.starts_with("run[") {
-        return true;
-    }
-
-    // Declared inputs come from the caller, like trigger data. In
-    // particular, a dynamic JSON input can legally be null in this mock
-    // scope while nested fields are populated in the real run.
-    if graph.inputs.iter().any(|input| {
-        [
-            format!("inputs.{}", input.name),
-            format!("inputs[\"{}\"]", input.name),
-            format!("inputs['{}']", input.name),
-        ]
-        .iter()
-        .any(|prefix| {
-            body.strip_prefix(prefix).is_some_and(|tail| {
-                tail.is_empty() || tail.starts_with('.') || tail.starts_with('[')
-            })
-        })
-    }) {
         return true;
     }
 
