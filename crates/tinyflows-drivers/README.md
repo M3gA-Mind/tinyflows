@@ -141,10 +141,9 @@ For multiple schedulers, treat `due_jobs` as discovery and claim each result
 before dispatch:
 
 ```rust
-let now = chrono::Utc::now();
-for due in cron.due_jobs(now).await? {
+for due in cron.due_jobs(chrono::Utc::now()).await? {
     let Some(claim) = cron
-        .claim_due_job(&due.id, worker_id, now, chrono::Duration::minutes(2))
+        .claim_due_job(&due.id, worker_id, chrono::Utc::now(), chrono::Duration::minutes(2))
         .await?
     else {
         continue;
@@ -181,6 +180,16 @@ fenced. Policy installation reconciles the authoritative rows again, fencing
 both those rows and the ledger so pre-adoption legacy writes are counted.
 All writers must run upgraded code; old binaries and direct document
 writes bypass this protocol and must be stopped before policy adoption.
+Every transactional job mutation, including lease renewal and completion,
+rewrites this scope-wide ledger. These operations contend on one document and
+serialize the membership map, so this design suits small, bounded job scopes.
+Retries stop after 32 conflicts and return an error; hosts must treat renewal
+errors as uncertain ownership and stop dispatch until ownership is confirmed.
+Initialization and policy installation also reconcile all jobs in one
+transaction and must fit the backend's transaction size and lifetime limits.
+Large scopes or high write rates need a different admission protocol; no
+throughput bound is guaranteed by this API.
+
 Nontransactional backends retain unlimited legacy CRUD only when no ledger
 exists; policy installation and occurrence claims are refused. If a ledger
 already exists, mutations fail closed. No local fallback is used.
