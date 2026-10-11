@@ -89,8 +89,13 @@ impl MockInputs {
                             out.push(path);
                         }
                     }
-                } else {
-                    // Runtime scopes are absent from this inputs-only mock.
+                } else if ["run", "item", "items", "nodes"]
+                    .iter()
+                    .any(|scope| mentions_scope(expression, scope))
+                    || (!self.unknown.is_empty()
+                        && (mentions_scope(expression, "inputs") || expression.trim() == "=."))
+                {
+                    // Runtime scopes are absent; constant jq values remain known.
                     out.push(destination.to_vec());
                 }
             }
@@ -168,4 +173,19 @@ fn placeholder(ty: InputType) -> Value {
         InputType::Boolean => json!(false),
         InputType::Json => json!({}),
     }
+}
+
+/// Find scope accesses without confusing longer identifiers with a scope name.
+fn mentions_scope(expression: &str, scope: &str) -> bool {
+    let body = expression.strip_prefix('=').unwrap_or(expression).trim();
+    let boundary =
+        |tail: &str| tail.is_empty() || tail.starts_with(['.', '[', ' ', '|', ')', '}', ',', ';']);
+    if body.strip_prefix(scope).is_some_and(boundary) {
+        return true;
+    }
+    let dotted = format!(".{scope}");
+    body.match_indices(&dotted)
+        .any(|(index, _)| boundary(&body[index + dotted.len()..]))
+        || body.contains(&format!("[\"{scope}\"]"))
+        || body.contains(&format!("['{scope}']"))
 }
