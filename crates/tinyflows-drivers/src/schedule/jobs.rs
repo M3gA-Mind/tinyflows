@@ -11,9 +11,7 @@ use tinyflows_schedule::{
     SessionTarget, next_run_for_schedule, schedule_cron_expression, validate_agent_schedule,
     validate_schedule,
 };
-use tinystoragedrivers_core::{
-    DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort, Versioned,
-};
+use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
 use uuid::Uuid;
 
 use super::codec::{
@@ -73,12 +71,20 @@ impl CronDocuments {
     /// Writes a new job and reads it back.
     async fn insert(&self, job: &CronJob, what: &str) -> Result<CronJob> {
         self.ensure().await?;
-        self.docs
-            .put(JOBS, &job.id, new_job_doc(job)?, Precondition::Absent)
-            .await
-            .map_err(storage_error)
-            .with_context(|| format!("Failed to insert cron {what}"))?;
-        self.get_job(&job.id).await
+        let doc = new_job_doc(job)?;
+        for _ in 0..CAS_ATTEMPTS {
+            match self
+                .commit_job(&job.id, None, Some(doc.clone()), vec![])
+                .await
+            {
+                Ok(_) => return self.get_job(&job.id).await,
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => {
+                    return Err(error).with_context(|| format!("Failed to insert cron {what}"));
+                }
+            }
+        }
+        anyhow::bail!("cron store: insertion kept changing")
     }
 
     /// Adds an enabled shell job on a plain cron `expression` (see
@@ -211,31 +217,21 @@ impl CronDocuments {
         job.name = Some(format!("flow:{flow_id}"));
         job.command = flow_id.to_string();
         self.ensure().await?;
-        match self
-            .docs
-            .put(JOBS, &job.id, new_job_doc(&job)?, Precondition::Absent)
-            .await
-        {
-            Ok(_) => self.get_job(&job.id).await,
-            Err(error) if error.kind() == ErrorKind::Conflict => {
-                tracing::debug!(
-                    target: "cron",
-                    %flow_id,
-                    "[cron] add_flow_schedule_job: the flow already has a job — returning it"
-                );
-                self.find_flow_schedule_job(flow_id)
-                    .await?
-                    .with_context(|| {
-                        format!(
-                            "add_flow_schedule_job: insert for flow '{flow_id}' conflicted but no \
-                         existing flow-schedule job was found"
-                        )
-                    })
+        let doc = new_job_doc(&job)?;
+        for _ in 0..CAS_ATTEMPTS {
+            if let Some(existing) = self.find_flow_schedule_job(flow_id).await? {
+                return Ok(existing);
             }
-            Err(error) => {
-                Err(storage_error(error)).context("Failed to insert cron flow-schedule job")
+            match self
+                .commit_job(&job.id, None, Some(doc.clone()), vec![])
+                .await
+            {
+                Ok(_) => return self.get_job(&job.id).await,
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => return Err(error).context("Failed to insert cron flow-schedule job"),
             }
         }
+        anyhow::bail!("cron store: flow registration kept changing")
     }
 
     /// The job registered for `flow_id`'s `schedule` trigger, if any.
@@ -363,21 +359,21 @@ impl CronDocuments {
             let job = apply_patch(doc_to_job(&stored)?, patch.clone())?;
             let doc = updated_job_doc(&job, &stored.doc)?;
             match self
-                .docs
-                .put(JOBS, job_id, doc.clone(), stored.unchanged())
+                .commit_job(job_id, Some(&stored), Some(doc.clone()), vec![])
                 .await
             {
-                Ok(version) => {
+                Ok(results) => {
+                    let Some(WriteResult::Put { version }) = results.first() else {
+                        anyhow::bail!("cron store: invalid atomic write result");
+                    };
                     return doc_to_job(&Versioned {
                         id: job_id.to_string(),
-                        version,
+                        version: *version,
                         doc,
                     });
                 }
-                Err(error) if error.kind() == ErrorKind::Conflict => {}
-                Err(error) => {
-                    return Err(storage_error(error)).context("Failed to update cron job");
-                }
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => return Err(error).context("Failed to update cron job"),
             }
         }
         anyhow::bail!("cron store: job {job_id} kept changing under {CAS_ATTEMPTS} attempts")

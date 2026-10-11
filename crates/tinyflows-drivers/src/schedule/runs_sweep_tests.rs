@@ -97,6 +97,12 @@ async fn removing_a_legacy_job_spares_a_replacements_runs() {
         version,
         doc,
     };
+    // A legacy database predates both incarnation and admission metadata.
+    store
+        .docs
+        .delete(COUNTERS, "admission", Precondition::None)
+        .await
+        .unwrap();
     orphan(&store, 9_101, &job.id, None).await;
     // A replacement's run, recorded under the same id with an incarnation.
     orphan(&store, 9_102, &job.id, Some("replacement")).await;

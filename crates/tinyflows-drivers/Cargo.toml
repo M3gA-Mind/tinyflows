@@ -61,4 +61,5 @@ chrono = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 tokio = { workspace = true }
