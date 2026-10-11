@@ -72,7 +72,6 @@ pub(super) async fn setup(connection: Connection) -> Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 #[path = "service_tests.rs"]
 mod tests;
