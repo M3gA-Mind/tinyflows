@@ -105,7 +105,14 @@ impl<'a> Provenance<'a> {
                 "nodes" => {
                     let Some((id, rest)) = path.split_first() else {
                         return self.outputs.values().any(|paths| !paths.is_empty())
-                            || self.graph.nodes.iter().any(|node| trigger_passthrough(self.graph, &node.id, &[], self.graph.nodes.len()));
+                            || self.graph.nodes.iter().any(|node| {
+                                trigger_passthrough(
+                                    self.graph,
+                                    &node.id,
+                                    &[],
+                                    self.graph.nodes.len(),
+                                )
+                            });
                     };
                     let rest = output_path(rest);
                     self.outputs
@@ -126,8 +133,15 @@ impl<'a> Provenance<'a> {
                         } else {
                             path.as_slice()
                         };
-                        self.outputs.get(&edge.from_node).is_some_and(|paths| intersects(paths, path))
-                            || trigger_passthrough(self.graph, &edge.from_node, path, self.graph.nodes.len())
+                        self.outputs
+                            .get(&edge.from_node)
+                            .is_some_and(|paths| intersects(paths, path))
+                            || trigger_passthrough(
+                                self.graph,
+                                &edge.from_node,
+                                path,
+                                self.graph.nodes.len(),
+                            )
                     }),
                 _ => false,
             })
