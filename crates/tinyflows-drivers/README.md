@@ -174,7 +174,9 @@ delivery.
 Transactional backends maintain an authoritative membership ledger even before
 a cap is installed, which fences an unlimited write already in flight when
 policy changes. Initialization imports preexisting rows with their versions
-fenced. All writers must run upgraded code; old binaries and direct document
+fenced. Policy installation reconciles the authoritative rows again, fencing
+both those rows and the ledger so pre-adoption legacy writes are counted.
+All writers must run upgraded code; old binaries and direct document
 writes bypass this protocol and must be stopped before policy adoption.
 Nontransactional backends retain unlimited legacy CRUD only when no ledger
 exists; policy installation and occurrence claims are refused. If a ledger

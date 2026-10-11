@@ -68,7 +68,9 @@ fn member(doc: &Value) -> Result<Member> {
 impl CronDocuments {
     /// Installs or removes an operator-owned, scope-wide enabled-job cap.
     /// Existing handles observe the stored policy. Installation refuses a cap
-    /// below the existing count. All participating writers need atomic batches;
+    /// below the existing count. Installation reconciles authoritative rows,
+    /// fencing the snapshot and policy in one transaction. Stop legacy writers
+    /// before adoption. All participating writers need atomic batches;
     /// unsupported backends fail closed, without a local fallback.
     ///
     /// # Errors
@@ -84,12 +86,35 @@ impl CronDocuments {
             let stored = self.admission().await?;
             let mut state: Admission = decode(stored.doc.clone())?;
             state.limit = limit;
-            state.check()?;
-            match self
+            // Reconcile authoritative rows at policy adoption. An older writer
+            // may have added/deleted a row before the deployment stopped it.
+            // Fencing every row and the ledger makes this snapshot safe against
+            // all upgraded writers, including inserts absent from the snapshot.
+            let rows = self
                 .docs
-                .put(COUNTERS, ADMISSION, encode(state)?, stored.unchanged())
+                .query_all(JOBS, &Query::all())
                 .await
-            {
+                .map_err(storage_error)?;
+            state.jobs.clear();
+            let mut ops = Vec::new();
+            for row in rows {
+                doc_to_job(&row)?;
+                state.jobs.insert(row.id.clone(), member(&row.doc)?);
+                ops.push(WriteOp::Put {
+                    collection: JOBS.into(),
+                    id: row.id.clone(),
+                    doc: row.doc.clone(),
+                    precondition: row.unchanged(),
+                });
+            }
+            state.check()?;
+            ops.push(WriteOp::Put {
+                collection: COUNTERS.into(),
+                id: ADMISSION.into(),
+                doc: encode(state)?,
+                precondition: stored.unchanged(),
+            });
+            match self.docs.atomic_batch(ops).await {
                 Ok(_) => return Ok(()),
                 Err(error) if error.kind() == ErrorKind::Conflict => {}
                 Err(error) => return Err(storage_error(error)),
