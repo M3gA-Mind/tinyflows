@@ -65,6 +65,8 @@ use tinystoragedrivers_core::{
     CollectionSpec, DocumentStore, ErrorKind, IndexSpec, StorageError, Versioned,
 };
 
+mod admission;
+mod claims;
 mod codec;
 mod jobs;
 mod patch;
@@ -148,7 +150,7 @@ impl CronDocuments {
 
 /// A storage failure as this store's error.
 fn storage_error(error: StorageError) -> anyhow::Error {
-    anyhow!("cron store: {error}")
+    anyhow::Error::new(error).context("cron store")
 }
 
 /// The job-not-found error, worded as the SQLite store words it.
