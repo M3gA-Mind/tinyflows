@@ -79,3 +79,7 @@ pub fn complete_run(
         Ok(())
     })
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

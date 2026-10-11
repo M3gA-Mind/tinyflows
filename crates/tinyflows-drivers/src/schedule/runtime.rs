@@ -40,7 +40,7 @@ impl CronDocuments {
     pub async fn complete_run(&self, job: &CronJob, completion: &Completion) -> Result<()> {
         self.ensure().await?;
         if completion.remove {
-            for _ in 0..CAS_ATTEMPTS {
+            for attempt in 0..CAS_ATTEMPTS {
                 let Some(stored) = self.docs.get(JOBS, &job.id).await.map_err(storage_error)?
                 else {
                     return Ok(());
@@ -58,6 +58,10 @@ impl CronDocuments {
                 if self.remove_unchanged(&stored).await? {
                     return Ok(());
                 }
+                anyhow::ensure!(
+                    attempt + 1 < CAS_ATTEMPTS,
+                    "completion deletion kept changing under {CAS_ATTEMPTS} attempts"
+                );
             }
         }
         compare_and_swap(&self.docs, JOBS, &job.id, |doc| {
@@ -88,3 +92,7 @@ impl CronDocuments {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;
