@@ -108,3 +108,71 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
         true
     );
 }
+
+struct CapabilityReply {
+    reply: Value,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleDocuments")]
+impl CapabilityReply {
+    async fn document(&self, _: Value) -> tinybus::Result<Value> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.reply.clone())
+    }
+}
+
+#[tokio::test]
+async fn document_bridge_requires_capability_report_and_never_emulates_transactions() {
+    for (reply, supported_report) in [
+        (json!({"value":{"transactions":false}}), true),
+        (json!({"value":{}}), false),
+        (
+            json!({"error":{"kind":"unavailable","message":"offline"}}),
+            false,
+        ),
+    ] {
+        let bus = tinybus::transport::memory::MemoryBus::new();
+        tinybus::broker::Broker::new().spawn(bus.clone());
+        let connection = Connection::connect(bus.connect().await.unwrap())
+            .await
+            .unwrap();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        connection
+            .serve_at(
+                "/test/Capabilities".try_into().unwrap(),
+                CapabilityReply {
+                    reply,
+                    calls: calls.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        connection.request_name("test.Capabilities").await.unwrap();
+        let result = Documents::new(
+            connection,
+            CallbackAddress {
+                destination: "test.Capabilities".into(),
+                object_path: "/test/Capabilities".into(),
+            },
+        )
+        .await;
+        if supported_report {
+            let documents = result.unwrap();
+            assert!(!documents.capabilities().contains(Capability::Transactions));
+            assert!(
+                documents
+                    .atomic_batch(vec![WriteOp::Put {
+                        collection: "cron_jobs".into(),
+                        id: "job".into(),
+                        doc: json!({}),
+                        precondition: Precondition::Absent,
+                    }])
+                    .await
+                    .is_err()
+            );
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+}

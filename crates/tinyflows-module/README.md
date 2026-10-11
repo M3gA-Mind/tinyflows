@@ -47,12 +47,22 @@ The error kinds are conflict, already_exists, not_found, invalid_input,
 serialization, unavailable or backend. Preserve conflict separately so module
 CAS loops can retry. Core-port values use tinystoragedrivers-core v0.5 serde.
 
-The request operations are ensure (spec), get (collection/id), put
+The module first requests capabilities and requires a typed
+`{value: {transactions: bool}}` reply; missing or invalid capability reports
+fail initialization. Transaction support is advertised only when the scoped
+backend provides it.
+
+The request operations are capabilities, atomic_batch (ops), ensure (spec),
+get (collection/id), put
 (collection/id/doc/precondition), delete (collection/id/precondition), query
 (collection/query), count (collection/filter) and delete_where
 (collection/filter). Only cron_jobs, cron_runs, cron_counters and legacy
 cron_job_policies are used. The host mechanically forwards these to its scoped
-document port, without linking TinyFlows storage implementations.
+document port, without linking TinyFlows storage implementations. Atomic batches
+use tinystoragedrivers-core WriteOp and WriteResult JSON and must be forwarded
+as one backend transaction. Every collection in the batch is checked before
+forwarding; unsupported transactions fail instead of falling back to individual
+writes.
 
 Configured scheduler storage applies claims/completions through upstream
 transaction/CAS methods, preserving edited schedules and newer occurrences.
