@@ -137,7 +137,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let graph = json!({"nodes":[
         {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
         {"id":"shape", "name":"Shape", "kind":"transform",
-         "config":{"set":{"body":"hi"}}},
+         "config":{"set":{"subject":null}}},
         {"id":"send", "name":"Send", "kind":"tool_call",
          "config":{"slug":"host:send", "args":{"subject":"=nodes.shape.item.subject"}}}
     ], "edges":[{"from_node":"t", "to_node":"shape"},
