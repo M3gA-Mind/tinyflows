@@ -2,7 +2,7 @@
 use super::{
     CAS_ATTEMPTS, CronDocuments, JOBS,
     codec::{doc_to_job, set_last_run},
-    compare_and_swap, storage_error,
+    compare_job, storage_error,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -20,7 +20,7 @@ impl CronDocuments {
     /// Advance only the original occurrence and definition incarnation.
     pub async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<bool> {
         self.ensure().await?;
-        Ok(compare_and_swap(&self.docs, JOBS, &job.id, |doc| {
+        Ok(compare_job(self, JOBS, &job.id, |doc| {
             let current = decode(&job.id, doc)?;
             if current.created_at != job.created_at
                 || current.schedule != job.schedule
@@ -64,7 +64,7 @@ impl CronDocuments {
                 );
             }
         }
-        compare_and_swap(&self.docs, JOBS, &job.id, |doc| {
+        compare_job(self, JOBS, &job.id, |doc| {
             let current = decode(&job.id, doc)?;
             if current.created_at != job.created_at {
                 return Ok(None);

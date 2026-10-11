@@ -1,6 +1,6 @@
 //! Upgrade legacy host policies through CAS; never lose fields or delete first.
 use super::*;
-use tinystoragedrivers_core::{DocumentStoreExt, Query};
+use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Query};
 
 impl CronDocuments {
     pub(super) async fn migrate_policies(&self) -> Result<()> {
@@ -18,7 +18,7 @@ impl CronDocuments {
             // Missing job is an orphan; the old table also permitted such rows.
             // A pre-existing policy means an interrupted migration already wrote
             // it, or a new writer has edited it. Never replace that newer value.
-            compare_and_swap(&self.docs, JOBS, &policy.id, |doc| {
+            compare_job(self, JOBS, &policy.id, |doc| {
                 if doc.get("policy").is_some() {
                     return Ok(None);
                 }
