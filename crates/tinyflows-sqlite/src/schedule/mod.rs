@@ -16,6 +16,8 @@ use std::path::PathBuf;
 mod agent_jobs;
 mod jobs;
 mod runs;
+mod runtime;
+pub use runtime::{claim_slot, complete_run};
 mod schema;
 
 pub use agent_jobs::{AgentJobSpec, add_agent_job_from_spec};
@@ -68,3 +70,7 @@ mod schedule_schema_tests;
 #[cfg(test)]
 #[path = "schedule_tests.rs"]
 mod schedule_tests;
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod policy_tests;

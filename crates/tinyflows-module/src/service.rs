@@ -21,26 +21,13 @@ impl Authoring {
 }
 
 /// Serve the authoring object and claim its bus identity.
-async fn setup(connection: Connection) -> Result<()> {
+pub(super) async fn setup(connection: Connection) -> Result<()> {
     connection
         .serve_at(OBJECT_PATH.try_into()?, Authoring)
         .await?;
     connection.request_name(BUS_NAME).await?;
+    super::schedule_service::setup(&connection).await?;
     Ok(())
-}
-
-// Generated C entry points implement TinyBus ABI v1.
-mod exports {
-    tinybus_module::module_export! {
-        setup = super::setup,
-        worker_threads = 2,
-        provides = ["ai.tinyhumans.tinyflows.Authoring"],
-        methods = ["ValidateGraph", "BindingFailures"],
-        signals = [],
-        requires = [],
-        optional = [],
-        lazy = false,
-    }
 }
 
 #[cfg(test)]

@@ -411,6 +411,9 @@ pub fn update_job(opts: &CronStoreOptions, job_id: &str, patch: CronJobPatch) ->
     if let Some(agent_id) = patch.agent_id {
         job.agent_id = agent_id;
     }
+    if let Some(policy) = patch.policy {
+        job.policy = policy;
+    }
     if let Some(origin) = patch.origin {
         job.origin = origin;
     }
@@ -441,7 +444,7 @@ pub fn update_job(opts: &CronStoreOptions, job_id: &str, patch: CronJobPatch) ->
             "UPDATE cron_jobs
              SET expression = ?1, command = ?2, schedule = ?3, job_type = ?4, prompt = ?5, name = ?6,
                  session_target = ?7, model = ?8, enabled = ?9, delivery = ?10, delete_after_run = ?11,
-                 next_run = ?12, agent_id = ?14, origin = ?15
+                 next_run = ?12, agent_id = ?14, origin = ?15, retries = ?16, single_flight = ?17
              WHERE id = ?13",
             params![
                 job.expression,
@@ -459,6 +462,8 @@ pub fn update_job(opts: &CronStoreOptions, job_id: &str, patch: CronJobPatch) ->
                 job.id,
                 job.agent_id,
                 encode_origin(job.origin.as_ref())?,
+                job.policy.retries.map(i64::from),
+                i64::from(job.policy.single_flight),
             ],
         )
         .context("Failed to update cron job")?;
