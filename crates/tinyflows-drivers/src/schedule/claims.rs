@@ -96,6 +96,10 @@ impl CronDocuments {
     /// supplies now; clocks must agree within its lease tolerance.
     /// Recovery is at least once: a crash after an external send but before
     /// completion can repeat that send. This is not an HTTP exactly-once API.
+    ///
+    /// # Errors
+    /// Invalid owner/duration, malformed state, unavailable transactions,
+    /// exhausted contention retries, or backend failure.
     pub async fn claim_due_job(
         &self,
         job_id: &str,
@@ -156,6 +160,9 @@ impl CronDocuments {
 
     /// Extends an unexpired, still-owned occurrence. A stale worker receives
     /// false and must stop; it cannot renew a successor lease.
+    ///
+    /// # Errors
+    /// Invalid duration, malformed state, exhausted retries, or backend failure.
     pub async fn renew_claim(
         &self,
         claim: &ClaimedOccurrence,
@@ -167,6 +174,9 @@ impl CronDocuments {
     }
     /// Releases an unexpired claim without advancing it. The occurrence can
     /// then be acquired again with a new token.
+    ///
+    /// # Errors
+    /// Malformed state, unavailable transactions, exhausted retries, or backend failure.
     pub async fn release_claim(
         &self,
         claim: &ClaimedOccurrence,
@@ -228,6 +238,11 @@ impl CronDocuments {
     /// Stale, expired, edited, canceled or re-created jobs return false
     /// without any outcome write. A one-shot is disabled, retaining history.
     /// The host applies delete_after_run separately when it wants removal.
+    ///
+    /// # Errors
+    /// Completion predates acquisition, state/schedule is malformed, transactions
+    /// are unavailable, retries are exhausted, or the backend fails. Pruning
+    /// failure is reported after the run and advance have already committed.
     pub async fn complete_claim(
         &self,
         claim: &ClaimedOccurrence,

@@ -47,6 +47,10 @@ impl CronDocuments {
     /// Existing handles observe the stored policy. Installation refuses a cap
     /// below the existing count. All participating writers need atomic batches;
     /// unsupported backends fail closed, without a local fallback.
+    ///
+    /// # Errors
+    /// Zero or exceeded limit, malformed admission state, unavailable atomic
+    /// batches, exhausted retries, or backend failure.
     pub async fn set_max_active_jobs(&self, limit: Option<usize>) -> Result<()> {
         self.docs
             .capabilities()

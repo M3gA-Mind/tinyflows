@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use tinystoragedrivers_core::{DocumentStoreExt, Query, Versioned};
+use tinystoragedrivers_core::{Capability, DocumentStoreExt, Filter, Query, Versioned};
 
 use super::codec::incarnation;
 use super::jobs::runs_of;
@@ -37,16 +37,33 @@ impl CronDocuments {
     /// a version check could match it and delete the new job. A document
     /// written before incarnations existed falls back to the version check.
     pub(super) async fn remove_stored(&self, stored: &Versioned<Value>) -> Result<bool> {
-        let removed = match self
-            .commit_job(&stored.id, Some(stored), None, vec![])
-            .await
+        let removed = if !self.docs.capabilities().contains(Capability::Transactions)
+            && incarnation(&stored.doc).is_some()
         {
-            Ok(results) => matches!(
-                results.first(),
-                Some(tinystoragedrivers_core::WriteResult::Delete { removed: true })
-            ),
-            Err(error) if super::admission::conflict(&error) => false,
-            Err(error) => return Err(error).context("Failed to delete cron job"),
+            self.require_unlimited_backend().await?;
+            // Preserve legacy incarnation-conditioned removal even on backends
+            // without atomic batches. Re-created documents can reuse versions.
+            let filter = Filter::eq("_id", stored.id.as_str()).and(Filter::eq(
+                super::codec::INCARNATION,
+                incarnation(&stored.doc).unwrap_or_default(),
+            ));
+            self.docs
+                .delete_where(JOBS, &filter)
+                .await
+                .map_err(storage_error)?
+                > 0
+        } else {
+            match self
+                .commit_job(&stored.id, Some(stored), None, vec![])
+                .await
+            {
+                Ok(results) => matches!(
+                    results.first(),
+                    Some(tinystoragedrivers_core::WriteResult::Delete { removed: true })
+                ),
+                Err(error) if super::admission::conflict(&error) => false,
+                Err(error) => return Err(error).context("Failed to delete cron job"),
+            }
         };
         if !removed {
             return Ok(false);
@@ -76,6 +93,25 @@ impl CronDocuments {
             || incarnation(&current.doc) != incarnation(&stored.doc)
         {
             return Ok(false);
+        }
+        if !self.docs.capabilities().contains(Capability::Transactions) {
+            match self
+                .commit_job(&stored.id, Some(stored), None, vec![])
+                .await
+            {
+                Ok(results)
+                    if matches!(
+                        results.first(),
+                        Some(tinystoragedrivers_core::WriteResult::Delete { removed: true })
+                    ) =>
+                {
+                    self.delete_runs_of(stored).await?;
+                    return Ok(true);
+                }
+                Ok(_) => return Ok(false),
+                Err(error) if super::admission::conflict(&error) => return Ok(false),
+                Err(error) => return Err(error),
+            }
         }
         self.remove_stored(stored).await
     }
