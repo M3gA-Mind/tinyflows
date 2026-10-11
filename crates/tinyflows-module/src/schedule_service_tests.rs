@@ -238,13 +238,15 @@ async fn module_document_store_retries_policy_migration_conflicts_without_losing
     docs.put("cron_jobs", id, body, stored.unchanged())
         .await
         .unwrap();
-    // A new callback address injects one CAS conflict, which must retain its kind.
+    // A new callback address injects one atomic CAS conflict.
+    let conflict_once = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let atomic_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     host.serve_at(
         "/test/Conflicts".try_into().unwrap(),
         document_callbacks::Documents {
             docs: docs.clone(),
-            conflict_once: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            atomic_calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            conflict_once: conflict_once.clone(),
+            atomic_calls: atomic_calls.clone(),
         },
     )
     .await
@@ -255,6 +257,8 @@ async fn module_document_store_retries_policy_migration_conflicts_without_losing
         .await
         .unwrap();
     assert_eq!(list[0]["name"], "system_seed");
+    assert!(!conflict_once.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(atomic_calls.load(std::sync::atomic::Ordering::SeqCst) >= 2);
     assert_eq!(list[0]["policy"]["retries"], 3);
     assert_eq!(list[0]["policy"]["single_flight"], true);
     assert!(docs.get("cron_job_policies", id).await.unwrap().is_none());
