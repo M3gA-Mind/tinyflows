@@ -141,3 +141,23 @@ fn every_numeric_range_and_step_matches_posix() {
         assert_eq!(fire_days(&format!("{start}/2")), expected, "{start}/2");
     }
 }
+
+/// Stepped wildcards retain the POSIX anchor, including the Sunday alias.
+#[test]
+fn stepped_wildcards_match_posix_for_every_step() {
+    for step in 1..=8u32 {
+        let expected: BTreeSet<u32> = (0..=7).step_by(step as usize).map(|d| d % 7).collect();
+        for wildcard in ["*", "?"] {
+            let field = format!("{wildcard}/{step}");
+            assert_eq!(fire_days(&field), expected, "{field}");
+        }
+    }
+}
+
+/// Mixed numeric/named endpoints are not supported by the cron grammar.
+#[test]
+fn mixed_named_numeric_ranges_are_rejected() {
+    for field in ["5-SUN", "MON-5", "MON-5/2"] {
+        assert!(validate_schedule(&utc_cron(&format!("0 9 * * {field}")), monday()).is_err(), "{field}");
+    }
+}
