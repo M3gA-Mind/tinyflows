@@ -13,6 +13,10 @@ pub(super) struct Documents {
     connection: Connection,
     address: CallbackAddress,
 }
+
+#[cfg(test)]
+#[path = "schedule_documents_tests.rs"]
+mod tests;
 impl std::fmt::Debug for Documents {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ScheduleDocuments").finish_non_exhaustive()
