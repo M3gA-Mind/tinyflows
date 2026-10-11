@@ -142,8 +142,12 @@ fn agent_prompt_failures(graph: &WorkflowGraph) -> Vec<String> {
     failures
 }
 
-/// Bindings that read a node's output through the wrong shape.
-fn binding_failures(graph: &WorkflowGraph) -> Vec<String> {
+/// Bindings that read a node's output without its required envelope.
+///
+/// Reports output-shape failures only. Use [`failures`] to also check agent
+/// prompts, agent output schemas, and supported code languages.
+#[must_use]
+pub fn binding_failures(graph: &WorkflowGraph) -> Vec<String> {
     let mut failures = Vec::new();
     for node in &graph.nodes {
         for (location, expr) in collect_expressions(&node.config) {

@@ -47,5 +47,26 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .call(methods::BINDING_FAILURES, (graph,))
         .await
         .unwrap();
-    assert!(failures.is_empty());
+    assert_eq!(failures, Vec::<String>::new());
+
+    let failures: Vec<String> = proxy
+        .call(
+            methods::BINDING_FAILURES,
+            (json!({
+                "nodes": [
+                    {"id":"fetch", "name":"Fetch", "kind":"agent",
+                     "config":{"prompt":"Fetch the title"}},
+                    {"id":"notify", "name":"Notify", "kind":"tool_call",
+                     "config":{"slug":"demo:echo",
+                               "args":{"text":"=nodes.fetch.item.title"}}},
+                    {"id":"code", "name":"Code", "kind":"code",
+                     "config":{"language":"shell"}}
+                ],
+                "edges": []
+            }),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("=nodes.fetch.item.json.title"));
 }

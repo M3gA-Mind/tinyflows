@@ -10,4 +10,4 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) artifact="$target_directory/debug/tinyflows_module.dll" ;;
   *) artifact="$target_directory/debug/libtinyflows_module.so" ;;
 esac
-TINYFLOWS_MODULE_ARTIFACT="$artifact" cargo test -p tinyflows-module --test module_artifact -- --ignored
+TINYFLOWS_MODULE_ARTIFACT="$artifact" cargo test -p tinyflows-module --test module_artifact_tests -- --ignored

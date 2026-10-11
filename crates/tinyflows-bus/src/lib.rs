@@ -21,7 +21,7 @@ pub const METHODS: &[&str] = &["ValidateGraph", "BindingFailures"];
 pub mod methods {
     /// Migrate, parse, structurally validate and check engine compatibility.
     pub const VALIDATE_GRAPH: &str = "ValidateGraph";
-    /// Check bindings that are statically guaranteed not to resolve.
+    /// Check bindings that omit the required node-output envelope.
     pub const BINDING_FAILURES: &str = "BindingFailures";
 }
 
