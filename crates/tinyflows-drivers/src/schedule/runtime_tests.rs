@@ -86,3 +86,48 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
         }
     }
 }
+
+#[tokio::test]
+async fn completing_a_one_shot_releases_capacity_under_installed_admission_policy() {
+    for remove in [false, true] {
+        let store = store();
+        store.set_max_active_jobs(Some(1)).await.unwrap();
+        let job = store
+            .add_shell_job(
+                None,
+                Schedule::At {
+                    at: Utc::now() + chrono::Duration::hours(1),
+                },
+                "echo once",
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, "blocked")
+                .await
+                .is_err()
+        );
+        let completion = Completion {
+            remove,
+            disable: !remove,
+            next_run: None,
+            finished_at: Utc::now(),
+            success: true,
+            output: "done".into(),
+        };
+        store.complete_run(&job, &completion).await.unwrap();
+        store.complete_run(&job, &completion).await.unwrap();
+        let next = store
+            .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, "next")
+            .await
+            .unwrap();
+        assert!(next.enabled);
+        assert!(
+            store
+                .add_shell_job(None, Schedule::Every { every_ms: 60_000 }, "still blocked")
+                .await
+                .is_err()
+        );
+    }
+}
