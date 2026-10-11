@@ -38,6 +38,10 @@ async fn outputs_derived_from_unknown_inputs_remain_unverifiable() {
 
 #[tokio::test]
 async fn bracketed_runtime_scope_and_identity_child_mappings_remain_opaque() {
+    assert_eq!(crate::expr::evaluate(
+        &json!("=. [ \"run\" ].payload"),
+        &json!({"run":{"payload":{"subject":"actual runtime value"}}}),
+    ), json!({"subject":"actual runtime value"}));
     let mut child = graph(
         json!([
             trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
@@ -49,6 +53,7 @@ async fn bracketed_runtime_scope_and_identity_child_mappings_remain_opaque() {
     for (mapping, argument) in [
         ("=.[\"run\"].payload", "=inputs.payload.subject"),
         ("=. [ \"run\" ].payload", "=inputs.payload.subject"),
+        ("=. [ \"r\"+\"un\" ].payload", "=inputs.payload.subject"),
         ("=.", "=inputs.payload.run.subject"),
     ] {
         child.nodes[1].config["args"]["subject"] = json!(argument);
