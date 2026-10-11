@@ -198,7 +198,7 @@ fn completion_preserves_one_shot_reenabled_during_execution() {
     for (success, remove) in [(false, false), (true, false), (true, true)] {
         let directory = tempfile::tempdir().unwrap();
         let options = CronStoreOptions::new(directory.path().join("jobs.db"));
-        let job = add_shell_job(&options, None, Schedule::At { at: Utc::now() }, "once").unwrap();
+        let job = add_shell_job(&options, None, Schedule::At { at: Utc::now() + chrono::Duration::hours(1) }, "once").unwrap();
         let job = update_job(&options, &job.id, CronJobPatch { delete_after_run: Some(remove), ..Default::default() }).unwrap();
         assert!(claim_slot(&options, &job, job.next_run).unwrap());
         update_job(&options, &job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).unwrap();

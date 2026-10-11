@@ -265,7 +265,7 @@ async fn completion_preserves_auto_delete_canceled_during_execution() {
 async fn completion_preserves_one_shot_reenabled_during_execution() {
     for (success, remove) in [(false, false), (true, false), (true, true)] {
         let store = store();
-        let job = store.add_shell_job(None, Schedule::At { at: Utc::now() }, "once").await.unwrap();
+        let job = store.add_shell_job(None, Schedule::At { at: Utc::now() + chrono::Duration::hours(1) }, "once").await.unwrap();
         let job = store.update_job(&job.id, CronJobPatch { delete_after_run: Some(remove), ..Default::default() }).await.unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         store.update_job(&job.id, CronJobPatch { enabled: Some(true), ..Default::default() }).await.unwrap();
