@@ -197,3 +197,28 @@ async fn nested_portable_checks_use_the_remaining_root_depth_budget() {
         }
     }
 }
+
+/// Builder validation shares the preflight's runtime JSON uncertainty semantics.
+#[tokio::test]
+async fn builder_accepts_dynamic_json_child_input_fields() {
+    let child = json!({
+        "inputs":[{"name":"payload","type":"json","required":true}],
+        "nodes":[
+            {"id":"start","name":"Start","kind":"trigger"},
+            {"id":"send","name":"Send","kind":"tool_call","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}
+        ],
+        "edges":[{"from_node":"start","to_node":"send"}]
+    });
+    let mut outer = graph(json!([
+        {"id":"start","name":"Start","kind":"trigger"},
+        {"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}
+    ]));
+    outer.edges = serde_json::from_value(json!([{"from_node":"start","to_node":"child"}])).unwrap();
+    let host = Host {
+        calls: Default::default(),
+        refuse: None,
+    };
+    let errors = builder_failures(&outer, &host, &[]).await.unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(host.calls.lock().unwrap().len(), 4);
+}

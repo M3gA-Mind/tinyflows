@@ -333,7 +333,8 @@ async fn dynamic_json_child_inputs_are_unverifiable_but_literal_missing_fields_a
         ]),
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
     );
-    child.inputs = vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
     for supplied in [json!("=run.payload"), json!({}), json!({"subject":"hello"})] {
         let parent = graph(
             json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":supplied}}}]),
@@ -342,6 +343,37 @@ async fn dynamic_json_child_inputs_are_unverifiable_but_literal_missing_fields_a
         let errors = unresolvable_tool_args(&parent, &[]).await;
         let expected = if supplied == json!({}) { 2 } else { 1 };
         assert_eq!(errors.len(), expected, "{supplied}: {errors:?}");
-        assert!(errors.iter().any(|error| error.contains("arg `body`")), "{errors:?}");
+        assert!(
+            errors.iter().any(|error| error.contains("arg `body`")),
+            "{errors:?}"
+        );
+    }
+}
+
+/// Opaque JSON stays opaque after a second child's input mapping, including jq reads.
+#[tokio::test]
+async fn dynamic_json_child_inputs_remain_unverifiable_across_nested_children() {
+    let mut leaf = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=.inputs[\"payload\"].subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    leaf.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    let mut child = graph(
+        json!([trigger(), {"id":"leaf","kind":"sub_workflow","name":"Leaf","config":{"workflow":leaf,"inputs":{"payload":"=inputs.payload"}}}]),
+        json!([{"from_node":"t","to_node":"leaf"}]),
+    );
+    child.inputs = leaf.inputs.clone();
+    for supplied in [json!("=run.payload"), json!({})] {
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":supplied}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert_eq!(
+            errors.len(),
+            usize::from(supplied == json!({})),
+            "{supplied}: {errors:?}"
+        );
     }
 }
