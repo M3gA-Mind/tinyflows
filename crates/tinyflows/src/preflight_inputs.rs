@@ -1,6 +1,4 @@
-//! Mock child input values and the provenance of unavailable runtime data.
-
-use std::collections::HashSet;
+//! Mock child input values and path-level provenance of unavailable runtime data.
 
 use serde_json::{Map, Value, json};
 
@@ -9,7 +7,7 @@ use crate::model::{InputType, WorkflowGraph};
 #[derive(Clone, Default)]
 pub(super) struct MockInputs {
     pub(super) values: Map<String, Value>,
-    unknown: HashSet<String>,
+    unknown: Vec<Vec<String>>,
 }
 
 impl MockInputs {
@@ -25,7 +23,7 @@ impl MockInputs {
             unknown: graph
                 .inputs
                 .iter()
-                .map(|input| input.name.clone())
+                .map(|input| vec![input.name.clone()])
                 .collect(),
         }
     }
@@ -40,54 +38,117 @@ impl MockInputs {
             let Some(raw) = supplied.get(&input.name) else {
                 continue;
             };
-            let (mut value, misses) =
-                crate::expr::resolve_traced(raw, &json!({"inputs": self.values}));
-            // JSON accepts null, so type acceptance alone cannot establish that
-            // an expression resolved from the inputs-only synthetic scope.
-            if !misses.is_empty() || self.contains_unknown_read(raw) {
-                child.unknown.insert(input.name.clone());
-                if !input.ty.accepts(&value) {
-                    value = placeholder(input.ty);
-                }
+            let mut value = crate::expr::resolve(raw, &json!({"inputs": self.values}));
+            self.collect_unknown(raw, &[input.name.clone()], &mut child.unknown);
+            if raw.as_str().is_some_and(crate::expr::is_expression) && !input.ty.accepts(&value) {
+                value = placeholder(input.ty);
             }
             child.values.insert(input.name.clone(), value);
         }
         child
     }
 
-    /// A nested read from an opaque input cannot prove that a field is absent.
+    /// A read intersecting an opaque input path cannot prove a field is absent.
     pub(super) fn is_unverifiable(&self, expression: &str) -> bool {
-        let Some(body) = expression.strip_prefix('=') else {
-            return false;
-        };
-        let body = body.trim().trim_start_matches('.');
-        let Some(rest) = body.strip_prefix("inputs") else {
-            return false;
-        };
-        let name = if let Some(rest) = rest.strip_prefix('.') {
-            rest.split(['.', '[', ' ', '|']).next().unwrap_or_default()
-        } else if let Some(rest) = rest.strip_prefix('[') {
-            rest.trim_start()
-                .trim_start_matches(['"', '\''])
-                .split(['"', '\'', ']'])
-                .next()
-                .unwrap_or_default()
-        } else {
-            return rest.is_empty() && !self.unknown.is_empty();
-        };
-        self.unknown.contains(name)
+        input_path(expression).is_some_and(|path| {
+            self.unknown
+                .iter()
+                .any(|unknown| path.starts_with(unknown) || unknown.starts_with(&path))
+        })
     }
 
-    fn contains_unknown_read(&self, value: &Value) -> bool {
-        match value {
-            Value::String(expression) => self.is_unverifiable(expression),
-            Value::Object(values) => values
-                .values()
-                .any(|value| self.contains_unknown_read(value)),
-            Value::Array(values) => values.iter().any(|value| self.contains_unknown_read(value)),
-            _ => false,
+    /// Transfer only the unavailable leaves when JSON mixes literal and dynamic fields.
+    fn collect_unknown(&self, raw: &Value, destination: &[String], out: &mut Vec<Vec<String>>) {
+        match raw {
+            Value::Object(values) => {
+                for (key, value) in values {
+                    let mut path = destination.to_vec();
+                    path.push(key.clone());
+                    self.collect_unknown(value, &path, out);
+                }
+            }
+            Value::Array(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    let mut path = destination.to_vec();
+                    path.push(index.to_string());
+                    self.collect_unknown(value, &path, out);
+                }
+            }
+            Value::String(expression) if crate::expr::is_expression(expression) => {
+                if let Some(source) = input_path(expression) {
+                    for unknown in &self.unknown {
+                        if source.starts_with(unknown) {
+                            out.push(destination.to_vec());
+                        } else if let Some(suffix) = unknown.strip_prefix(source.as_slice()) {
+                            let mut path = destination.to_vec();
+                            path.extend_from_slice(suffix);
+                            out.push(path);
+                        }
+                    }
+                } else {
+                    // Runtime scopes are absent from this inputs-only mock.
+                    out.push(destination.to_vec());
+                }
+            }
+            _ => {}
         }
     }
+}
+
+/// Recognize input paths in shorthand, bracket notation, and jq field-access pipes.
+/// Other jq operators conservatively address the entire input scope.
+fn input_path(expression: &str) -> Option<Vec<String>> {
+    let body = expression.strip_prefix('=')?.trim();
+    let body = body.strip_prefix('.').unwrap_or(body);
+    let mut rest = body.strip_prefix("inputs")?;
+    if !rest.is_empty() && !rest.starts_with(['.', '[', ' ', '|']) {
+        return None;
+    }
+    let mut path = Vec::new();
+    while !rest.trim().is_empty() {
+        rest = rest.trim_start();
+        if let Some(tail) = rest.strip_prefix('|') {
+            rest = tail.trim_start();
+            if !rest.starts_with(['.', '[']) {
+                return Some(Vec::new());
+            }
+        }
+        if let Some(tail) = rest.strip_prefix('.') {
+            let end = tail
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+                .unwrap_or(tail.len());
+            if end == 0 {
+                return Some(Vec::new());
+            }
+            path.push(tail[..end].to_string());
+            rest = &tail[end..];
+        } else if let Some(tail) = rest.strip_prefix('[') {
+            let Some(end) = tail.find(']') else {
+                return Some(Vec::new());
+            };
+            let key = tail[..end].trim();
+            let key = if key.starts_with('"') {
+                let Ok(key) = serde_json::from_str::<String>(key) else {
+                    return Some(Vec::new());
+                };
+                key
+            } else if let Some(key) = key
+                .strip_prefix('\'')
+                .and_then(|key| key.strip_suffix('\''))
+            {
+                key.to_string()
+            } else if key.chars().all(|c| c.is_ascii_digit()) && !key.is_empty() {
+                key.to_string()
+            } else {
+                return Some(Vec::new());
+            };
+            path.push(key);
+            rest = &tail[end + 1..];
+        } else {
+            return Some(Vec::new());
+        }
+    }
+    Some(path)
 }
 
 /// A type-correct value lets the mock run reach unrelated tool bindings.
