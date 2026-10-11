@@ -92,12 +92,12 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
                 collection: "cron_jobs".into(),
                 id: "job".into(),
                 doc: json!({"enabled":false}),
-                precondition: Precondition::Any,
+                precondition: Precondition::None,
             },
             WriteOp::Delete {
                 collection: "other_domain".into(),
                 id: "job".into(),
-                precondition: Precondition::Any,
+                precondition: Precondition::None,
             },
         ])
         .await

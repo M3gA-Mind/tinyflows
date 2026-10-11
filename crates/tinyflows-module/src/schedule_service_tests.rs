@@ -206,7 +206,8 @@ async fn module_document_store_retries_policy_migration_conflicts_without_losing
         "/test/Documents".try_into().unwrap(),
         document_callbacks::Documents {
             docs: docs.clone(),
-            conflict_once: std::sync::atomic::AtomicBool::new(false),
+            conflict_once: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         },
     )
     .await
@@ -242,7 +243,8 @@ async fn module_document_store_retries_policy_migration_conflicts_without_losing
         "/test/Conflicts".try_into().unwrap(),
         document_callbacks::Documents {
             docs: docs.clone(),
-            conflict_once: std::sync::atomic::AtomicBool::new(true),
+            conflict_once: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            atomic_calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         },
     )
     .await
