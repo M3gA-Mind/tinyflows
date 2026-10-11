@@ -328,7 +328,7 @@ async fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit
         .unwrap();
     let now = second.next_run + chrono::Duration::days(1);
     let due = store
-        .due_jobs_excluding(now, &[first.id.clone()])
+        .due_jobs_excluding(now, std::slice::from_ref(&first.id))
         .await
         .unwrap();
     assert_eq!(due.len(), 1);

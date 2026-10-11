@@ -264,7 +264,8 @@ fn due_selection_replaces_an_excluded_head_before_applying_the_batch_limit() {
     )
     .unwrap();
     let now = second.next_run + chrono::Duration::days(1);
-    let due = super::super::due_jobs_excluding(&options, now, &[first.id.clone()]).unwrap();
+    let due =
+        super::super::due_jobs_excluding(&options, now, std::slice::from_ref(&first.id)).unwrap();
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].id, second.id);
 }

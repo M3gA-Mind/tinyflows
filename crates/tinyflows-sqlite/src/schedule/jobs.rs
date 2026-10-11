@@ -355,27 +355,19 @@ pub fn due_jobs_excluding(
     now: DateTime<Utc>,
     excluded: &[String],
 ) -> Result<Vec<CronJob>> {
+    let lim = i64::try_from(opts.max_tasks.max(1)).context("Scheduler max_tasks overflows i64")?;
+    let excluded = serde_json::to_string(excluded)?;
     with_connection(opts, |conn| {
         let mut stmt = conn.prepare(&format!(
             "SELECT {JOB_COLUMNS} FROM cron_jobs
                  WHERE enabled = 1 AND next_run <= ?1
+                   AND id NOT IN (SELECT value FROM json_each(?2))
                  ORDER BY next_run ASC
-                 "
+                 LIMIT ?3"
         ))?;
-
-        let rows = stmt.query_map(params![now.to_rfc3339()], map_cron_job_row)?;
-
-        let mut jobs = Vec::new();
-        for row in rows {
-            let job = row?;
-            if !excluded.contains(&job.id) {
-                jobs.push(job);
-                if jobs.len() == opts.max_tasks.max(1) {
-                    break;
-                }
-            }
-        }
-        Ok(jobs)
+        let rows = stmt.query_map(params![now.to_rfc3339(), excluded, lim], map_cron_job_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     })
 }
 
