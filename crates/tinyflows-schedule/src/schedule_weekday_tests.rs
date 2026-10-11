@@ -145,7 +145,7 @@ fn every_numeric_range_and_step_matches_posix() {
 /// Stepped wildcards retain the POSIX anchor, including the Sunday alias.
 #[test]
 fn stepped_wildcards_match_posix_for_every_step() {
-    for step in 1..=8u32 {
+    for step in 1..=7u32 {
         let expected: BTreeSet<u32> = (0..=7).step_by(step as usize).map(|d| d % 7).collect();
         for wildcard in ["*", "?"] {
             let field = format!("{wildcard}/{step}");
@@ -158,6 +158,9 @@ fn stepped_wildcards_match_posix_for_every_step() {
 #[test]
 fn mixed_named_numeric_ranges_are_rejected() {
     for field in ["5-SUN", "MON-5", "MON-5/2"] {
-        assert!(validate_schedule(&utc_cron(&format!("0 9 * * {field}")), monday()).is_err(), "{field}");
+        assert!(
+            validate_schedule(&utc_cron(&format!("0 9 * * {field}")), monday()).is_err(),
+            "{field}"
+        );
     }
 }

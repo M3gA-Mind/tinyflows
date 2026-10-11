@@ -36,12 +36,13 @@ fn translate_item(item: &str) -> Result<String> {
     // over days 0–7, but the crate walks 1, 1+n, 1+2n… over days 1–7, so we
     // must emit an explicit range `1-7/n` to get the right days.
     // A bare wildcard or a name needs no translation.
-    if (base == "*" || base == "?") && step.is_some() {
-        // Stepped wildcard: rewrite to explicit crate range.
-        let step_val = step.unwrap();
-        return Ok(format!("1-7/{step_val}"));
+    if base == "*" || base == "?" {
+        if let Some(step_val) = step {
+            return Ok(format!("1-7/{step_val}"));
+        }
+        return Ok(item.to_string());
     }
-    if base == "*" || base == "?" || base.chars().any(|c| c.is_ascii_alphabetic()) {
+    if base.chars().any(|c| c.is_ascii_alphabetic()) {
         return Ok(item.to_string());
     }
     let (start, end) = match base.split_once('-') {
