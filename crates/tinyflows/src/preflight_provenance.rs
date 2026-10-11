@@ -104,6 +104,9 @@ impl<'a> Provenance<'a> {
     }
 
     pub(super) fn is_unverifiable(&self, expression: &str, node: &str) -> bool {
+        if !crate::expr::is_expression(expression) {
+            return false;
+        }
         let trigger = self
             .graph
             .nodes
