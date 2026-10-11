@@ -442,4 +442,16 @@ async fn outputs_derived_from_unknown_inputs_remain_unverifiable() {
     let errors = unresolvable_tool_args(&g, &[]).await;
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("arg `body`"), "{errors:?}");
+    g.nodes.insert(3, serde_json::from_value(json!({"id":"relay","kind":"transform","name":"Relay","config":{"set":{"subject":"=item.subject"}}})).unwrap());
+    g.edges = serde_json::from_value(json!([
+        {"from_node":"t","to_node":"stable"},{"from_node":"stable","to_node":"shape"},
+        {"from_node":"shape","to_node":"relay"},{"from_node":"relay","to_node":"send"}
+    ]))
+    .unwrap();
+    g.nodes[4].config["args"]["subject"] = json!("=item.subject");
+    // Dependency propagation must also work when declaration order is reversed.
+    g.nodes.reverse();
+    let errors = unresolvable_tool_args(&g, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `body`"), "{errors:?}");
 }

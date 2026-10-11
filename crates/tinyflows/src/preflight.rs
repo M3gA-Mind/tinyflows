@@ -46,6 +46,8 @@ use crate::observability::CapturingObserver;
 #[path = "preflight_inputs.rs"]
 mod input_scope;
 use input_scope::MockInputs;
+#[path = "preflight_uncertainty.rs"]
+mod uncertainty;
 
 /// Wall-clock bound on the sandbox run.
 ///
@@ -148,6 +150,7 @@ async fn graph_unresolvable_tool_args(
 
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn crate::observability::RunObserver> = observer.clone();
+    let unknown_nodes = uncertainty::unknown_nodes(graph, &inputs);
     let input = crate::engine::RunInput::new(json!({})).with_inputs(inputs.values.clone());
     let run = crate::engine::run_with_observer(&compiled, input, &caps, &observer_dyn);
     match tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), run).await {
@@ -200,8 +203,13 @@ async fn graph_unresolvable_tool_args(
             let Some(field) = diag.location.strip_prefix("args.") else {
                 continue;
             };
-            if inputs.is_unverifiable(&diag.expression)
-                || is_trigger_scoped_expression(&diag.expression, graph, &step.node_id, trigger_id)
+            if uncertainty::is_unverifiable(
+                &diag.expression,
+                graph,
+                &step.node_id,
+                &inputs,
+                &unknown_nodes,
+            ) || is_trigger_scoped_expression(&diag.expression, graph, &step.node_id, trigger_id)
             {
                 // Legitimately empty in this gate's `{}` mock run — the real
                 // trigger (webhook/app-event/manual) will populate it. Not
