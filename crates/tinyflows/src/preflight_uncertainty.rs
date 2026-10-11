@@ -38,17 +38,20 @@ pub(super) fn unknown_nodes(graph: &WorkflowGraph, inputs: &MockInputs) -> Unkno
                     }
                 }
             }
-            for (location, expression) in bindings::collect_expressions(&node.config) {
-                if is_unverifiable(&expression, graph, &node.id, inputs, &unknown) {
-                    let path = if node.kind == NodeKind::Transform {
-                        location
-                            .strip_prefix("set.")
-                            .map(|field| vec![field.split('.').next().unwrap_or(field).to_string()])
-                            .unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
-                    paths.push(path);
+            if node.kind == NodeKind::Transform {
+                for (field, value) in set.into_iter().flatten() {
+                    if let Some(expression) = value.as_str()
+                        && crate::expr::is_expression(expression)
+                        && is_unverifiable(expression, graph, &node.id, inputs, &unknown)
+                    {
+                        paths.push(vec![field.clone()]);
+                    }
+                }
+            } else {
+                for (_, expression) in bindings::collect_expressions(&node.config) {
+                    if is_unverifiable(&expression, graph, &node.id, inputs, &unknown) {
+                        paths.push(Vec::new());
+                    }
                 }
             }
             let existing = unknown.entry(node.id.clone()).or_default();
@@ -89,11 +92,10 @@ pub(super) fn is_unverifiable(
     if let Some(path) = scope_path(expression, "nodes") {
         if let Some(id) = path.first() {
             // The node scope wraps each node's first output under `item`.
-            return path
-                .get(1)
-                .is_none_or(|segment| segment != "item")
-                .then(|| unknown.get(id).is_some_and(|paths| !paths.is_empty()))
-                .unwrap_or_else(|| intersects(unknown.get(id), &path[2..]));
+            if path.get(1).is_some_and(|segment| segment == "item") {
+                return intersects(unknown.get(id), &path[2..]);
+            }
+            return unknown.get(id).is_some_and(|paths| !paths.is_empty());
         }
         return unknown.values().any(|paths| !paths.is_empty());
     }
