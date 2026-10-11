@@ -189,7 +189,7 @@ async fn preflight_checks_respect_host_supplied_native_prefixes() -> Result<()> 
     let graph = json!({"nodes":[
         {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
         {"id":"shape", "name":"Shape", "kind":"transform",
-            "config":{"expression":"={ body: \"hi\" }"}},
+            "config":{"set":{"subject":null}}},
         {"id":"send", "name":"Send", "kind":"tool_call",
             "config":{"slug":"host:send_message", "args":{"subject":"=nodes.shape.item.subject"}}}
     ], "edges":[{"from_node":"t", "to_node":"shape"},
