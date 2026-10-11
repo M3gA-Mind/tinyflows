@@ -34,6 +34,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let broker = Broker::new();
     let host = ModuleHost::new(broker.clone());
     let info = host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    assert!(
+        info.manifest
+            .requires
+            .iter()
+            .any(|dependency| dependency.optional
+                && dependency.interface.interface.as_str() == tinyflows_bus::HOST_INTERFACE)
+    );
     let provided = info
         .manifest
         .provides

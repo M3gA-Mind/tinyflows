@@ -80,7 +80,7 @@ mod exports {
         methods = ["ValidateGraph", "BindingFailures", "AuthoringFailures", "UnresolvableToolArgs", "BuilderFailures"],
         signals = [],
         requires = [],
-        optional = [],
+        optional = ["ai.tinyhumans.tinyflows.AuthoringHost"],
         lazy = false,
     }
 }
