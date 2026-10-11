@@ -22,6 +22,27 @@ struct Admission {
     limit: Option<usize>,
     jobs: std::collections::BTreeMap<String, Member>,
 }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdmissionRecord {
+    limit: Option<usize>,
+    // Job ids can contain Mongo-sensitive key characters. Keep the map in a
+    // JSON string, matching the cron store's existing nested-value convention.
+    members_json: String,
+}
+fn decode(doc: Value) -> Result<Admission> {
+    let record: AdmissionRecord = serde_json::from_value(doc)?;
+    Ok(Admission {
+        limit: record.limit,
+        jobs: serde_json::from_str(&record.members_json)?,
+    })
+}
+fn encode(state: Admission) -> Result<Value> {
+    Ok(serde_json::to_value(AdmissionRecord {
+        limit: state.limit,
+        members_json: serde_json::to_string(&state.jobs)?,
+    })?)
+}
 impl Admission {
     fn check(&self) -> Result<()> {
         if let Some(limit) = self.limit {
@@ -59,17 +80,12 @@ impl CronDocuments {
         self.ensure().await?;
         for _ in 0..CAS_ATTEMPTS {
             let stored = self.admission().await?;
-            let mut state: Admission = serde_json::from_value(stored.doc.clone())?;
+            let mut state: Admission = decode(stored.doc.clone())?;
             state.limit = limit;
             state.check()?;
             match self
                 .docs
-                .put(
-                    COUNTERS,
-                    ADMISSION,
-                    serde_json::to_value(state)?,
-                    stored.unchanged(),
-                )
+                .put(COUNTERS, ADMISSION, encode(state)?, stored.unchanged())
                 .await
             {
                 Ok(_) => return Ok(()),
@@ -91,7 +107,7 @@ impl CronDocuments {
                 .await
                 .map_err(storage_error)?
             {
-                let state: Admission = serde_json::from_value(stored.doc.clone())?;
+                let state: Admission = decode(stored.doc.clone())?;
                 state.check()?;
                 return Ok(stored);
             }
@@ -115,7 +131,7 @@ impl CronDocuments {
             ops.push(WriteOp::Put {
                 collection: COUNTERS.into(),
                 id: ADMISSION.into(),
-                doc: serde_json::to_value(state)?,
+                doc: encode(state)?,
                 precondition: Precondition::Absent,
             });
             match self.docs.atomic_batch(ops).await {
@@ -125,6 +141,20 @@ impl CronDocuments {
             }
         }
         bail!("cron store: admission initialization kept changing")
+    }
+
+    /// A nontransactional backend must never bypass persisted policy.
+    pub(super) async fn require_unlimited_backend(&self) -> Result<()> {
+        if self
+            .docs
+            .get(COUNTERS, ADMISSION)
+            .await
+            .map_err(storage_error)?
+            .is_some()
+        {
+            anyhow::bail!("cron store: transactions required for stored admission policy");
+        }
+        Ok(())
     }
 
     /// Commits a job plus membership and optional run writes atomically. The
@@ -139,15 +169,9 @@ impl CronDocuments {
         if !self.docs.capabilities().contains(Capability::Transactions) {
             // This backend cannot install admission policy, so absent policy
             // is a stable fact, not a race with another participating writer.
-            if self
-                .docs
-                .get(COUNTERS, ADMISSION)
-                .await
-                .map_err(storage_error)?
-                .is_some()
-                || !extra.is_empty()
-            {
-                anyhow::bail!("cron store: transactions required for stored admission policy");
+            self.require_unlimited_backend().await?;
+            if !extra.is_empty() {
+                anyhow::bail!("cron store: transactions required for atomic run writes");
             }
             let precondition = previous.map_or(Precondition::Absent, Versioned::unchanged);
             return match next {
@@ -166,7 +190,7 @@ impl CronDocuments {
             };
         }
         let ledger = self.admission().await?;
-        let mut state: Admission = serde_json::from_value(ledger.doc.clone())?;
+        let mut state: Admission = decode(ledger.doc.clone())?;
         let owns = match (previous, state.jobs.get(id)) {
             (None, None) => true,
             (Some(old), Some(current)) => current.incarnation.as_deref() == incarnation(&old.doc),
@@ -212,7 +236,7 @@ impl CronDocuments {
         ops.push(WriteOp::Put {
             collection: COUNTERS.into(),
             id: ADMISSION.into(),
-            doc: serde_json::to_value(state)?,
+            doc: encode(state)?,
             precondition: ledger.unchanged(),
         });
         self.docs.atomic_batch(ops).await.map_err(storage_error)
