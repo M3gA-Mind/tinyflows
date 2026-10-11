@@ -262,7 +262,7 @@ async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
         json!([
             trigger(),
             {"id":"shape","kind":"transform","name":"Shape","config":{"expression":"={ body: inputs.repo }"}},
-            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
+            {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.json.subject"}}}
         ]),
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
     );
@@ -282,7 +282,8 @@ async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
         assert!(errors[0].contains("subject"), "{errors:?}");
         let mut valid = parent;
         valid.nodes[1].config["workflow"]["nodes"][2]["config"]["args"]["subject"] =
-            json!("=nodes.shape.item.body");
-        assert!(unresolvable_tool_args(&valid, &[]).await.is_empty());
+            json!("=nodes.shape.item.json.body");
+        let valid_errors = unresolvable_tool_args(&valid, &[]).await;
+        assert!(valid_errors.is_empty(), "{supplied:?}: {valid_errors:?}");
     }
 }
