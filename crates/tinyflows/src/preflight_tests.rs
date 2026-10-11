@@ -287,3 +287,35 @@ async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
         assert!(valid_errors.is_empty(), "{supplied:?}: {valid_errors:?}");
     }
 }
+
+#[tokio::test]
+async fn runtime_json_child_inputs_are_unverifiable_without_hiding_graph_output_errors() {
+    let mut child = graph(
+        json!([trigger(), {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=inputs.payload.subject"}}}]),
+        json!([{"from_node":"t","to_node":"send"}]),
+    );
+    child.inputs =
+        vec![crate::model::WorkflowInput::new("payload", crate::model::InputType::Json).required()];
+    for expression in ["=inputs.payload.subject", "=.inputs[\"payload\"].subject"] {
+        child.nodes[1].config["args"]["subject"] = json!(expression);
+        let parent = graph(
+            json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+            json!([{"from_node":"t","to_node":"child"}]),
+        );
+        let errors = unresolvable_tool_args(&parent, &[]).await;
+        assert!(errors.is_empty(), "{expression}: {errors:?}");
+    }
+    child.nodes.insert(1, serde_json::from_value(json!({"id":"shape","kind":"transform","name":"Shape","config":{"set":{"actual":"ok"}}})).unwrap());
+    child.edges = serde_json::from_value(
+        json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
+    )
+    .unwrap();
+    child.nodes[2].config["args"]["other"] = json!("=nodes.shape.item.missing");
+    let parent = graph(
+        json!([trigger(), {"id":"child","kind":"sub_workflow","name":"Child","config":{"workflow":child,"inputs":{"payload":"=run.payload"}}}]),
+        json!([{"from_node":"t","to_node":"child"}]),
+    );
+    let errors = unresolvable_tool_args(&parent, &[]).await;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("arg `other`"), "{errors:?}");
+}
