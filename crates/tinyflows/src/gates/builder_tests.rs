@@ -101,11 +101,11 @@ async fn successful_host_gates_proceed_to_mock_preflight_and_respect_native_pref
 #[tokio::test]
 async fn inline_portable_failures_are_checked_before_any_host_stage() {
     for nodes in [
-        json!([{"id":"code","kind":"code","config":{"language":"shell"}}]),
-        json!([{"id":"agent","kind":"agent","config":{"prompt":"=Go and fetch the issues"}}]),
+        json!([{"id":"code","name":"code","kind":"code","config":{"language":"shell"}}]),
+        json!([{"id":"agent","name":"agent","kind":"agent","config":{"prompt":"=Go and fetch the issues"}}]),
         json!([
-            {"id":"fetch","kind":"agent","config":{"prompt":"Fetch"}},
-            {"id":"send","kind":"tool_call","config":{"slug":"host:send","args":{"text":"=nodes.fetch.item.title"}}}
+            {"id":"fetch","name":"fetch","kind":"agent","config":{"prompt":"Fetch"}},
+            {"id":"send","name":"send","kind":"tool_call","config":{"slug":"host:send","args":{"text":"=nodes.fetch.item.title"}}}
         ]),
     ] {
         let child = graph(nodes);
@@ -115,8 +115,8 @@ async fn inline_portable_failures_are_checked_before_any_host_stage() {
             .collect();
         assert!(!expected.is_empty());
         let outer = graph(json!([
-            {"id":"start","kind":"trigger"},
-            {"id":"inline","kind":"sub_workflow","config":{"workflow":child}}
+            {"id":"start","name":"start","kind":"trigger"},
+            {"id":"inline","name":"inline","kind":"sub_workflow","config":{"workflow":child}}
         ]));
         let host = Host {
             calls: Default::default(),
