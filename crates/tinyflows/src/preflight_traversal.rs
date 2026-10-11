@@ -12,7 +12,9 @@ pub(super) async fn check(
 ) -> Vec<String> {
     let max_depth = crate::compat::max_sub_workflow_depth(graph);
     let check = async {
-        let mut saved = std::collections::HashMap::new();
+        let mut saved: std::collections::HashMap<String, WorkflowGraph> =
+            std::collections::HashMap::new();
+        let mut shallowest = std::collections::HashMap::new();
         let mut lookup = vec![(graph.clone(), 0_u64)];
         while let Some((current, depth)) = lookup.pop() {
             if depth >= max_depth {
@@ -29,10 +31,17 @@ pub(super) async fn check(
                 } else if let (Some(host), Some(id)) =
                     (host, node.config.get("workflow_id").and_then(Value::as_str))
                 {
-                    if !saved.contains_key(id) {
-                        if let Ok(child) = host.resolve(id).await {
+                    let child_depth = depth + 1;
+                    if shallowest.get(id).is_none_or(|seen| child_depth < *seen) {
+                        let child = if let Some(child) = saved.get(id) {
+                            Some(child.clone())
+                        } else {
+                            host.resolve(id).await.ok()
+                        };
+                        if let Some(child) = child {
                             saved.insert(id.to_owned(), child.clone());
-                            lookup.push((child, depth + 1));
+                            shallowest.insert(id.to_owned(), child_depth);
+                            lookup.push((child, child_depth));
                         }
                     }
                 }
