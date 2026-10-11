@@ -467,7 +467,12 @@ async fn constant_child_expression_preserves_missing_field_diagnostics() {
         ]),
         json!([{"from_node":"t","to_node":"child"}]),
     );
-    for mapping in ["={}", "={run: \"literal\"}", "={inputs: \"literal\"}"] {
+    for mapping in [
+        "={}",
+        "={run: \"literal\"}",
+        "={inputs: \"literal\"}",
+        "={item: {}}",
+    ] {
         parent.nodes[1].config["inputs"]["payload"] = json!(mapping);
         let errors = unresolvable_tool_args(&parent, &[]).await;
         assert_eq!(errors.len(), 1, "{mapping}: {errors:?}");

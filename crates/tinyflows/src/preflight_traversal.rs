@@ -107,12 +107,6 @@ pub(super) async fn within_deadline(
     check: impl std::future::Future<Output = ()>,
     completed: &std::sync::Mutex<Vec<String>>,
 ) -> Vec<String> {
-    if tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), check)
-        .await
-        .is_err()
-    {
-        Vec::new()
-    } else {
-        std::mem::take(&mut *completed.lock().expect("completed checks"))
-    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(RUN_TIMEOUT_SECS), check).await;
+    std::mem::take(&mut *completed.lock().expect("completed checks"))
 }
