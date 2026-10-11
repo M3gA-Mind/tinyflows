@@ -17,10 +17,11 @@
 //! A gate that refuses a graph that would have worked is worse than no gate, so
 //! this one skips more than it reports:
 //!
-//! - **Trigger-scoped data.** The sandbox runs on an empty trigger payload, so
+//! - **Caller-supplied data.** The sandbox runs on an empty trigger payload, so
 //!   anything reading `run`, or reading `item`/`items` fed entirely by the
 //!   trigger, is null *here* and populated in a real run. Rejecting those would
-//!   reject nearly every workflow ever written.
+//!   reject nearly every workflow ever written. Declared workflow inputs
+//!   likewise carry runtime data, so nested reads from them are unverifiable.
 //! - **Opaque upstream tool output.** A mock renders a `tool_call` as an echo
 //!   and can never produce the provider's real output fields, so a binding onto
 //!   one is *unverifiable*, not broken. A dry run reports it; this refuses it
@@ -330,6 +331,8 @@ fn explicit_nodes_ref(expr: &str) -> Option<&str> {
 ///
 /// - `=run...` always addresses the trigger payload/metadata directly
 ///   (see `nodes::expr_scope`) — always trigger-scoped.
+/// - Declared `=inputs.<name>...` reads are caller-scoped, including nested
+///   JSON fields and bracket notation; similarly named undeclared keys are not.
 /// - `=nodes.<id>...` / `=.nodes["<id>"]...` explicitly names an upstream
 ///   node. Trigger-scoped only if `<id>` IS the trigger node; naming any
 ///   other node is exactly the broken-wiring case this gate exists to catch, so it is never treated as trigger-scoped.
@@ -353,6 +356,25 @@ fn is_trigger_scoped_expression(
     let body = body.strip_prefix('.').unwrap_or(body);
 
     if body == "run" || body.starts_with("run.") || body.starts_with("run[") {
+        return true;
+    }
+
+    // Declared inputs come from the caller, like trigger data. In
+    // particular, a dynamic JSON input can legally be null in this mock
+    // scope while nested fields are populated in the real run.
+    if graph.inputs.iter().any(|input| {
+        [
+            format!("inputs.{}", input.name),
+            format!("inputs[\"{}\"]", input.name),
+            format!("inputs['{}']", input.name),
+        ]
+        .iter()
+        .any(|prefix| {
+            body.strip_prefix(prefix).is_some_and(|tail| {
+                tail.is_empty() || tail.starts_with('.') || tail.starts_with('[')
+            })
+        })
+    }) {
         return true;
     }
 
