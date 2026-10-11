@@ -182,3 +182,7 @@ impl CronDocuments {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "removal_claims_tests.rs"]
+mod tests;
