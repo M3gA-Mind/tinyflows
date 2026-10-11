@@ -200,3 +200,7 @@ mod tests;
 #[cfg(test)]
 #[path = "claims_tests.rs"]
 mod claims_tests;
+
+#[cfg(test)]
+#[path = "admission_tests.rs"]
+mod admission_tests;
