@@ -159,10 +159,10 @@ struct GateCallback(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
 impl GateCallback {
-    async fn resolve_workflow(&self, _: String) -> Option<serde_json::Value> { None }
-    async fn check_gate(&self, stage: String, _: serde_json::Value) -> Vec<String> {
+    async fn resolve_workflow(&self, _: String) -> Result<Option<serde_json::Value>> { Ok(None) }
+    async fn check_gate(&self, stage: String, _: serde_json::Value) -> Result<Vec<String>> {
         self.0.lock().unwrap().push(stage.clone());
-        if stage == "connections" { vec!["account mismatch".into()] } else { vec![] }
+        Ok(if stage == "connections" { vec!["account mismatch".into()] } else { vec![] })
     }
 }
 
