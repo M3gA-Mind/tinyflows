@@ -261,7 +261,7 @@ async fn inline_required_inputs_do_not_hide_unrelated_missing_tool_arguments() {
     let mut child = graph(
         json!([
             trigger(),
-            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"=inputs.repo"}}},
+            {"id":"shape","kind":"transform","name":"Shape","config":{"set":{"body":"=inputs.repo","subject":null}}},
             {"id":"send","kind":"tool_call","name":"Send","config":{"slug":"provider:send","args":{"subject":"=nodes.shape.item.subject"}}}
         ]),
         json!([{"from_node":"t","to_node":"shape"},{"from_node":"shape","to_node":"send"}]),
