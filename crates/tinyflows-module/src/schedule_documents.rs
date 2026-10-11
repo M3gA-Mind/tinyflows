@@ -5,13 +5,14 @@ use serde_json::{Value, json};
 use tinybus::Connection;
 use tinyflows_bus::schedule::{CallbackAddress, DOCUMENT_INTERFACE, DOCUMENT_METHOD};
 use tinystoragedrivers_core::{
-    Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query, Result, Sort,
-    StorageError, Version, Versioned,
+    Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
+    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteResult,
 };
 
 pub(super) struct Documents {
     connection: Connection,
     address: CallbackAddress,
+    capabilities: Capabilities,
 }
 
 impl std::fmt::Debug for Documents {
@@ -47,18 +48,31 @@ impl Failure {
     }
 }
 impl Documents {
-    pub(super) fn new(connection: Connection, address: CallbackAddress) -> anyhow::Result<Self> {
+    pub(super) async fn new(
+        connection: Connection,
+        address: CallbackAddress,
+    ) -> anyhow::Result<Self> {
         connection.proxy(
             &address.destination,
             &address.object_path,
             DOCUMENT_INTERFACE,
         )?;
-        Ok(Self {
+        let mut documents = Self {
             connection,
             address,
-        })
+            capabilities: Capabilities::none(),
+        };
+        #[derive(Deserialize)]
+        struct CapabilityReport {
+            transactions: bool,
+        }
+        let report: CapabilityReport = documents.request(json!({"op":"capabilities"})).await?;
+        if report.transactions {
+            documents.capabilities = documents.capabilities.with(Capability::Transactions);
+        }
+        Ok(documents)
     }
-    async fn call<R: DeserializeOwned>(&self, collection: &str, request: Value) -> Result<R> {
+    fn validate_collection(collection: &str) -> Result<()> {
         // Only schedule-owned collections can cross this narrow callback seam.
         if ![
             "cron_jobs",
@@ -72,6 +86,13 @@ impl Documents {
                 "collection is outside the schedule port",
             ));
         }
+        Ok(())
+    }
+    async fn call<R: DeserializeOwned>(&self, collection: &str, request: Value) -> Result<R> {
+        Self::validate_collection(collection)?;
+        self.request(request).await
+    }
+    async fn request<R: DeserializeOwned>(&self, request: Value) -> Result<R> {
         let proxy = self
             .connection
             .proxy(
@@ -93,7 +114,17 @@ impl Documents {
 #[async_trait]
 impl DocumentStore for Documents {
     fn capabilities(&self) -> Capabilities {
-        Capabilities::none()
+        self.capabilities
+    }
+    async fn atomic_batch(&self, ops: Vec<WriteOp>) -> Result<Vec<WriteResult>> {
+        self.capabilities.require(Capability::Transactions)?;
+        for operation in &ops {
+            let collection = match operation {
+                WriteOp::Put { collection, .. } | WriteOp::Delete { collection, .. } => collection,
+            };
+            Self::validate_collection(collection)?;
+        }
+        self.request(json!({"op":"atomic_batch","ops":ops})).await
     }
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<()> {
         self.call(&spec.name, json!({"op":"ensure","spec":spec}))

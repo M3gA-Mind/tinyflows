@@ -82,7 +82,7 @@ pub(super) enum Store {
     Documents(CronDocuments),
 }
 impl Store {
-    pub(super) fn new(connection: Connection, config: StoreConfig) -> Result<Self> {
+    pub(super) async fn new(connection: Connection, config: StoreConfig) -> Result<Self> {
         Ok(match config.backend {
             StoreBackend::Sqlite { path } => {
                 if path.is_empty() {
@@ -95,15 +95,16 @@ impl Store {
                 })
             }
             StoreBackend::Documents { callback } => Self::Documents(
-                CronDocuments::new(Arc::new(super::schedule_documents::Documents::new(
-                    connection, callback,
-                )?))
+                CronDocuments::new(Arc::new(
+                    super::schedule_documents::Documents::new(connection, callback).await?,
+                ))
                 .with_limits(config.max_run_history, config.max_tasks),
             ),
         })
     }
     pub(super) async fn request(connection: Connection, request: StoreRequest) -> Result<Value> {
-        Self::new(connection, request.storage)?
+        Self::new(connection, request.storage)
+            .await?
             .execute(serde_json::from_value(request.operation)?)
             .await
     }

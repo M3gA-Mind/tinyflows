@@ -61,6 +61,7 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
             object_path: "/test/Documents".into(),
         },
     )
+    .await
     .unwrap();
     assert!(documents.capabilities().contains(Capability::Transactions));
     let put = |collection: &str, precondition| WriteOp::Put {

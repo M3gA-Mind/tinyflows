@@ -67,6 +67,7 @@ impl ScheduleService {
         if let Some(storage) = request.storage {
             ports.store = Arc::new(
                 super::schedule_store::Store::new(self.connection.clone(), storage)
+                    .await
                     .map_err(failure)?,
             );
         }
