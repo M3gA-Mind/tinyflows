@@ -192,3 +192,68 @@ async fn module_owned_job_storage_preserves_policy_updates_and_run_history() {
     assert_eq!(list[0]["name"], "system_seed");
     assert_eq!(list[0]["policy"]["single_flight"], true);
 }
+
+#[path = "../tests/support/document_callbacks.rs"]
+mod document_callbacks;
+
+#[tokio::test]
+async fn module_document_store_retries_policy_migration_conflicts_without_losing_seeded_jobs() {
+    use tinystoragedrivers_core::{MemoryStorage, Precondition, Scope, StorageBackend};
+    let (_server, host, _) = connections().await;
+    let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let docs = scoped.documents().clone();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: docs.clone(),
+            conflict_once: std::sync::atomic::AtomicBool::new(false),
+        },
+    )
+    .await
+    .unwrap();
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleHost","object_path":"/test/Documents"}}});
+    let call = |operation| json!({"storage":storage,"operation":operation});
+    let created: Value = proxy.call("ScheduleStore", &(call(json!({"op":"add_shell","name":"system_seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seeded"})),)).await.unwrap();
+    let id = created["id"].as_str().unwrap();
+    docs.put(
+        "cron_job_policies",
+        id,
+        json!({"retries":3,"single_flight":true}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    // Old job documents have no integrated policy. Remove it to exercise migration.
+    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let mut body = stored.doc.clone();
+    body.as_object_mut().unwrap().remove("policy");
+    docs.put("cron_jobs", id, body, stored.unchanged())
+        .await
+        .unwrap();
+    // A new callback address injects one CAS conflict, which must retain its kind.
+    host.serve_at(
+        "/test/Conflicts".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: docs.clone(),
+            conflict_once: std::sync::atomic::AtomicBool::new(true),
+        },
+    )
+    .await
+    .unwrap();
+    let with_conflict = json!({"storage":{"backend":{"kind":"documents","callback":{"destination":"test.ScheduleHost","object_path":"/test/Conflicts"}}},"operation":{"op":"list"}});
+    let list: Value = proxy
+        .call("ScheduleStore", &(with_conflict,))
+        .await
+        .unwrap();
+    assert_eq!(list[0]["name"], "system_seed");
+    assert_eq!(list[0]["policy"]["retries"], 3);
+    assert_eq!(list[0]["policy"]["single_flight"], true);
+    assert!(docs.get("cron_job_policies", id).await.unwrap().is_none());
+}

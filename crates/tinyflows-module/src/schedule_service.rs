@@ -63,7 +63,13 @@ impl ScheduleService {
 
     async fn start_scheduler(&self, request: StartScheduler) -> Result<String> {
         let config: SchedulerConfig = serde_json::from_value(request.config).map_err(failure)?;
-        let ports = HostCallbacks::ports(self.connection.clone(), request.callback);
+        let mut ports = HostCallbacks::ports(self.connection.clone(), request.callback);
+        if let Some(storage) = request.storage {
+            ports.store = Arc::new(
+                super::schedule_store::Store::new(self.connection.clone(), storage)
+                    .map_err(failure)?,
+            );
+        }
         let mut scheduler = Scheduler::new(request.scope, config, ports);
         let handle = uuid::Uuid::new_v4().to_string();
         let running = if request.manual_ticks {

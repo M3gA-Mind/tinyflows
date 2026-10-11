@@ -173,3 +173,62 @@ impl Store {
         })
     }
 }
+
+#[async_trait::async_trait]
+impl tinyflows_schedule::runtime::JobStore for Store {
+    async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
+        match self {
+            Self::Sqlite(options) => sql::due_jobs(options, now),
+            Self::Documents(documents) => documents.due_jobs(now).await,
+        }
+    }
+    async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
+        match self {
+            Self::Sqlite(options) => {
+                sql::claim_slot(options, job, next)?;
+            }
+            Self::Documents(documents) => {
+                documents.claim_slot(job, next).await?;
+            }
+        }
+        Ok(())
+    }
+    async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {
+        let duration = (record.finished_at - record.started_at).num_milliseconds();
+        match self {
+            Self::Sqlite(options) => sql::record_run_with_delivery(
+                options,
+                &record.job_id,
+                record.started_at,
+                record.finished_at,
+                &record.status,
+                Some(&record.output),
+                duration,
+                record.delivery_status,
+            ),
+            Self::Documents(documents) => {
+                documents
+                    .record_run_with_delivery(
+                        &record.job_id,
+                        record.started_at,
+                        record.finished_at,
+                        &record.status,
+                        Some(&record.output),
+                        duration,
+                        record.delivery_status,
+                    )
+                    .await
+            }
+        }
+    }
+    async fn complete(
+        &self,
+        job: &CronJob,
+        completion: tinyflows_schedule::runtime::Completion,
+    ) -> Result<()> {
+        match self {
+            Self::Sqlite(options) => sql::complete_run(options, job, &completion),
+            Self::Documents(documents) => documents.complete_run(job, &completion).await,
+        }
+    }
+}
