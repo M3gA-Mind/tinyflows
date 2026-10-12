@@ -2,6 +2,11 @@ use super::*;
 use crate::catalog::test_support::{catalog, trigger_graph};
 use tinyflows_catalog::{DraftOrigin, FlowRunStep, SuggestionStatus};
 
+/// The JSON form, for the model types that are not `PartialEq`.
+fn j<T: serde::Serialize>(value: &T) -> Value {
+    serde_json::to_value(value).unwrap()
+}
+
 fn flow(id: &str) -> Flow {
     Flow {
         id: id.to_string(),
@@ -54,7 +59,8 @@ async fn an_imported_flow_keeps_its_id_and_every_field() {
     let store = catalog();
     let original = flow("legacy-1");
     assert!(store.import_flow(&original).await.unwrap());
-    assert_eq!(store.get_flow("legacy-1").await.unwrap(), Some(original));
+    let stored = store.get_flow("legacy-1").await.unwrap().unwrap();
+    assert_eq!(j(&stored), j(&original));
 }
 
 #[tokio::test]
@@ -128,11 +134,10 @@ async fn an_imported_run_keeps_steps_approvals_error_and_hash() {
     let original = run("run-1", "f", "completed");
     assert!(store.import_run(&original).await.unwrap());
     assert!(!store.import_run(&original).await.unwrap());
-    assert_eq!(
-        store.get_flow_run("run-1").await.unwrap(),
-        Some(original.clone())
-    );
-    assert_eq!(store.list_flow_runs("f", 10).await.unwrap(), vec![original]);
+    let stored = store.get_flow_run("run-1").await.unwrap().unwrap();
+    assert_eq!(j(&stored), j(&original));
+    let listed = store.list_flow_runs("f", 10).await.unwrap();
+    assert_eq!(listed.iter().map(j).collect::<Vec<_>>(), vec![j(&original)]);
 }
 
 #[tokio::test]

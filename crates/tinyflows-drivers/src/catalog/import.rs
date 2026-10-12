@@ -39,7 +39,11 @@ async fn put_if_absent(
 ) -> Result<bool> {
     match docs.put(collection, id, doc, Precondition::Absent).await {
         Ok(_) => Ok(true),
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(false),
+        // An absent-precondition put that finds the id taken reports a
+        // conflict on some backends and "already exists" on others.
+        Err(error) if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) => {
+            Ok(false)
+        }
         Err(error) => Err(error).with_context(|| format!("importing {collection}/{id}")),
     }
 }
