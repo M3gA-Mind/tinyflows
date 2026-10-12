@@ -38,6 +38,15 @@ catalog = [
 # build with `default-features = false, features = ["schedule"]` and pull
 # neither the engine nor its expression stack.
 schedule = ["dep:tinyflows-schedule", "dep:anyhow", "dep:chrono", "dep:uuid"]
+# `store`: `DriverWorkflowStore`, the engine's `WorkflowStore` on documents (saved
+# workflows, revisions, runs, the notes journal, proposals). Its synchronous
+# trait runs on the storage crates' `Blocking` bridge.
+store = [
+    "engine",
+    "tinyflows/store",
+    "dep:uuid",
+    "tinystoragedrivers-core/blocking",
+]
 # The fixture-only writers (`force_run_status_for_test`,
 # `force_corrupt_graph_json_for_test`), mirroring tinyflows-sqlite's feature
 # of the same name.

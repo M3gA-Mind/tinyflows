@@ -16,6 +16,9 @@
 //!   drafts: `catalog::FlowCatalogDocuments`, the document-port counterpart
 //!   of `tinyflows-sqlite`'s `flows` and `drafts`, and
 //!   `catalog::FlowStateDocuments`, one flow's namespaced state.
+//! - `store::DriverWorkflowStore` (feature `store`) is the engine's
+//!   `WorkflowStore` — saved workflows with revisions, run records, the notes
+//!   journal and proposals — on documents.
 //! - `schedule::CronDocuments` (feature `schedule`) is the cron job and
 //!   run-history store, the document-port twin of `tinyflows_sqlite::schedule`.
 //!   It needs only `tinyflows-schedule`, not the engine.
@@ -38,6 +41,8 @@ mod checkpoint;
 mod checkpoint_keys;
 #[cfg(feature = "schedule")]
 pub mod schedule;
+#[cfg(feature = "store")]
+pub mod store;
 #[cfg(feature = "engine")]
 mod state_store;
 

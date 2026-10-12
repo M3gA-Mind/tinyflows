@@ -48,11 +48,11 @@ impl Inner {
             });
             let held = self.docs.get(LOCKS, &key).await.map_err(storage)?;
             let precondition = match &held {
-                None => Precondition::Absent,
-                Some(stored) if expired(&stored.doc, now) => stored.unchanged(),
-                Some(_) => Precondition::Never,
+                None => Some(Precondition::Absent),
+                Some(stored) if expired(&stored.doc, now) => Some(stored.unchanged()),
+                Some(_) => None,
             };
-            if !matches!(precondition, Precondition::Never) {
+            if let Some(precondition) = precondition {
                 match self.docs.put(LOCKS, &key, lease, precondition).await {
                     Ok(_) => return Ok(token),
                     Err(error) if is_race(error.kind()) => {}
