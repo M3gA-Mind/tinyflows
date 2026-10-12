@@ -13,10 +13,8 @@
 //! at superstep boundaries only — never mid-node — so resuming always reruns a
 //! node from its start.
 
-mod file;
 mod types;
 
-pub use file::FileCheckpointer;
 pub use types::{
     BarrierArrivals, Checkpoint, CheckpointConfig, CheckpointMetadata, CheckpointSource,
     CheckpointTuple, DurabilityMode, PendingActivation, PendingWrite, WRITES_IDX_ERROR,

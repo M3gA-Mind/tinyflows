@@ -39,7 +39,7 @@ use serde_json::{Map, Value, json};
 /// [`InMemoryCheckpointer`] is the process-local default used by [`run`],
 /// [`run_with_observer`], [`run_resumable`], and [`resume`]; [`DurabilityMode`]
 /// configures how aggressively a checkpointer persists.
-pub use crate::graph::{Checkpointer, DurabilityMode, FileCheckpointer, InMemoryCheckpointer};
+pub use crate::graph::{Checkpointer, DurabilityMode, InMemoryCheckpointer};
 
 /// Graph-observability types re-exported from [`crate::graph`] so a host can
 /// journal a run's durable [`GraphObservation`]s without taking a direct

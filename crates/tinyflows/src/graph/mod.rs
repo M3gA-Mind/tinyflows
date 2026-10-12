@@ -38,7 +38,7 @@ pub use channel::{
 };
 pub use checkpoint::{
     BarrierArrivals, Checkpoint, CheckpointConfig, CheckpointMetadata, CheckpointSource,
-    CheckpointTuple, Checkpointer, DurabilityMode, FileCheckpointer, InMemoryCheckpointer,
+    CheckpointTuple, Checkpointer, DurabilityMode, InMemoryCheckpointer,
     PendingActivation, PendingWrite,
 };
 pub use command::{Command, Interrupt, NodeResult, RouteTarget, Send};
