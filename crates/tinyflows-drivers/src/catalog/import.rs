@@ -77,7 +77,7 @@ impl FlowCatalogDocuments {
             "created_at": revision.created_at,
             "created_ns": instant_ns(&revision.created_at),
         });
-        set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow).as_deref_str());
+        set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow));
         let wrote = put_if_absent(docs.as_ref(), REVISIONS, &revision.id, doc).await?;
         tracing::debug!(target: "flows", revision_id = %revision.id, wrote, "[flows] import: revision");
         Ok(wrote)
@@ -108,7 +108,7 @@ impl FlowCatalogDocuments {
         set_finished(&mut doc, run.finished_at.as_deref());
         set_optional(&mut doc, "error", run.error.as_deref());
         set_optional(&mut doc, "graph_hash", run.graph_hash.as_deref());
-        set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow).as_deref_str());
+        set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow));
         let wrote = put_if_absent(docs.as_ref(), RUNS, &run.id, doc).await?;
         tracing::debug!(target: "flows", run_id = %run.id, wrote, "[flows] import: run");
         Ok(wrote)
@@ -160,17 +160,6 @@ impl FlowCatalogDocuments {
             Some(stored) => Ok(stored.doc),
             None => bail!("cannot import {record_id}: flow '{flow_id}' does not exist"),
         }
-    }
-}
-
-/// `Option<String>` as the `Option<&str>` the document setters take.
-trait AsRefStr {
-    fn as_deref_str(&self) -> Option<&str>;
-}
-
-impl AsRefStr for Option<&str> {
-    fn as_deref_str(&self) -> Option<&str> {
-        *self
     }
 }
 

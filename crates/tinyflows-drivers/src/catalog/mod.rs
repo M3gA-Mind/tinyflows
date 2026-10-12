@@ -70,6 +70,7 @@ pub use tinyflows_catalog::store::{
 
 mod definitions;
 mod drafts;
+mod import;
 mod kv;
 mod lineage;
 mod revisions;
