@@ -4,8 +4,26 @@
 use serde_json::json;
 
 use super::*;
-use crate::store::{HostPolicy, new_run_record, parse_workflow, parse_workflow_with, validate_graph};
-use crate::store::types::{WorkflowDefaults, WorkflowError, WorkflowRecord};
+use crate::store::types::{WorkflowDefaults, WorkflowError};
+
+/// The smallest document that validates: one trigger, one transform, one edge.
+fn valid_document(id: &str) -> String {
+    json!({
+        "id": id,
+        "name": "Greet",
+        "description": "says hello",
+        "nodes": [
+            { "id": "t", "kind": "trigger", "name": "start",
+              "config": { "trigger_kind": "manual" } },
+            { "id": "greet", "kind": "transform", "name": "greet",
+              "config": { "set": { "greeting": "=.item.name" } } }
+        ],
+        "edges": [
+            { "from_node": "t", "from_port": "main", "to_node": "greet", "to_port": "main" }
+        ]
+    })
+    .to_string()
+}
 
 #[test]
 fn parsing_names_a_workflow_by_its_filename_when_the_document_omits_an_id() {
