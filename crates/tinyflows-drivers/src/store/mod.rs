@@ -465,5 +465,9 @@ mod tests;
 mod history_tests;
 
 #[cfg(test)]
+#[path = "notes_tests.rs"]
+mod notes_tests;
+
+#[cfg(test)]
 #[path = "runs_tests.rs"]
 mod runs_tests;

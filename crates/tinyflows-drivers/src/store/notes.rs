@@ -16,8 +16,8 @@ impl Inner {
     /// The journal document of `workflow_id` and the notes it holds. A journal
     /// that cannot be parsed reads as empty: one bad document must not make a
     /// workflow unreadable everywhere its notes are shown, which is a worse
-    /// failure than forgetting what it learned. The unreadable text is kept in
-    /// `wf_quarantine`, not overwritten, so whatever an operator could still
+    /// failure than forgetting what it learned. The unreadable document is moved
+    /// to `wf_quarantine`, not overwritten, so whatever an operator could still
     /// recover is not destroyed by the next append.
     async fn journal(
         &self,
@@ -52,7 +52,18 @@ impl Inner {
                     .put(QUARANTINE, &token, kept, Precondition::Absent)
                     .await
                     .map_err(storage)?;
-                Ok((Some(stored), Vec::new()))
+                // Moved, not copied: leaving it would set it aside again on
+                // every read. A concurrent writer that replaced it first wins.
+                match self
+                    .docs
+                    .delete(NOTES, &doc_id(workflow_id)?, stored.unchanged())
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(error) if is_race(error.kind()) => {}
+                    Err(error) => return Err(storage(error)),
+                }
+                Ok((None, Vec::new()))
             }
         }
     }
