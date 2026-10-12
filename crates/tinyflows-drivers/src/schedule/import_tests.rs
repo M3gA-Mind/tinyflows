@@ -1,4 +1,5 @@
 use super::*;
+use crate::schedule::job_not_found;
 
 use crate::schedule::test_support::{channel_origin, daily, docs_in, store};
 use chrono::{TimeZone, Utc};

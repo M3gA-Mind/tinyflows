@@ -30,7 +30,7 @@ use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Filter, Precondition,
 use super::codec::{INCARNATION, nanos, run_id, run_to_doc};
 use super::jobs::{flow_job_id, new_job_doc, runs_of};
 use super::runs::RUN_COUNTER;
-use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, job_not_found, storage_error};
+use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, storage_error};
 
 /// What [`CronDocuments::import_job`] did with a job.
 #[derive(Debug, Clone, PartialEq, Eq)]
