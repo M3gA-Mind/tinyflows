@@ -19,7 +19,11 @@ RecordRun callbacks receive job_created_at, captured from the dispatched job.
 Match that creation before appending history; an ID alone can refer to a
 replacement flow job. The module-owned backends perform this check. Completion
 follows ClaimSlot, which already disables one-shots durably; an explicit
-re-enable during execution survives completion and automatic deletion.
+re-enable during execution survives completion and automatic deletion. Jobs
+carry a durable claim_generation (zero for legacy records). ClaimSlot must
+compare the dispatched generation, increment it atomically, and disable the
+one-shot. Completion may mutate only generation dispatched + 1; a subsequent
+claim preserves its job and bookkeeping from an older completion.
 
 `ScheduleStore` accepts one StoreRequest: `{storage, operation}`. Storage is
 `{backend: {kind: "sqlite", path: "<scoped jobs.db>"}, max_run_history: 50,

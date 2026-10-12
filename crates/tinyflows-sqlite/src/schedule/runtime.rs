@@ -25,6 +25,7 @@ pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>
             return Ok(false);
         };
         if !current.enabled
+            || current.claim_generation != job.claim_generation
             || current.created_at != job.created_at
             || !current.same_execution_definition(job)
             || current.schedule != job.schedule
@@ -32,12 +33,18 @@ pub fn claim_slot(options: &CronStoreOptions, job: &CronJob, next: DateTime<Utc>
         {
             return Ok(false);
         }
+        let generation = job
+            .claim_generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("claim generation exhausted"))?;
+        let generation = i64::try_from(generation)?;
         tx.execute(
-            "UPDATE cron_jobs SET next_run=?1, enabled=?2 WHERE id=?3",
+            "UPDATE cron_jobs SET next_run=?1, enabled=?2, claim_generation=?4 WHERE id=?3",
             params![
                 next.to_rfc3339(),
                 !matches!(job.schedule, Schedule::At { .. }),
-                job.id
+                job.id,
+                generation
             ],
         )?;
         tx.commit()?;
@@ -65,7 +72,9 @@ pub fn complete_run(
         let Some(current) = current else {
             return Ok(());
         };
-        if current.created_at != job.created_at {
+        if current.created_at != job.created_at
+            || Some(current.claim_generation) != job.claim_generation.checked_add(1)
+        {
             return Ok(());
         }
         let same = current.schedule == job.schedule;
