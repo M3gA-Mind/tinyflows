@@ -25,7 +25,7 @@
 use anyhow::{Context, Result};
 use serde_json::json;
 use tinyflows_schedule::{CronJob, CronRun, JobType};
-use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Filter, Precondition, Query};
+use tinystoragedrivers_core::{ErrorKind, Filter, Precondition, Query};
 
 use super::codec::{INCARNATION, nanos, run_id, run_to_doc};
 use super::jobs::{flow_job_id, new_job_doc, runs_of};
@@ -60,7 +60,13 @@ impl CronDocuments {
         };
         let doc = new_job_doc(job)?;
         for _ in 0..CAS_ATTEMPTS {
-            if self.docs.get(JOBS, &id).await.map_err(storage_error)?.is_some() {
+            if self
+                .docs
+                .get(JOBS, &id)
+                .await
+                .map_err(storage_error)?
+                .is_some()
+            {
                 tracing::debug!(target: "cron", job_id = %id, "[cron] import: job already present");
                 return Ok(ImportedJob { id, written: false });
             }
@@ -102,7 +108,10 @@ impl CronDocuments {
         if !known.items.is_empty() {
             return Ok(false);
         }
-        let fired = job.get(INCARNATION).and_then(|v| v.as_str()).map(str::to_string);
+        let fired = job
+            .get(INCARNATION)
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         // The old number when its slot is free, else the next from the counter.
         let mut seq = run.id.max(1);
         loop {
@@ -128,7 +137,9 @@ impl CronDocuments {
                 {
                     seq = self.next_run_number().await?;
                 }
-                Err(error) => return Err(storage_error(error)).context("Failed to import cron run"),
+                Err(error) => {
+                    return Err(storage_error(error)).context("Failed to import cron run");
+                }
             }
         }
         self.raise_run_counter(seq + 1).await?;
@@ -156,7 +167,12 @@ impl CronDocuments {
             }
             match self
                 .docs
-                .put(COUNTERS, RUN_COUNTER, json!({ "next": floor }), precondition)
+                .put(
+                    COUNTERS,
+                    RUN_COUNTER,
+                    json!({ "next": floor }),
+                    precondition,
+                )
                 .await
             {
                 Ok(_) => return Ok(()),

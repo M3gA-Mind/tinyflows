@@ -87,7 +87,10 @@ async fn an_import_never_replaces_a_flow_the_catalog_already_holds() {
     let mut legacy = flow(&live.id);
     legacy.name = "stale legacy name".to_string();
     assert!(!store.import_flow(&legacy).await.unwrap());
-    assert_eq!(store.get_flow(&live.id).await.unwrap().unwrap().name, "live");
+    assert_eq!(
+        store.get_flow(&live.id).await.unwrap().unwrap().name,
+        "live"
+    );
 }
 
 #[tokio::test]
@@ -151,7 +154,12 @@ async fn an_imported_unfinished_run_stays_live_and_can_settle() {
     live.pending_approvals.clear();
     store.import_run(&live).await.unwrap();
     assert_eq!(
-        store.get_flow_run("run-live").await.unwrap().unwrap().status,
+        store
+            .get_flow_run("run-live")
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
         "running"
     );
     assert!(
@@ -252,7 +260,10 @@ async fn removing_an_imported_flow_removes_its_imported_history() {
     let store = catalog();
     store.import_flow(&flow("f")).await.unwrap();
     store.import_revision(&revision("r", "f")).await.unwrap();
-    store.import_run(&run("run-1", "f", "completed")).await.unwrap();
+    store
+        .import_run(&run("run-1", "f", "completed"))
+        .await
+        .unwrap();
     store.remove_flow("f").await.unwrap();
     assert!(store.list_revisions("f", 10).await.unwrap().is_empty());
     assert!(store.get_flow_run("run-1").await.unwrap().is_none());

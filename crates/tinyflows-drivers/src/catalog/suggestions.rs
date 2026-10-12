@@ -35,13 +35,9 @@ fn to_suggestion(stored: &Versioned<Value>) -> Result<FlowSuggestion> {
 }
 
 /// The stored document for `s` with the given `status` and `created_at`.
-pub(crate) fn suggestion_doc(
-    s: &FlowSuggestion,
-    status: &str,
-    created_at: &str,
-) -> Result<Value> {
-    let steps = serde_json::to_string(&s.steps_outline)
-        .context("Failed to serialize suggestion steps")?;
+pub(crate) fn suggestion_doc(s: &FlowSuggestion, status: &str, created_at: &str) -> Result<Value> {
+    let steps =
+        serde_json::to_string(&s.steps_outline).context("Failed to serialize suggestion steps")?;
     let connections = serde_json::to_string(&s.suggested_connections)
         .context("Failed to serialize suggestion connections")?;
     let slugs = serde_json::to_string(&s.suggested_slugs)

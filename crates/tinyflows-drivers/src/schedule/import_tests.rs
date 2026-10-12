@@ -130,7 +130,10 @@ async fn imported_runs_keep_their_numbers_and_the_counter_moves_past_them() {
     assert_eq!(listed.iter().map(|r| r.id).collect::<Vec<_>>(), [9, 3]);
     assert_eq!(listed[0].output.as_deref(), Some("output 9"));
     assert_eq!(listed[0].duration_ms, Some(3000));
-    assert_eq!(listed[0].delivery_status, Some(DeliveryStatus::NotRequested));
+    assert_eq!(
+        listed[0].delivery_status,
+        Some(DeliveryStatus::NotRequested)
+    );
     // A run recorded afterwards is numbered past every imported one.
     let now = Utc::now();
     target
@@ -163,19 +166,22 @@ async fn an_imported_run_whose_number_is_taken_gets_a_new_one_and_nothing_is_los
         .await
         .unwrap();
     // The live run holds number 1; the legacy run also wants number 1.
-    assert!(
-        target
-            .import_run(&run(1, &job.id, 5, "ok"))
-            .await
-            .unwrap()
-    );
+    assert!(target.import_run(&run(1, &job.id, 5, "ok")).await.unwrap());
     let listed = target.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(listed.len(), 2);
     let mut numbers: Vec<i64> = listed.iter().map(|r| r.id).collect();
     numbers.sort_unstable();
     assert_eq!(numbers, [1, 2]);
-    assert!(listed.iter().any(|r| r.output.as_deref() == Some("existing")));
-    assert!(listed.iter().any(|r| r.output.as_deref() == Some("output 1")));
+    assert!(
+        listed
+            .iter()
+            .any(|r| r.output.as_deref() == Some("existing"))
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|r| r.output.as_deref() == Some("output 1"))
+    );
 }
 
 #[tokio::test]
@@ -193,10 +199,7 @@ async fn imported_runs_belong_to_the_job_incarnation_and_go_with_it() {
     let target = store();
     let job = legacy_job().await;
     target.import_job(&job).await.unwrap();
-    target
-        .import_run(&run(1, &job.id, 1, "ok"))
-        .await
-        .unwrap();
+    target.import_run(&run(1, &job.id, 1, "ok")).await.unwrap();
     target.remove_job(&job.id).await.unwrap();
     assert!(target.list_runs(&job.id, 10).await.unwrap().is_empty());
 }

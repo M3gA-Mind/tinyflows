@@ -57,8 +57,8 @@ impl FlowCatalogDocuments {
     /// When the graph cannot be serialized or the backend fails.
     pub async fn import_flow(&self, flow: &Flow) -> Result<bool> {
         let docs = self.docs().await?;
-        let wrote = put_if_absent(docs.as_ref(), DEFINITIONS, &flow.id, flow_doc(flow, None)?)
-            .await?;
+        let wrote =
+            put_if_absent(docs.as_ref(), DEFINITIONS, &flow.id, flow_doc(flow, None)?).await?;
         tracing::debug!(target: "flows", flow_id = %flow.id, wrote, "[flows] import: flow");
         Ok(wrote)
     }
