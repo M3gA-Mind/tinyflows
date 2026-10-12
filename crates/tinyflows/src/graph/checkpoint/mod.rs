@@ -236,12 +236,11 @@ where
     /// The default walks [`Checkpointer::get_tuple`] once per hop, so a backend
     /// whose scoped lookup re-reads the whole thread is O(H²) over the lineage.
     /// Every bundled backend overrides it to read the thread (or the
-    /// namespace's rows) once and walk the lineage in memory, so none of the
-    /// three is in that class: the JSONL backend parses its file once, and the
-    /// SQLite backend issues one indexed range query — the
-    /// `(thread_id, namespace, seq)` index is what makes the namespace scope
-    /// expressible in SQL at all, and without it that backend silently fell
-    /// back to this default. The observable result is identical to iterating
+    /// namespace's rows) once and walk the lineage in memory, so none is in
+    /// that class: a document or SQL backend issues one indexed range query on
+    /// `(thread, namespace, seq)` — the index is what makes the namespace scope
+    /// expressible at all, and without it a backend silently falls back to
+    /// this default. The observable result is identical to iterating
     /// `get_tuple` by parent pointer.
     ///
     /// The walk carries a **visited set**. `parent_checkpoint_id` is caller-set
