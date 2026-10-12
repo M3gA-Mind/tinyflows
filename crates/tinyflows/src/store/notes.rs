@@ -1,15 +1,41 @@
-//! Prunes old notes without breaking supersession chains.
+//! A workflow's notes: how many are kept, how their ids sort, and how old ones
+//! are pruned without breaking supersession chains.
+//!
+//! A note is a sentence rather than a graph, and a workflow that has failed a
+//! hundred times has a hundred things worth remembering, so the cap is generous.
+//! It exists so an automated pass writing on every failure cannot grow a
+//! journal without bound.
 
-use crate::store::types::WorkflowNote;
+use crate::store::types::{NoteId, WorkflowNote};
 
-use super::MAX_NOTES;
+/// How many notes one workflow keeps.
+pub const MAX_NOTES: usize = 100;
+
+/// Tie-breaker for notes written inside the same millisecond.
+///
+/// Process-wide: it only has to increase, and a count read back from a store
+/// could be raced into reuse.
+static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Mint a note id that sorts chronologically.
+///
+/// A zero-padded stamp so a lexical sort is a chronological one, a monotonic
+/// counter because a pass writes several notes inside one millisecond, and a
+/// random token because two processes can pick the same counter.
+pub fn mint_id(recorded_at: u64) -> NoteId {
+    format!(
+        "{recorded_at:013}-{:012}-{}",
+        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        crate::ids::token()
+    )
+}
 
 /// Drop the oldest notes past [`MAX_NOTES`].
 ///
 /// Pinned notes are protected. Supersession chains are pruned as whole groups:
 /// a recent replacement and its predecessor survive together, while an old
 /// chain can eventually leave together without a dangling `superseded_by`.
-pub(super) fn prune(notes: &mut Vec<WorkflowNote>) {
+pub fn prune(notes: &mut Vec<WorkflowNote>) {
     if notes.len() <= MAX_NOTES {
         return;
     }
@@ -81,3 +107,7 @@ fn join_groups(parents: &mut [usize], left: usize, right: usize) {
         parents[right] = left;
     }
 }
+
+#[cfg(test)]
+#[path = "notes_tests.rs"]
+mod tests;
