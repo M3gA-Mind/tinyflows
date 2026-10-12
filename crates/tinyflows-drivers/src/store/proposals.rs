@@ -10,7 +10,7 @@ use tinystoragedrivers_core::{
 use super::definitions::{decode, is_race};
 use super::{DEFINITIONS, Inner, PROPOSALS, doc_id, malformed, stamp, storage};
 
-fn to_doc(proposal: &WorkflowProposal) -> Result<Value, WorkflowError> {
+pub(super) fn to_doc(proposal: &WorkflowProposal) -> Result<Value, WorkflowError> {
     let proposal_json = serde_json::to_string(proposal)
         .map_err(|error| malformed("serializing proposal", error))?;
     Ok(json!({

@@ -15,6 +15,18 @@ fn decode(stored: &Versioned<Value>) -> Result<RunRecord, String> {
     serde_json::from_str(raw).map_err(|error| error.to_string())
 }
 
+/// The run as its document keeps it.
+pub(super) fn to_doc(run: &RunRecord) -> Result<Value, WorkflowError> {
+    let run_json =
+        serde_json::to_string(run).map_err(|error| malformed("serializing run", error))?;
+    Ok(json!({
+        "workflow_id": run.workflow_id,
+        "started_at": stamp(run.started_at),
+        "settled": run.status.is_settled(),
+        "run_json": run_json,
+    }))
+}
+
 /// Newest first, ties to the later id.
 fn newest_first(filter: Filter) -> Query {
     Query::filter(filter)
@@ -26,14 +38,7 @@ impl Inner {
     /// Writes a run record, replacing any earlier state for the same run id.
     pub(super) async fn record_run(&self, run: &RunRecord) -> Result<(), WorkflowError> {
         self.ensure().await?;
-        let run_json =
-            serde_json::to_string(run).map_err(|error| malformed("serializing run", error))?;
-        let doc = json!({
-            "workflow_id": run.workflow_id,
-            "started_at": stamp(run.started_at),
-            "settled": run.status.is_settled(),
-            "run_json": run_json,
-        });
+        let doc = to_doc(run)?;
         self.docs
             .put(RUNS, &doc_id(&run.id)?, doc, Precondition::None)
             .await

@@ -27,6 +27,21 @@ fn decode(stored: &Versioned<Value>) -> Result<WorkflowRevision, String> {
     })
 }
 
+/// The revision document for `record`, superseded at `superseded_at` (epoch ms).
+pub(super) fn to_doc(record: &WorkflowRecord, superseded_at: u64) -> Result<Value, WorkflowError> {
+    let mut kept = record.clone();
+    // The path a record was read from is where it lived, not part of what it
+    // was.
+    kept.source_path = None;
+    let record_json = serde_json::to_string(&kept)
+        .map_err(|error| malformed("serializing revision", error))?;
+    Ok(json!({
+        "workflow_id": record.id,
+        "superseded_at": stamp(superseded_at),
+        "record_json": record_json,
+    }))
+}
+
 fn newest_first(workflow_id: &str) -> Query {
     Query::filter(Filter::eq("workflow_id", workflow_id)).sort(Sort::desc("_id"))
 }
@@ -39,17 +54,7 @@ impl Inner {
         self.ensure().await?;
         let superseded_at = now_ms();
         let id = mint_revision_id(superseded_at);
-        let mut kept = record.clone();
-        // The path a record was read from is where it lived, not part of what
-        // it was.
-        kept.source_path = None;
-        let record_json = serde_json::to_string(&kept)
-            .map_err(|error| malformed("serializing revision", error))?;
-        let doc = json!({
-            "workflow_id": record.id,
-            "superseded_at": stamp(superseded_at),
-            "record_json": record_json,
-        });
+        let doc = to_doc(record, superseded_at)?;
         self.docs
             .put(REVISIONS, &id, doc, Precondition::Absent)
             .await
@@ -78,7 +83,7 @@ impl Inner {
         }
     }
 
-    async fn prune_revisions(&self, workflow_id: &str) -> Result<(), WorkflowError> {
+    pub(super) async fn prune_revisions(&self, workflow_id: &str) -> Result<(), WorkflowError> {
         let all = self
             .docs
             .query_all(REVISIONS, &newest_first(workflow_id))

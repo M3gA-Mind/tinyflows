@@ -114,7 +114,7 @@ impl Inner {
 
     /// Applies `change` to the journal under compare-and-swap, writing it back
     /// only when `change` says it did something.
-    async fn update_journal(
+    pub(super) async fn update_journal(
         &self,
         workflow_id: &str,
         change: impl Fn(&mut Vec<WorkflowNote>) -> bool,

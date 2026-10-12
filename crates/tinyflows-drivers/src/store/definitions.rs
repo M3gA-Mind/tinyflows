@@ -10,7 +10,7 @@ use tinystoragedrivers_core::{
 use super::{CAS_ATTEMPTS, DEFINITIONS, Inner, doc_id, malformed, storage};
 
 /// The record as the definition document keeps it.
-fn to_doc(record: &WorkflowRecord) -> Result<Value, WorkflowError> {
+pub(super) fn to_doc(record: &WorkflowRecord) -> Result<Value, WorkflowError> {
     let mut persisted = record.clone();
     // Where a record was read from is not part of what it is.
     persisted.source_path = None;
