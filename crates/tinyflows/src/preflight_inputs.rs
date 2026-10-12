@@ -192,18 +192,26 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
     let mut reads = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'.'
-            && bytes.get(i + 1) == Some(&b'[')
-            && (i == 0
-                || !(bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b']')))
-        {
-            let literal = body[i + 2..]
-                .split_once(']')
-                .and_then(|(key, _)| serde_json::from_str::<String>(key.trim()).ok());
-            if literal.is_none() {
-                // A computed root key may name any runtime scope. The input-only
-                // sandbox cannot prove which payload it selects.
-                reads.push(("run".into(), vec![]));
+        let nested_dot =
+            i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || matches!(bytes[i - 1], b'_' | b']'));
+        if bytes[i] == b'.' && !nested_dot {
+            if let Some((end, scope)) = root_selector(body, i + 1) {
+                match scope {
+                    Some(scope)
+                        if matches!(
+                            scope.as_str(),
+                            "inputs" | "run" | "item" | "items" | "nodes"
+                        ) =>
+                    {
+                        let path =
+                            input_path(&format!("=inputs{}", &body[end..])).unwrap_or_default();
+                        reads.push((scope, path));
+                    }
+                    None => reads.push(("run".into(), vec![])),
+                    _ => {}
+                }
+                i = end;
+                continue;
             }
         }
         if bytes[i] == b'"' || bytes[i] == b'\'' {
@@ -259,4 +267,48 @@ pub(super) fn scope_reads(expression: &str) -> Vec<(String, Vec<String>)> {
         }
     }
     reads
+}
+
+/// Recognize literal jq root selectors; computed selectors retain runtime uncertainty.
+fn root_selector(body: &str, mut start: usize) -> Option<(usize, Option<String>)> {
+    let bytes = body.as_bytes();
+    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+        start += 1;
+    }
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
+    let mut depth = 1;
+    let mut quote = None;
+    let mut end = start + 1;
+    while end < bytes.len() {
+        let byte = bytes[end];
+        if let Some(delimiter) = quote {
+            if byte == b'\\' {
+                end += 2;
+                continue;
+            }
+            if byte == delimiter {
+                quote = None;
+            }
+        } else {
+            match byte {
+                b'"' | b'\'' => quote = Some(byte),
+                b'[' => depth += 1,
+                b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Only a literal selector proves the addressed scope.
+                        // Evaluating a computed selector against empty mocks can
+                        // choose a different branch than real caller data does.
+                        let scope = serde_json::from_str::<String>(&body[start + 1..end]).ok();
+                        return Some((end + 1, scope));
+                    }
+                }
+                _ => {}
+            }
+        }
+        end += 1;
+    }
+    None
 }
