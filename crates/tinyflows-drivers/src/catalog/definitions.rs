@@ -17,7 +17,7 @@ use super::{
 
 /// `flow` as a document, keeping `created_at` from `existing` when there is
 /// one — SQLite's upsert leaves `created_at` alone on conflict.
-fn to_doc(flow: &Flow, existing: Option<&Value>) -> Result<Value> {
+pub(super) fn to_doc(flow: &Flow, existing: Option<&Value>) -> Result<Value> {
     let created_at = existing
         .and_then(|doc| text(doc, "created_at"))
         .unwrap_or(&flow.created_at)
