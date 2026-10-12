@@ -478,7 +478,6 @@ pub struct InMemoryCheckpointer<State> {
 type WriteKey = (String, Vec<String>, String);
 
 mod in_memory;
-pub(crate) use in_memory::require_checkpoint_id;
 
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]

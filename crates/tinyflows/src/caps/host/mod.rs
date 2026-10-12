@@ -5,8 +5,9 @@
 //! none of it, so the crate never hard-codes a vendor. That rule is about
 //! *policy* — which model, which tools, which network, which sandbox — and it
 //! stands. But several capabilities have no vendor in them at all: writing a
-//! script to a temporary file and reading its stdout, refusing a URL that resolves into a private range. Every host that runs
-//! outside a sandbox needs those, and each one that wrote them itself wrote the
+//! script to a temporary file and reading its stdout, refusing a URL that
+//! resolves into a private range. Every host that runs outside a sandbox needs
+//! those, and each one that wrote them itself wrote the
 //! same subtle parts again: the stdin/stdout deadlock, the DNS-rebinding window
 //! between vetting a name and connecting to it, the traversal check that has to
 //! canonicalize because a symlink inside the workspace can still point out of
