@@ -52,7 +52,7 @@ jaq-json = { version = "2.0.1", features = ["serde"] }
 default = []
 mock = []
 # Off by default; enables `caps::host` — ready-made capability implementations
-# for a host that runs scripts as child processes of itself and keeps state on
+# for a host that runs scripts as child processes of itself and stages them on
 # its own disk. Off by default because a host with a sandbox wants none of it,
 # and because it is the only thing in the crate that spawns a process or writes
 # a file. Always available inside this crate's own tests.
