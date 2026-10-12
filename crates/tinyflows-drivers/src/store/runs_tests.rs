@@ -1,7 +1,7 @@
 //! Run-record listing: newest first, scoped to their workflow, and a run that
 //! was never recorded is a distinct error rather than a silent `None`.
 
-use super::test_support::store;
+use super::test_support::{block_on, store};
 use tinyflows::store::types::{RunExecutor, RunStatus, WorkflowError};
 use tinyflows::store::{WorkflowStore, new_run_record, require_run};
 
@@ -121,12 +121,13 @@ fn an_unreadable_run_document_is_skipped_by_listings_and_named_by_a_direct_read(
     let docs = super::test_support::docs_in(&storage, "local");
     let store = super::DriverWorkflowStore::new(docs.clone());
     store.record_run(&new_run_record("good", "alpha", 100)).unwrap();
-    futures_block(docs.put(
+    block_on(docs.put(
         super::RUNS,
         "bad",
         json!({ "workflow_id": "alpha", "started_at": 5, "settled": false, "run_json": "{not json" }),
         Precondition::None,
-    ));
+    ))
+    .unwrap();
 
     let ids: Vec<String> = store
         .list_runs("alpha")
@@ -139,13 +140,4 @@ fn an_unreadable_run_document_is_skipped_by_listings_and_named_by_a_direct_read(
         store.get_run("bad").unwrap_err(),
         WorkflowError::Malformed(_)
     ));
-}
-
-/// Runs a storage future from a synchronous test.
-fn futures_block<T>(future: impl std::future::Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(future)
 }
