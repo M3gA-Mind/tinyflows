@@ -407,14 +407,25 @@ async fn import_drafts(
             .map_err(anyhow::Error::from)
             .and_then(|bytes| serde_json::from_slice::<FlowDraft>(&bytes).map_err(Into::into));
         match draft {
-            Ok(draft) => match catalog.import_draft(&draft).await {
-                Ok(written) => report.wrote("drafts", written),
-                Err(error) => report.invalid("drafts", format!("{}: {error:#}", path.display())),
-            },
+            Ok(draft) if !is_safe_draft_id(&draft.id) => report.invalid(
+                "drafts",
+                format!("{}: '{}' is not a usable draft id", path.display(), draft.id),
+            ),
+            Ok(draft) => report.wrote("drafts", catalog.import_draft(&draft).await?),
             Err(error) => report.invalid("drafts", format!("{}: {error:#}", path.display())),
         }
     }
     Ok(())
+}
+
+/// The rule the draft store held ids to, which is also the rule that keeps
+/// `FlowCatalogDocuments::import_draft` willing.
+fn is_safe_draft_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 #[cfg(test)]
