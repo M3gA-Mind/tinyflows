@@ -40,7 +40,7 @@ impl Inner {
         match parsed {
             Some(Ok(notes)) => Ok((Some(stored), notes)),
             Some(Err(_)) | None => {
-                let token = tinyflows::ids::token();
+                let token = uuid::Uuid::new_v4().to_string();
                 tracing::warn!(
                     target: "workflows",
                     workflow_id,
