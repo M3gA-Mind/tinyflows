@@ -32,10 +32,10 @@ getrandom = "0.4"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"], optional = true }
-# `caps::host` only: hashing an author-supplied state key (and namespace) into
-# one safe path component, and staging a script in a temporary directory.
+# `store` only: the SHA-256 behind a graph's fingerprint.
 sha2 = { version = "0.11", optional = true }
 hex = "0.4"
+# `caps::host` only: staging a script in a temporary directory.
 tempfile = { version = "3", optional = true }
 # `graph-debug` only: self-contained raster output and a tiny bitmap font. The
 # renderer deliberately does not shell out to Graphviz, so it works anywhere
@@ -56,7 +56,7 @@ mock = []
 # its own disk. Off by default because a host with a sandbox wants none of it,
 # and because it is the only thing in the crate that spawns a process or writes
 # a file. Always available inside this crate's own tests.
-host-caps = ["dep:reqwest", "dep:sha2", "dep:tempfile", "reqwest/rustls", "tokio/fs", "tokio/process", "tokio/io-util"]
+host-caps = ["dep:reqwest", "dep:tempfile", "reqwest/rustls", "tokio/fs", "tokio/process", "tokio/io-util"]
 # Off by default; enables `store` — the durable model around a graph (versioned
 # documents, run records, notes, proposals), the `WorkflowStore` contract, and
 # patch-based authoring on top of it. It names no storage: implementations live
@@ -77,9 +77,9 @@ testkit = []
 
 [dev-dependencies]
 proptest = "1"
-# `caps::host` compiles inside this crate's own tests whether or not the
-# `host-caps` feature is on (the same rule `caps::mock` follows), so what that
-# feature would switch on has to be present for a test build too. An optional
+# `caps::host` and `store` compile inside this crate's own tests whether or not
+# their features are on (the same rule `caps::mock` follows), so what those
+# features would switch on has to be present for a test build too. An optional
 # dependency is not activated by `cfg(test)`, hence these.
 sha2 = "0.11"
 tempfile = "3"
