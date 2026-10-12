@@ -1,41 +1,16 @@
-//! The on-disk workflow document: reading it, writing it, checking it.
+//! The workflow document and the rules a store judges it by: parsing it,
+//! checking it, and the host policy that extends the checks.
 //!
 //! A document is the engine's `WorkflowGraph` JSON with this host's own fields
 //! (`id`, `name`, `description`, `enabled`, `defaults`) merged in beside it,
-//! rather than nested under a wrapper. That shape is deliberate: a file an operator opens
-//! reads as a graph, and a graph exported from anywhere else loads here without
-//! being re-wrapped.
-
-use std::path::Path;
+//! rather than nested under a wrapper. That shape is deliberate: a document an
+//! operator opens reads as a graph, and a graph exported from anywhere else
+//! loads here without being re-wrapped.
 
 use crate::model::WorkflowGraph;
 use serde_json::Value;
 
 use crate::store::types::{RunRecord, RunStatus, WorkflowDefaults, WorkflowError, WorkflowRecord};
-
-/// Read and parse one workflow document, naming errors by path.
-pub fn read_workflow(path: &Path) -> Result<WorkflowRecord, String> {
-    read_workflow_with(path, &EnginePolicy)
-}
-
-/// [`read_workflow`], judging the `defaults` block by a host's policy.
-pub fn read_workflow_with(path: &Path, policy: &dyn HostPolicy) -> Result<WorkflowRecord, String> {
-    let text = std::fs::read_to_string(path).map_err(|err| format!("{}: {err}", path.display()))?;
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default();
-    let mut record = parse_workflow_with(&text, stem, policy)
-        .map_err(|err| format!("{}: {err}", path.display()))?;
-    // A document can deserialize cleanly and still be a graph the engine will
-    // not compile — no trigger, an edge to a node that is not there. Catching
-    // it here means a listing only ever shows workflows that would actually
-    // run, and the operator hears about the broken file by name.
-    validate_graph(&record.id, &record.graph)
-        .map_err(|err| format!("{}: {err}", path.display()))?;
-    record.source_path = Some(path.to_path_buf());
-    Ok(record)
-}
 
 /// Parse one workflow document.
 ///
@@ -196,32 +171,6 @@ pub fn validate_graph(id: &str, graph: &WorkflowGraph) -> Result<(), WorkflowErr
             })
             .collect(),
     })
-}
-
-/// Serialize a record into the on-disk document shape: the graph, with the host
-/// fields merged in beside it.
-pub fn to_document(record: &WorkflowRecord) -> Result<Vec<u8>, WorkflowError> {
-    let mut value = serde_json::to_value(&record.graph)
-        .map_err(|err| WorkflowError::Malformed(err.to_string()))?;
-    if let Some(object) = value.as_object_mut() {
-        object.insert("id".into(), Value::String(record.id.clone()));
-        object.insert("name".into(), Value::String(record.name.clone()));
-        object.insert(
-            "description".into(),
-            Value::String(record.description.clone()),
-        );
-        object.insert("enabled".into(), Value::Bool(record.enabled));
-        // Omitted entirely when the workflow states no preference, so an
-        // untouched document does not grow a block of nulls.
-        if !record.defaults.is_empty() {
-            let defaults = serde_json::to_value(&record.defaults)
-                .map_err(|err| WorkflowError::Malformed(err.to_string()))?;
-            object.insert("defaults".into(), defaults);
-        } else {
-            object.remove("defaults");
-        }
-    }
-    serde_json::to_vec_pretty(&value).map_err(|err| WorkflowError::Malformed(err.to_string()))
 }
 
 /// A run record for a run that has just started.
