@@ -64,6 +64,7 @@ use tinystoragedrivers_core::{CollectionSpec, DocumentStore, IndexSpec, StorageE
 mod admission;
 mod claims;
 mod codec;
+mod import;
 mod jobs;
 mod patch;
 mod policy;
@@ -74,6 +75,7 @@ mod runtime;
 mod test_support;
 
 pub use claims::ClaimedOccurrence;
+pub use import::ImportedJob;
 
 pub use tinyflows_schedule::{
     AgentJobSpec, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, truncate_cron_output,
