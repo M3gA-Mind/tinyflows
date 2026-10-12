@@ -158,6 +158,7 @@ fn undo_restores_the_previous_version_and_is_itself_undoable() {
 fn rolling_back_to_a_named_revision_restores_exactly_that_one() {
     let store = store();
     let mut record = record("greet", "zero");
+    store.save(&record).unwrap();
     for description in ["first", "second", "third"] {
         record.description = description.into();
         store.save(&record).unwrap();

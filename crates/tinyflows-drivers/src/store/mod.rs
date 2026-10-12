@@ -459,3 +459,11 @@ pub(crate) mod test_support;
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod history_tests;
+
+#[cfg(test)]
+#[path = "runs_tests.rs"]
+mod runs_tests;
