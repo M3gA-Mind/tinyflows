@@ -32,7 +32,8 @@ use serde_json::{Map, Value, json};
 /// implement them without reaching into the runtime module directly.
 ///
 /// A host that wants durable, cross-process HITL resume implements
-/// [`Checkpointer<serde_json::Value>`] (or reuses [`FileCheckpointer`]) and
+/// [`Checkpointer<serde_json::Value>`] (for example `tinyflows-drivers`'s `DriverCheckpointer`, on a
+/// storage backend) and
 /// injects it via [`run_with_checkpointer`] / [`resume_with_checkpointer`]. The
 /// engine keys persisted state by a caller-supplied `thread_id`.
 ///

@@ -250,8 +250,7 @@ where
     /// record at itself or at one of its descendants. With `limit == None` an
     /// unguarded walk then never terminates — it does not merely return a wrong
     /// answer, it hangs the caller. Revisiting an id ends the walk.
-    /// [`FileCheckpointer`] has always had this guard (its in-memory `remove`
-    /// doubles as one); this makes it uniform.
+    /// This makes the guard uniform across backends.
     async fn state_history(
         &self,
         thread_id: &str,

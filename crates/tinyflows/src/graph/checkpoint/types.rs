@@ -144,9 +144,7 @@ pub struct CheckpointTuple<State> {
 ///
 /// Derives `Serialize`/`Deserialize` with serde's conditional bounds: a
 /// `Checkpoint<State>` is (de)serializable exactly when `State` is, which is
-/// what lets file-backed backends such as
-/// [`FileCheckpointer`](crate::graph::FileCheckpointer) round-trip whole records
-/// through JSON. The in-memory path never needs it.
+/// what lets durable backends round-trip whole records through JSON. The in-memory path never needs it.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Checkpoint<State> {
     /// Checkpoint lineage key for a conversation/workflow/tenant run series.
