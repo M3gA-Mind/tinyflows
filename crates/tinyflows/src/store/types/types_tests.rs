@@ -308,3 +308,75 @@ fn a_record_written_before_executors_existed_still_parses() {
     assert!(record.executor.is_none());
     assert!(!record.cancel_requested);
 }
+
+fn proposal(workflow_id: &str, created_at: u64) -> WorkflowProposal {
+    WorkflowProposal {
+        id: crate::store::mint_proposal_id(created_at),
+        workflow_id: workflow_id.to_string(),
+        created_at,
+        rationale: "the timeout is too short for a cold cache".into(),
+        ops: json!([{ "op": "update_node_config", "id": "build", "config": { "timeout": 600 } }]),
+        evidence_runs: vec!["run-1".into()],
+        note_ids: Vec::new(),
+        base_fingerprint: "abc123".into(),
+        verification: None,
+        status: ProposalStatus::Pending,
+        decided_at: None,
+        decision_reason: None,
+    }
+}
+
+#[test]
+fn only_a_verified_pending_proposal_is_applicable() {
+    let mut subject = proposal("sweep", 1);
+    assert!(
+        !subject.is_applicable(),
+        "an unverified proposal must not be offered"
+    );
+
+    subject.verification = Some(ProposalVerification {
+        ok: false,
+        verified_at: 2,
+        messages: vec!["node 'build' does not exist".into()],
+        diagnosis: None,
+    });
+    assert!(
+        !subject.is_applicable(),
+        "a proposal that failed its check is evidence, not an offer"
+    );
+
+    subject.verification = Some(ProposalVerification {
+        ok: true,
+        verified_at: 3,
+        messages: Vec::new(),
+        diagnosis: None,
+    });
+    assert!(subject.is_applicable());
+
+    subject.status = ProposalStatus::Accepted;
+    assert!(
+        !subject.is_applicable(),
+        "a proposal cannot be applied twice"
+    );
+}
+
+#[test]
+fn fingerprints_distinguish_graphs_and_agree_with_themselves() {
+    let graph: crate::model::WorkflowGraph = serde_json::from_value(json!({
+        "nodes": [{ "id": "t", "kind": "trigger", "name": "start" }],
+        "edges": []
+    }))
+    .expect("the fixture graph should parse");
+    let changed: crate::model::WorkflowGraph = serde_json::from_value(json!({
+        "nodes": [{ "id": "t", "kind": "trigger", "name": "start again" }],
+        "edges": []
+    }))
+    .expect("the fixture graph should parse");
+
+    assert_eq!(fingerprint(&graph), fingerprint(&graph));
+    assert_ne!(
+        fingerprint(&graph),
+        fingerprint(&changed),
+        "a graph that moved must not look unchanged to an accept"
+    );
+}

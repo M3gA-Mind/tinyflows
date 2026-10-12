@@ -461,12 +461,28 @@ pub(crate) mod test_support;
 mod tests;
 
 #[cfg(test)]
+#[path = "authoring_tests.rs"]
+mod authoring_tests;
+
+#[cfg(test)]
+#[path = "concurrency_tests.rs"]
+mod concurrency_tests;
+
+#[cfg(test)]
 #[path = "history_tests.rs"]
 mod history_tests;
 
 #[cfg(test)]
+#[path = "locks_tests.rs"]
+mod locks_tests;
+
+#[cfg(test)]
 #[path = "notes_tests.rs"]
 mod notes_tests;
+
+#[cfg(test)]
+#[path = "proposals_tests.rs"]
+mod proposals_tests;
 
 #[cfg(test)]
 #[path = "runs_tests.rs"]
