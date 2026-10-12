@@ -7,36 +7,33 @@
 //! one: [`WorkflowStore`].
 //!
 //! The trait exists so the backing store is a decision, not a fact of the
-//! codebase. [`FileWorkflowStore`] — JSON documents under the host's data
-//! directory,
-//! optionally layered over repository-provided defaults — is the only
-//! implementation today, but a remote catalog or a database is a new impl
-//! rather than a refactor.
+//! codebase. This crate ships no implementation: it carries the contract, the
+//! record types, the rules a store judges documents by ([`HostPolicy`]), the
+//! patch-based [`authoring`] on top, and the pieces every implementation
+//! shares (ids, the revision cap, note pruning). Storage belongs to the
+//! `tinystoragedrivers` ports, and `tinyflows-drivers`' `DriverWorkflowStore`
+//! implements this trait over a document handle. A host with its own catalog
+//! implements it directly.
 
 pub mod authoring;
-mod file;
+mod ids;
+mod notes;
+mod policy;
 pub mod types;
 
 #[cfg(test)]
-mod concurrency_tests;
-#[cfg(test)]
-mod tests;
+mod parsing_tests;
 
 pub use authoring::{
     GraphHandle, apply_workflow_ops, apply_workflow_ops_if_unchanged, apply_workflow_ops_observed,
     create_workflow, mutate_workflow_record, preview_workflow_ops, validate_handle,
 };
-pub use file::{
-    EnginePolicy, FileWorkflowStore, HostPolicy, LoadReport, MAX_NOTES, MAX_REVISIONS,
-    gate_failures_into_error, mint_note_id, mint_proposal_id, new_run_record, parse_workflow,
-    parse_workflow_with, read_workflow, read_workflow_with, validate_graph, workflow_dirs,
-    workspace_state_dir_under,
+pub use ids::{MAX_REVISIONS, mint_proposal_id, mint_revision_id};
+pub use notes::{MAX_NOTES, mint_id as mint_note_id, prune as prune_notes};
+pub use policy::{
+    EnginePolicy, HostPolicy, gate_failures_into_error, new_run_record, parse_workflow,
+    parse_workflow_with, validate_graph,
 };
-// The filename guard and the atomic write are how *every* file-backed piece of
-// workflow state lands on disk. A host keeping its own per-workflow state
-// alongside this store's needs the same two, and a second copy could disagree
-// about what a safe name is — so they are public rather than internal.
-pub use file::{safe_component, workspace_scope, write_atomic};
 
 pub use self::types::{
     Diagnosis, LEGACY_TRUNCATED_KEY, NoteId, NoteKind, NoteSource, ProposalId, ProposalStatus,
