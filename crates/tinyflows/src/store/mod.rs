@@ -57,7 +57,7 @@ impl ProposalDecisionGuard for NoopProposalDecisionGuard {}
 ///
 /// Implementations are shared across threads and may be called from async
 /// contexts, so they must be `Send + Sync`; the methods are synchronous because
-/// every backing store in view is either local files or an in-process database,
+/// every backing store in view is either a local database or an in-process one,
 /// and a blocking read there is cheaper than the machinery to avoid it. Callers
 /// on an async runtime should wrap these in `spawn_blocking`, as the TUI already
 /// does for its task repository.
@@ -100,7 +100,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Save only when the current graph still has `expected_fingerprint`.
     ///
-    /// File-backed stores override this atomically. The default preserves the
+    /// Durable stores override this atomically. The default preserves the
     /// contract for lightweight test stores that do not expose transactions.
     fn save_if_fingerprint(
         &self,
@@ -115,7 +115,7 @@ pub trait WorkflowStore: Send + Sync {
     /// Save only when the entire current record still has `expected_fingerprint`.
     ///
     /// Definition edits use this stronger comparison so a graph write cannot
-    /// silently restore stale defaults or metadata. File-backed stores override
+    /// silently restore stale defaults or metadata. Durable stores override
     /// it atomically; the default supports lightweight test stores.
     fn save_if_record_fingerprint(
         &self,
@@ -223,7 +223,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Save a proposal only while its workflow still has `expected_fingerprint`.
     ///
-    /// File-backed stores override this atomically with definition writes. The
+    /// Durable stores override this atomically with definition writes. The
     /// default preserves the contract for lightweight test stores that do not
     /// expose transactions.
     fn save_proposal_if_fingerprint(
@@ -255,7 +255,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Claim exclusive decision access for every proposal on one workflow.
     ///
-    /// File stores override this with a cross-process lock held across reading
+    /// Durable stores override this with a cross-process claim held across reading
     /// the proposal, applying or rejecting it, and persisting the outcome.
     fn lock_proposal_decision(
         &self,

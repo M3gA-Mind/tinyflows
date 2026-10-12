@@ -4,6 +4,8 @@
 use serde_json::json;
 
 use super::*;
+use crate::store::{HostPolicy, new_run_record, parse_workflow, parse_workflow_with, validate_graph};
+use crate::store::types::{WorkflowDefaults, WorkflowError, WorkflowRecord};
 
 #[test]
 fn parsing_names_a_workflow_by_its_filename_when_the_document_omits_an_id() {
