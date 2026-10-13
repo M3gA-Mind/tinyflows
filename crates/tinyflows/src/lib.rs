@@ -25,6 +25,8 @@
 /// `preflight`, whose upstream-binding analysis it reads.
 #[cfg(any(test, feature = "mock"))]
 pub mod authoring_report;
+/// The validate-and-migrate door every authored graph passes before persistence.
+pub mod authoring;
 /// Reading the expression bindings a graph declares — which node an `=`
 /// expression reads from, and whether it reads as prose.
 pub mod bindings;
@@ -86,7 +88,11 @@ pub mod summary;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod transcript;
+/// Which trigger kinds fire on their own, and the warning for those that do not.
+pub mod triggers;
 pub mod validate;
+/// Author-time checks over a tool's published output schema.
+pub mod wiring;
 // Resolving an author-supplied working directory against the run's workspace —
 // the containment rule a shell step's `args.cwd` already obeyed, shared with the
 // `agent` and `sub_workflow` nodes so there is exactly one of them.
