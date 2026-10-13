@@ -10,8 +10,9 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Schedule";
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Schedule";
 /// Host interface carrying the context-bound runtime ports.
 pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
-/// Version of the scheduler wire vocabulary.
-pub const CONTRACT_VERSION: u32 = 1;
+/// Version of the scheduler wire vocabulary. 2 removed the module-owned
+/// `sqlite` store backend; storage is the host's document port only.
+pub const CONTRACT_VERSION: u32 = 2;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     "ScheduleStore",
@@ -94,15 +95,11 @@ fn task_limit() -> usize {
     64
 }
 
-/// Module-owned SQLite or a context-bound host document port.
+/// A context-bound host document port. The module owns no storage of its own:
+/// it runs `CronDocuments` over the host's scoped `DocumentStore`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StoreBackend {
-    /// The module opens and migrates this SQLite file.
-    Sqlite {
-        /// Scoped database path chosen by the host.
-        path: String,
-    },
     /// The module owns CronDocuments queries, migrations and CAS loops.
     Documents {
         /// Host callback object implementing the minimal schedule document port.
@@ -146,7 +143,7 @@ pub const STORE_OPERATIONS: &[&str] = &[
 /// it accepts a JSON request with `op` and the corresponding core-port fields.
 /// Operations are ensure/get/put/delete/query/count/delete_where. Replies are
 /// `{value: JSON}` or `{error: {kind, message}}`, preserving conflict kinds.
-/// Core-port JSON uses the tinystoragedrivers-core v0.5 vocabulary. The host
+/// Core-port JSON uses the tinystoragedrivers-core vocabulary. The host
 /// delegates mechanically to its scoped DocumentStore and owns no cron policy.
 pub const DOCUMENT_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleDocuments";
 /// Exact document callback member used by the module.

@@ -205,25 +205,8 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             .any(|flow| flow == "later-flow")
     );
 
-    // Persist through the actual cdylib for both backend selections. The host
-    // forwards document I/O only; schema, policy and schedule behavior is module-owned.
-    let directory = tempfile::tempdir().unwrap();
-    let sqlite = json!({"backend":{"kind":"sqlite","path":directory.path().join("jobs.db")}});
-    let created: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":sqlite,"operation":{"op":"add_shell","name":"compiled-seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seed"}}),)).await.unwrap();
-    let listed: serde_json::Value = schedule_proxy
-        .call(
-            "ScheduleStore",
-            (json!({"storage":sqlite,"operation":{"op":"list"}}),),
-        )
-        .await
-        .unwrap();
-    assert_eq!(listed[0]["id"], created["id"]);
-    assert!(
-        created.get("claim_generation").is_none(),
-        "unclaimed jobs preserve the legacy wire bytes"
-    );
-    assert!(listed[0].get("claim_generation").is_none());
-
+    // Persist through the actual cdylib. The host forwards document I/O only;
+    // schema, policy and schedule behavior is module-owned.
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = scoped.documents().clone();
@@ -241,6 +224,23 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleCallbacks","object_path":"/test/Documents"}}});
+    // Unclaimed jobs preserve the legacy wire bytes, and a job added through the
+    // compiled module reads back by id.
+    let created: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_shell","name":"compiled-seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seed"}}),)).await.unwrap();
+    let listed: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"list"}}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed[0]["id"], created["id"]);
+    assert!(
+        created.get("claim_generation").is_none(),
+        "unclaimed jobs preserve the legacy wire bytes"
+    );
+    assert!(listed[0].get("claim_generation").is_none());
+    let _: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"remove","job_id":created["id"]}}),)).await.unwrap();
     // Admission retries a real transaction conflict without creating a second job.
     let flow: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await.unwrap();
     assert!(!conflict_once.load(std::sync::atomic::Ordering::SeqCst));

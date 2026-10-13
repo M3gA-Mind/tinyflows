@@ -26,10 +26,9 @@ one-shot. Completion may mutate only generation dispatched + 1; a subsequent
 claim preserves its job and bookkeeping from an older completion.
 
 `ScheduleStore` accepts one StoreRequest: `{storage, operation}`. Storage is
-`{backend: {kind: "sqlite", path: "<scoped jobs.db>"}, max_run_history: 50,
-max_tasks: 64}` or `{backend: {kind: "documents", callback: {destination,
-object_path}}, max_run_history: 50, max_tasks: 64}`. The host chooses scoped
-paths and ports. The module creates/upgrades SQLite or calls CronDocuments;
+`{backend: {kind: "documents", callback: {destination, object_path}},
+max_run_history: 50, max_tasks: 64}`. The host chooses the scoped document
+port. The module runs CronDocuments over it and owns no storage of its own;
 limits, migrations, validation, truncation, pruning and CAS stay module-owned.
 
 Each operation has an `op` field and these arguments. Responses preserve

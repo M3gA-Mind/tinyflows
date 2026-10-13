@@ -160,7 +160,7 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
 }
 
 #[tokio::test]
-async fn module_owned_job_storage_preserves_policy_updates_and_run_history() {
+async fn module_job_storage_preserves_policy_updates_and_run_history() {
     let (_server, host, _) = connections().await;
     let proxy = host
         .proxy(
@@ -169,8 +169,24 @@ async fn module_owned_job_storage_preserves_policy_updates_and_run_history() {
             schedule::INTERFACE,
         )
         .unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    let storage = json!({"backend":{"kind":"sqlite","path":directory.path().join("jobs.db")},"max_run_history":2,"max_tasks":5});
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: {
+                use tinystoragedrivers_core::StorageBackend;
+                tinystoragedrivers_core::MemoryStorage::new()
+                    .for_scope(&tinystoragedrivers_core::Scope::local())
+                    .unwrap()
+                    .documents()
+                    .clone()
+            },
+            conflict_once: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleHost","object_path":"/test/Documents"}},"max_run_history":2,"max_tasks":5});
     let call = |operation| json!({"storage":storage,"operation":operation});
     let created: Value = proxy.call("ScheduleStore", &(call(json!({"op":"add_shell","name":"system_seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seeded"})),)).await.unwrap();
     let id = created["id"].as_str().unwrap();

@@ -2899,7 +2899,6 @@ dependencies = [
  "tinyflows-bus",
  "tinyflows-drivers",
  "tinyflows-schedule",
- "tinyflows-sqlite",
  "tinystoragedrivers-core",
  "tokio",
  "tracing",
@@ -2917,26 +2916,6 @@ dependencies = [
  "cron",
  "serde",
  "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "tinyflows-sqlite"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tinyflows",
- "tinyflows-catalog",
- "tinyflows-schedule",
- "tinystoragedrivers-sqlite",
  "tokio",
  "tracing",
  "uuid",
