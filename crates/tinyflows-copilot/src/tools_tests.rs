@@ -454,11 +454,18 @@ async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
 #[test]
 fn create_report_is_honest_about_a_failed_force_disable() {
     use super::persistence::create_workflow_report;
-    assert!(!create_workflow_report(false, true).0);
-    assert!(!create_workflow_report(true, true).0);
+    // The force-disable failed: report the flow's REAL state, not the intended one.
     let (enabled, note) = create_workflow_report(true, false);
     assert!(enabled);
-    assert!(note.contains("could NOT be force-disabled"));
+    assert!(note.contains("could NOT be force-disabled") && note.contains("ENABLED"));
+    // The force-disable worked.
+    let (enabled, note) = create_workflow_report(true, true);
+    assert!(!enabled);
+    assert!(note.contains("DISABLED"));
+    // Born disabled (an automatic-trigger graph): no disable was attempted.
+    let (enabled, note) = create_workflow_report(false, true);
+    assert!(!enabled);
+    assert!(note.contains("DISABLED"));
 }
 
 #[tokio::test]
