@@ -1,14 +1,13 @@
 //! `dry_run_workflow`: execute a DRAFT against tinyflows MOCK capabilities (ungated, F7).
 
-use crate::tools::schema_cache::static_schema;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tinyflows::model::WorkflowGraph;
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::{BuilderGates, DraftStore, FlowStore};
+use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
@@ -38,14 +37,14 @@ const DRY_RUN_TIMEOUT_SECS: u64 = 30;
 /// included — a read-only agent must be able to self-verify its own proposal.
 /// This is intentional, not an oversight: the mock capabilities never touch a
 /// real integration, so there is nothing for a tier gate to protect. See
-/// `dry_run_allowed_under_readonly_tier` in `builder_tools_tests.rs` for the
+/// `dry_run_allowed_under_readonly_tier` in the host's builder tool tests for the
 /// pinned regression (an earlier draft of this tool *was* tier-gated via an
 /// unused `SecurityPolicy` field; the field was dead code by the time it
 /// shipped and was removed rather than wired up, since side-effect-free
 /// simulation has no tier to gate against).
 ///
 /// **Wiring preflight:** the mock tool invoker is wrapped in the host's
-/// [`PreflightToolInvoker`](crate::flows::tinyflows::caps::PreflightToolInvoker),
+/// the host's wiring-preflight tool invoker,
 /// so a Composio `tool_call` whose required arg is missing or `=`-resolved to
 /// null fails the dry run with the same actionable, field-naming error a real
 /// run would produce — the echo mocks alone would happily accept a null `to`.
@@ -71,7 +70,7 @@ const DRY_RUN_TIMEOUT_SECS: u64 = 30;
 /// is a null-resolved **`prompt` itself** (`location == "prompt"`) — `prompt`
 /// is the node's only input channel to the completion, so a `null` there
 /// means the agent runs with a completely EMPTY prompt (the root-cause bug
-/// `config.input_context` and `ops::validate_binding_resolvability`'s static
+/// `config.input_context` and the host's `validate_binding_resolvability` static
 /// gate both exist to prevent). Collected separately into
 /// `agent_prompt_nulls` (`{ node_id, location, expression, suggestion }`) and
 /// added to the same `ok: false` condition as `null_resolutions`.
@@ -115,12 +114,22 @@ const DRY_RUN_TIMEOUT_SECS: u64 = 30;
 /// both the `ok: true` and `ok: false` result shapes so the caller can
 /// double-check that node's wiring by hand.
 pub struct DryRunWorkflowTool {
-    config: Arc<Config>,
+    drafts: Arc<dyn DraftStore>,
+    flows: Arc<dyn FlowStore>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl DryRunWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(
+        drafts: Arc<dyn DraftStore>,
+        flows: Arc<dyn FlowStore>,
+        gates: Arc<dyn BuilderGates>,
+    ) -> Self {
+        Self {
+            drafts,
+            flows,
+            gates,
+        }
     }
 }
 
@@ -176,15 +185,15 @@ impl Tool for DryRunWorkflowTool {
         let inline_graph = args.get("graph").filter(|v| !v.is_null());
 
         let graph_json = match (draft_id, flow_id, inline_graph) {
-            (Some(id), _, _) => match ops::flows_draft_get(&self.config, id) {
-                Ok(outcome) => outcome.value.graph,
+            (Some(id), _, _) => match self.drafts.get(id).await {
+                Ok(draft) => draft.graph,
                 Err(e) => {
                     return Ok(ToolResult::error(format!(
                         "Could not load draft '{id}' to dry-run: {e}"
                     )));
                 }
             },
-            (None, Some(id), _) => match ops::load_flow_graph(&self.config, id) {
+            (None, Some(id), _) => match self.flows.load_graph(id).await {
                 Ok(Some(graph)) => serde_json::to_value(&graph)?,
                 Ok(None) => {
                     return Ok(ToolResult::error(format!("flow '{id}' not found")));
@@ -230,29 +239,12 @@ impl Tool for DryRunWorkflowTool {
             }
         };
 
-        // Wire the schema-aware mock `AgentRunner` so a draft with `agent`
-        // nodes exercises the agent-node path during the dry run instead of
-        // erroring on a missing capability — the plain `mock_capabilities()`
-        // leaves `agent: None`. No real agent turn fires; the mock runner is a
-        // deterministic echo, same contract as the other sandbox mocks, except
-        // it additionally honors `config.output_parser.schema` (see its doc)
-        // so the null-resolution check below doesn't false-positive on an
-        // agent node that correctly declared a schema.
-        let mut caps = tinyflows::caps::mock::mock_capabilities_with_agent(
-            crate::flows::tinyflows::caps::SchemaAwareMockAgentRunner,
-        );
-        // Plain agent nodes (no `agent_ref`) never reach the runner above —
-        // the vendored `agent` node routes them to the `llm` slot instead (see
-        // `SchemaAwareMockLlm`'s doc). Swap the vendored `MockLlm` echo for the
-        // schema-aware mock so their `output_parser.schema` is honored too,
-        // instead of the echo shape failing the sub-port's validation.
-        caps.llm = std::sync::Arc::new(crate::flows::tinyflows::caps::SchemaAwareMockLlm);
-        // Wiring preflight over the echo mocks (see the struct doc): required
-        // Composio args must be present and non-null even in the sandbox.
-        caps.tools = std::sync::Arc::new(crate::flows::tinyflows::caps::PreflightToolInvoker {
-            config: self.config.clone(),
-            inner: caps.tools.clone(),
-        });
+        // The host supplies the sandbox capability set: mock capabilities
+        // only (see the struct doc), however it decorates them — a schema-aware
+        // mock agent runner and LLM so `output_parser.schema` is honored, and a
+        // wiring preflight over the echo tool invoker so required Composio args
+        // must be present and non-null even in the sandbox.
+        let caps = self.gates.sandbox_capabilities();
 
         let observer = Arc::new(CapturingObserver::default());
         let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
@@ -325,8 +317,7 @@ impl Tool for DryRunWorkflowTool {
             routing_divergence_warnings,
         } = AuthoringReport::build(&graph, &observer.steps(), &outcome.output);
 
-        let permissions_manifest =
-            crate::flows::ops::compute_approval_manifest(&self.config, &graph).await;
+        let permissions_manifest = self.gates.approval_manifest(&graph).await;
 
         tracing::info!(
             target: "flows",

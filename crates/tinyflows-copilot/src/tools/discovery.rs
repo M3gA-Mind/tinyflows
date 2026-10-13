@@ -23,7 +23,7 @@
 //! suggestions sink (internal bookkeeping, no user data mutated, no external
 //! effect), so the tool passes a `read_only` sandbox — it is the agent's
 //! designated way to emit its result, analogous to
-//! [`super::tools::ProposeWorkflowTool`] returning a proposal.
+//! `propose_workflow` returning a proposal.
 
 use std::sync::Arc;
 

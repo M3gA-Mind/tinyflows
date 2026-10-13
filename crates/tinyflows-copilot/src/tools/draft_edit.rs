@@ -1,13 +1,13 @@
 //! `edit_workflow`: structured incremental edits on a draft (proposal only, F1).
 
-use crate::tools::schema_cache::static_schema;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::{BuilderGates, DraftStore, FlowStore};
+use super::static_schema;
+use tinyflows::model::WorkflowGraph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 /// Comma list of the valid `op` tag values, for the missing-/unknown-`op`
@@ -47,12 +47,49 @@ fn edit_op_shape(op: &str) -> Option<&'static str> {
 /// tweak on a 20-node flow is one `update_node_config` op, not a full re-emit.
 /// Still proposal-only — never persists or enables.
 pub struct EditWorkflowTool {
-    config: Arc<Config>,
+    drafts: Arc<dyn DraftStore>,
+    flows: Arc<dyn FlowStore>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl EditWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(
+        drafts: Arc<dyn DraftStore>,
+        flows: Arc<dyn FlowStore>,
+        gates: Arc<dyn BuilderGates>,
+    ) -> Self {
+        Self {
+            drafts,
+            flows,
+            gates,
+        }
+    }
+
+    /// Writes an accepted edit back to the draft it derives from.
+    ///
+    /// T-m6: returns `Err` (rather than only `warn!`-logging) when the write
+    /// itself fails, so callers can surface the failure instead of telling the
+    /// agent "Edits live on draft {id}" when the draft still holds the PREVIOUS
+    /// graph.
+    async fn write_edit_to_draft(
+        &self,
+        write_back_draft: Option<&str>,
+        edited: &WorkflowGraph,
+        name: &str,
+    ) -> Result<(), String> {
+        let Some(draft_id) = write_back_draft else {
+            return Ok(());
+        };
+        let edited_json = serde_json::to_value(edited).map_err(|e| e.to_string())?;
+        if let Err(e) = self
+            .drafts
+            .update(draft_id, Some(name.to_string()), Some(edited_json))
+            .await
+        {
+            tracing::warn!(target: "flows", %draft_id, error = %e, "[flows] edit_workflow: could not write edit back to draft");
+            return Err(e);
+        }
+        Ok(())
     }
 }
 
@@ -125,9 +162,8 @@ impl Tool for EditWorkflowTool {
         let mut edited_from_flow: Option<String> = None;
 
         let (base_graph, default_name) = match (draft_id, flow_id, inline_graph) {
-            (Some(id), _, _) => match ops::flows_draft_get(&self.config, id) {
-                Ok(outcome) => {
-                    let draft = outcome.value;
+            (Some(id), _, _) => match self.drafts.get(id).await {
+                Ok(draft) => {
                     match tinyflows::migrate::deserialize_graph(draft.graph.clone()) {
                         Ok(graph) => {
                             write_back_draft = Some(draft.id.clone());
@@ -149,9 +185,8 @@ impl Tool for EditWorkflowTool {
                     )));
                 }
             },
-            (None, Some(id), _) => match ops::flows_get(&self.config, id).await {
-                Ok(outcome) => {
-                    let flow = outcome.value;
+            (None, Some(id), _) => match self.flows.get(id).await {
+                Ok(flow) => {
                     // Seed a NEW draft from the saved flow's graph so the edit is
                     // durable and reachable (the RPC/canvas path uses the same
                     // `flows_draft_create` op). Linking the draft to `flow.id`
@@ -165,15 +200,18 @@ impl Tool for EditWorkflowTool {
                             )));
                         }
                     };
-                    match ops::flows_draft_create(
-                        &self.config,
-                        Some(flow.id.clone()),
-                        flow.name.clone(),
-                        graph_json,
-                        tinyflows_catalog::DraftOrigin::Chat,
-                    ) {
+                    match self
+                        .drafts
+                        .create(
+                            Some(flow.id.clone()),
+                            flow.name.clone(),
+                            graph_json,
+                            tinyflows_catalog::DraftOrigin::Chat,
+                        )
+                        .await
+                    {
                         Ok(created) => {
-                            let new_draft_id = created.value.id.clone();
+                            let new_draft_id = created.id.clone();
                             tracing::debug!(
                                 target: "flows",
                                 draft_id = %new_draft_id,
@@ -314,27 +352,6 @@ impl Tool for EditWorkflowTool {
             }
         };
 
-        // T-m6: returns `Err` (rather than only `warn!`-logging) when the
-        // draft write-back itself fails, so callers can surface the failure
-        // instead of telling the agent "Edits live on draft {id}" when the
-        // draft still holds the PREVIOUS graph.
-        let write_edit_to_draft = || -> Result<(), String> {
-            if let Some(ref draft_id) = write_back_draft {
-                let edited_json = serde_json::to_value(&edited).map_err(|e| e.to_string())?;
-                if let Err(e) = ops::flows_draft_update(
-                    &self.config,
-                    draft_id,
-                    Some(name.clone()),
-                    Some(edited_json),
-                    None,
-                ) {
-                    tracing::warn!(target: "flows", %draft_id, error = %e, "[flows] edit_workflow: could not write edit back to draft");
-                    return Err(e);
-                }
-            }
-            Ok(())
-        };
-
         // Structural validation of the RESULT — surface every problem at once.
         let structural = tinyflows::validate::validate_all(&edited);
         if !structural.is_empty() {
@@ -343,7 +360,10 @@ impl Tool for EditWorkflowTool {
             // T-m6: surface (not just log) a write-back failure here too, so the
             // agent knows the draft may still hold the PREVIOUS graph rather than
             // this attempted (invalid) edit.
-            let write_back_note = match write_edit_to_draft() {
+            let write_back_note = match self
+                .write_edit_to_draft(write_back_draft.as_deref(), &edited, &name)
+                .await
+            {
                 Ok(()) => String::new(),
                 Err(e) => format!(
                     "\n\nNote: the edit could also NOT be written back to the draft ({e}) — the \
@@ -368,7 +388,7 @@ impl Tool for EditWorkflowTool {
         // save/run path can accept. Reject it before advancing the durable
         // working copy, while preserving the established write-back behavior
         // for later binding/connection/contract gates.
-        let compatibility = ops::config_aware_engine_compatibility_errors(&self.config, &edited);
+        let compatibility = self.gates.engine_compatibility_errors(&edited).await;
         if !compatibility.is_empty() {
             tracing::debug!(
                 target: "flows",
@@ -392,7 +412,10 @@ impl Tool for EditWorkflowTool {
         // never landed, leaving the next turn silently iterating on a stale
         // draft.
         if let Some(draft_id) = write_back_draft.as_deref() {
-            if let Err(e) = write_edit_to_draft() {
+            if let Err(e) = self
+                .write_edit_to_draft(Some(draft_id), &edited, &name)
+                .await
+            {
                 tracing::warn!(
                     target: "flows",
                     %name,
@@ -411,8 +434,9 @@ impl Tool for EditWorkflowTool {
         // Full builder hard-gate stack + proposal payload (shared with revise).
         // Thread the persistence-state handles so the payload carries draft_id /
         // flow_id / persisted:false and can't be misread as a save.
-        match ops::build_builder_proposal(
-            &self.config,
+        match self
+            .gates
+            .build_proposal(
             "edit_workflow",
             &name,
             &edited,
