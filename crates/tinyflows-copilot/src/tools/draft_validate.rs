@@ -5,8 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::{BuilderGates, DraftStore, FlowStore};
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,12 +20,22 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// error_details[], gate_errors[], warnings[] }`, so a failing check is
 /// fix-and-retry rather than a proposal the user has to reject.
 pub struct ValidateWorkflowTool {
-    config: Arc<Config>,
+    drafts: Arc<dyn DraftStore>,
+    flows: Arc<dyn FlowStore>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl ValidateWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(
+        drafts: Arc<dyn DraftStore>,
+        flows: Arc<dyn FlowStore>,
+        gates: Arc<dyn BuilderGates>,
+    ) -> Self {
+        Self {
+            drafts,
+            flows,
+            gates,
+        }
     }
 }
 
@@ -98,15 +107,15 @@ impl Tool for ValidateWorkflowTool {
         let inline_graph = args.get("graph").filter(|v| !v.is_null());
 
         let graph_json = match (draft_id, flow_id, inline_graph) {
-            (Some(id), _, _) => match ops::flows_draft_get(&self.config, id) {
-                Ok(outcome) => outcome.value.graph,
+            (Some(id), _, _) => match self.drafts.get(id).await {
+                Ok(draft) => draft.graph,
                 Err(e) => {
                     return Ok(ToolResult::error(format!(
                         "Could not load draft '{id}' to validate: {e}"
                     )));
                 }
             },
-            (None, Some(id), _) => match ops::load_flow_graph(&self.config, id) {
+            (None, Some(id), _) => match self.flows.load_graph(id).await {
                 Ok(Some(graph)) => serde_json::to_value(&graph)?,
                 Ok(None) => {
                     return Ok(ToolResult::error(format!("flow '{id}' not found")));
@@ -135,7 +144,7 @@ impl Tool for ValidateWorkflowTool {
         );
 
         // Structural validation first (every error at once).
-        let validation = ops::flows_validate(graph_json.clone()).value;
+        let validation = self.gates.validate(graph_json.clone()).await;
 
         // Only run the (expensive) hard gates on a structurally-valid graph.
         // A migrate/deserialize error here must fail CLOSED: `validation.valid`
@@ -146,7 +155,7 @@ impl Tool for ValidateWorkflowTool {
         // skipping every hard gate.
         let (gate_errors, gate_check_failed) = if validation.valid {
             match tinyflows::migrate::deserialize_graph(graph_json) {
-                Ok(graph) => (ops::run_builder_gates(&self.config, &graph).await, false),
+                Ok(graph) => (self.gates.run_gates(&graph).await, false),
                 Err(e) => {
                     tracing::warn!(
                         target: "flows",
@@ -186,7 +195,7 @@ impl Tool for ValidateWorkflowTool {
 /// reported as `ok: true` — is unit-testable independent of the async gate
 /// execution and the (currently unreachable, pending future per-node schema
 /// migrations) path that produces `gate_check_failed`.
-pub(super) fn validate_workflow_report_is_ok(
+pub(crate) fn validate_workflow_report_is_ok(
     structurally_valid: bool,
     gate_errors: &[String],
     gate_check_failed: bool,

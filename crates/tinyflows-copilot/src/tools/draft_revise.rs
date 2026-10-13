@@ -1,13 +1,12 @@
 //! `revise_workflow`: validate a revised draft and emit a proposal (never persists).
 
-use crate::tools::schema_cache::static_schema;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::BuilderGates;
+use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
@@ -23,14 +22,14 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// the tool validates via the exact same [`validate_and_migrate_graph`] path
 /// `flows_create` uses and echoes an optional `revision` note. It NEVER
 /// persists — identical human-in-the-loop invariant to
-/// [`crate::flows::tools::ProposeWorkflowTool`].
+/// `propose_workflow`.
 pub struct ReviseWorkflowTool {
-    config: Arc<Config>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl ReviseWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(gates: Arc<dyn BuilderGates>) -> Self {
+        Self { gates }
     }
 }
 
@@ -86,7 +85,6 @@ impl Tool for ReviseWorkflowTool {
             %name,
             require_approval,
             has_instruction = instruction.is_some(),
-            workspace = %self.config.workspace_dir.display(),
             "[flows] revise_workflow: validating revised candidate graph"
         );
 
@@ -104,8 +102,9 @@ impl Tool for ReviseWorkflowTool {
         // Full builder hard-gate stack (binding-resolvability → tool-contract →
         // required-arg resolvability) + summary/warning assembly, shared with
         // edit_workflow so the two proposal paths can't drift.
-        match ops::build_builder_proposal(
-            &self.config,
+        match self
+            .gates
+            .build_proposal(
             "revise_workflow",
             &name,
             &graph,

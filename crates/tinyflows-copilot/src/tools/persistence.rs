@@ -1,14 +1,13 @@
 //! Persistence tools: `create_workflow`, `duplicate_flow`, and `save_workflow`.
 //! Created/duplicated flows are always born DISABLED; save never touches enablement.
 
-use crate::tools::schema_cache::static_schema;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::{BuilderGates, DraftStore, FlowStore};
+use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
@@ -18,12 +17,13 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// gated. This is the deliberate widening the Phase 3 rails (versioning,
 /// events, history) make safe.
 pub struct CreateWorkflowTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl CreateWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>, gates: Arc<dyn BuilderGates>) -> Self {
+        Self { flows, gates }
     }
 }
 
@@ -84,15 +84,15 @@ impl Tool for CreateWorkflowTool {
             .unwrap_or(true);
 
         // Same structural + hard-gate stack an agent save must pass.
-        if let Err(msg) = ops::strict_gate(&self.config, &graph_json).await {
+        if let Err(msg) = self.gates.strict_gate(&graph_json).await {
             return Ok(ToolResult::error(format!(
                 "{msg}\n\nFix the graph and call create_workflow again."
             )));
         }
 
         tracing::info!(target: "flows", %name, "[flows] create_workflow: agent-initiated create (born disabled)");
-        let flow = match ops::flows_create(&self.config, name, graph_json, require_approval).await {
-            Ok(outcome) => outcome.value,
+        let flow = match self.flows.create(name, graph_json, require_approval).await {
+            Ok(flow) => flow,
             Err(e) => return Ok(ToolResult::error(format!("Could not create flow: {e}"))),
         };
 
@@ -112,7 +112,7 @@ impl Tool for CreateWorkflowTool {
         // real post-attempt state and report THAT.
         let mut disable_succeeded = true;
         if flow.enabled {
-            match ops::flows_set_enabled(&self.config, &flow.id, false).await {
+            match self.flows.set_enabled(&flow.id, false).await {
                 Ok(_) => {}
                 Err(e) => {
                     disable_succeeded = false;
@@ -165,12 +165,12 @@ pub(super) fn create_workflow_report(
 /// `duplicate_flow`: create an independent, DISABLED copy of a saved flow — the
 /// clone-then-edit pattern. Write-class.
 pub struct DuplicateFlowTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl DuplicateFlowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -209,9 +209,8 @@ impl Tool for DuplicateFlowTool {
             _ => return Ok(ToolResult::error("Missing 'flow_id' parameter".to_string())),
         };
         tracing::info!(target: "flows", %flow_id, "[flows] duplicate_flow: agent-initiated duplicate");
-        match ops::flows_duplicate(&self.config, &flow_id).await {
-            Ok(outcome) => {
-                let flow = outcome.value;
+        match self.flows.duplicate(&flow_id).await {
+            Ok(flow) => {
                 Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
                     "type": "workflow_duplicated",
                     "flow_id": flow.id,
@@ -229,7 +228,7 @@ impl Tool for DuplicateFlowTool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `save_workflow`: persist a validated graph (and optionally a new name) onto
-/// an **existing, already-saved** flow via [`ops::flows_update`] — the same
+/// an **existing, already-saved** flow via the host's flow update — the same
 /// validate-and-migrate path the UI's Save uses.
 ///
 /// It was originally added as a narrow, deliberate exception to the belt's
@@ -249,18 +248,28 @@ impl Tool for DuplicateFlowTool {
 ///   `require_approval` are not parameters; whatever the user set stays —
 ///   except that saving a graph whose trigger just transitioned from manual
 ///   to automatic on an already-enabled flow auto-disables it (see
-///   [`ops::flows_update`]'s own doc for that guard).
+///   the host's flow update's own doc for that guard).
 /// - **Real persistence, real consequences.** Saving a `schedule`/`app_event`
 ///   trigger onto an ENABLED flow arms it (the trigger binds and will fire on
 ///   its own) — hence `PermissionLevel::Write`. The description tells the agent
 ///   to dry-run first and to say what it saved.
 pub struct SaveWorkflowTool {
-    config: Arc<Config>,
+    drafts: Arc<dyn DraftStore>,
+    flows: Arc<dyn FlowStore>,
+    gates: Arc<dyn BuilderGates>,
 }
 
 impl SaveWorkflowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(
+        drafts: Arc<dyn DraftStore>,
+        flows: Arc<dyn FlowStore>,
+        gates: Arc<dyn BuilderGates>,
+    ) -> Self {
+        Self {
+            drafts,
+            flows,
+            gates,
+        }
     }
 }
 
@@ -326,8 +335,8 @@ impl Tool for SaveWorkflowTool {
             .filter(|s| !s.is_empty());
         let graph_json =
             if let Some(id) = draft_id {
-                match ops::flows_draft_get(&self.config, id) {
-                    Ok(outcome) => outcome.value.graph,
+                match self.drafts.get(id).await {
+                    Ok(draft) => draft.graph,
                     Err(e) => {
                         return Ok(ToolResult::error(format!(
                             "Could not load draft '{id}' to save: {e}"
@@ -353,7 +362,7 @@ impl Tool for SaveWorkflowTool {
 
         // Same migrate/validate + enforcing binding-resolvability gate as
         // propose_workflow/revise_workflow, run HERE at the tool level (not
-        // inside `ops::flows_update`, which the UI/RPC also call for a
+        // inside the host's flow update, which the UI/RPC also call for a
         // human's own edits and which must stay permissive) — so an agent
         // can never persist a graph with an unresolvable `tool_call` binding
         // either. See `tinyflows::gates::failures`.
@@ -370,7 +379,7 @@ impl Tool for SaveWorkflowTool {
         // runner shared with propose/revise/edit and the strict create/update
         // RPC path (F3) — so an agent can never persist a graph that would fail
         // gates the other planes enforce.
-        let gate_errors = ops::run_builder_gates(&self.config, &graph).await;
+        let gate_errors = self.gates.run_gates(&graph).await;
         if !gate_errors.is_empty() {
             tracing::debug!(
                 target: "flows",
@@ -388,7 +397,7 @@ impl Tool for SaveWorkflowTool {
         // surfaced again at save time — add them here so the agent sees any
         // non-fatal wiring gaps that remain in the final persisted graph.
         let mut warnings = tinyflows::triggers::graph_trigger_warnings(&graph);
-        warnings.extend(ops::graph_wiring_warnings(&self.config, &graph).await);
+        warnings.extend(self.gates.wiring_warnings(&graph).await);
 
         tracing::info!(
             target: "flows",
@@ -397,7 +406,11 @@ impl Tool for SaveWorkflowTool {
             "[flows] save_workflow: agent-initiated save to existing flow"
         );
 
-        match ops::flows_update(&self.config, &flow_id, name, Some(graph_json), None, None).await {
+        match self
+            .flows
+            .update(&flow_id, name, Some(graph_json))
+            .await
+        {
             Ok(outcome) => {
                 let flow = outcome.value;
                 tracing::info!(
@@ -432,7 +445,7 @@ impl Tool for SaveWorkflowTool {
                 // automatic, saving a new graph onto it re-arms it live with no
                 // further confirmation. Surface that loudly so the copilot
                 // relays it to the user instead of staying silent.
-                if flow.enabled && ops::trigger_is_automatic(&flow.graph) {
+                if flow.enabled && self.gates.trigger_is_automatic(&flow.graph) {
                     let trigger_desc = flow
                         .graph
                         .trigger()

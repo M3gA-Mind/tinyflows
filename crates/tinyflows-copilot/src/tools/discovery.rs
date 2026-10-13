@@ -7,7 +7,7 @@
 //! web, then ends its run by calling this tool **once** with a batch of concrete
 //! workflow suggestions. The tool validates each pitch, stamps a stable
 //! content-hash id (so a re-run dedupes identical ideas instead of piling
-//! duplicates — see [`super::store::upsert_suggestions`]), persists them to the
+//! duplicates — see the host's suggestion store), persists them to the
 //! `flow_suggestions` table, and returns a `workflow_suggestions` payload the
 //! Flows page "Suggested for you" section renders.
 //!
@@ -25,15 +25,14 @@
 //! designated way to emit its result, analogous to
 //! [`super::tools::ProposeWorkflowTool`] returning a proposal.
 
-use crate::tools::schema_cache::static_schema;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::config::Config;
-use crate::flows::store;
+use super::ports::SuggestionStore;
+use super::static_schema;
 use tinyflows_catalog::types::{FlowSuggestion, SuggestionStatus};
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
@@ -47,12 +46,12 @@ const MAX_SUGGESTIONS_PER_CALL: usize = 8;
 const MAX_FIELD_CHARS: usize = 2000;
 
 pub struct SuggestWorkflowsTool {
-    config: Arc<Config>,
+    store: Arc<dyn SuggestionStore>,
 }
 
 impl SuggestWorkflowsTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(store: Arc<dyn SuggestionStore>) -> Self {
+        Self { store }
     }
 }
 
@@ -68,7 +67,7 @@ fn suggestion_id(title: &str) -> String {
     let digest = Sha256::digest(normalized.as_bytes());
     // 16 hex chars (64 bits) is plenty to avoid collisions across a user's
     // handful of suggestions while keeping the id short and log-friendly.
-    format!("sug_{}", hex::encode(&digest[..8]))
+    format!("sug_{}", digest[..8].iter().map(|b| format!("{b:02x}")).collect::<String>())
 }
 
 /// Reads an optional string array field into a `Vec<String>`, trimming empties.
@@ -217,7 +216,10 @@ impl Tool for SuggestWorkflowsTool {
             "[flows] suggest_workflows: recording discovered suggestions"
         );
 
-        let written = store::upsert_suggestions(&self.config, &suggestions)
+        let written = self
+            .store
+            .upsert(&suggestions)
+            .await
             .map_err(|e| anyhow::anyhow!("failed to persist suggestions: {e}"))?;
 
         let payload = json!({
@@ -231,9 +233,5 @@ impl Tool for SuggestWorkflowsTool {
 }
 
 #[cfg(test)]
-#[path = "discovery_tools_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "discovery_tools_schema_tests.rs"]
+#[path = "discovery_schema_tests.rs"]
 mod schema_tests;
