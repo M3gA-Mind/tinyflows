@@ -12,6 +12,8 @@
 //!   ([`builder::render_prompt`]).
 //! - [`trail_off`] — the text heuristics behind the "did the turn end on a
 //!   question?" backstop.
+//! - [`tools`] — the authoring tool belt (`edit_workflow`, `dry_run_workflow`,
+//!   `save_workflow`, ...) as `tinytools::Tool`s over host-supplied ports.
 //! - [`fallback`] — a guaranteed fallback question from correlated authoring
 //!   results, preserving the model's original words.
 //!
@@ -32,6 +34,7 @@ pub mod builder;
 pub mod fallback;
 pub mod prompts;
 pub mod resources;
+pub mod tools;
 pub mod trail_off;
 
 pub use builder::{BuildMode, BuilderRequest, render_prompt};

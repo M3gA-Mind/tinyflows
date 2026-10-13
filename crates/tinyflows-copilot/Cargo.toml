@@ -22,7 +22,27 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
+# The tool belt names `tinytools` by git rev (it is not on crates.io), and a
+# published package cannot carry a git dependency. Only `tinyflows` is released.
+publish = false
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+tinyflows = { workspace = true, features = ["mock"] }
+tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog" }
+async-trait = { workspace = true }
+anyhow = "1.0"
+chrono = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+# The shared agent `Tool` trait. A git source rather than a path on purpose,
+# matching tinywallet and tinymcp: a host that already links tinytools (OpenHuman,
+# through tinyagents) patches this exact URL to its own copy, so the two unify
+# into one package and `tinytools::Tool` stays one type. Keep the rev equal to the
+# tinytools gitlink tinyagents pins.
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "643df90ba25f93187249fa99f6789f9aa7f8bbc8" }
+
+[dev-dependencies]
+tokio = { workspace = true }

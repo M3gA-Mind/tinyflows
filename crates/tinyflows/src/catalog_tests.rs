@@ -164,3 +164,64 @@ fn contracts_are_serde_round_trippable() {
         assert_eq!(c, back);
     }
 }
+
+#[test]
+fn rendered_line_covers_every_kind_and_required_field() {
+    let contracts = all_contracts();
+    let line = render_node_kinds_line(&contracts);
+    for c in &contracts {
+        assert!(
+            line.contains(&c.kind),
+            "rendered line missing kind {}",
+            c.kind
+        );
+        for f in c.config_fields.iter().filter(|f| f.required) {
+            assert!(
+                line.contains(&format!("config.{}", f.name)),
+                "rendered line missing required field config.{} for {}",
+                f.name,
+                c.kind
+            );
+        }
+    }
+}
+
+#[test]
+fn rendered_line_separates_kinds_and_marks_optional_fields() {
+    let line = render_node_kinds_line(&all_contracts());
+    assert_eq!(line.matches(" | ").count(), NODE_KINDS.len() - 1);
+    assert!(line.contains("; optional config.") || line.contains("optional config."));
+}
+
+#[test]
+fn rendered_line_reflects_a_host_overlay_view_and_empty_input() {
+    assert_eq!(render_node_kinds_line(&[]), "");
+    assert_eq!(render_node_kinds_required(&[]), "");
+    let overlaid: Vec<NodeKindContract> = all_contracts()
+        .into_iter()
+        .take(2)
+        .map(|c| c.with_note("host note"))
+        .collect();
+    assert_eq!(render_node_kinds_line(&overlaid).matches(" | ").count(), 1);
+}
+
+#[test]
+fn required_rendering_lists_only_required_fields() {
+    let contracts = all_contracts();
+    let rendered = render_node_kinds_required(&contracts);
+    for c in &contracts {
+        let required: Vec<&str> = c
+            .config_fields
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.name.as_str())
+            .collect();
+        let expected = if required.is_empty() {
+            c.kind.clone()
+        } else {
+            format!("{}(config.{})", c.kind, required.join(", config."))
+        };
+        assert!(rendered.contains(&expected), "missing {expected}");
+    }
+    assert!(!rendered.contains("optional"));
+}

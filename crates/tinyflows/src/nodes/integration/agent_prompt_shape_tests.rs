@@ -39,3 +39,23 @@ fn prepend_system_message_seeds_prompt_when_messages_is_empty() {
     assert_eq!(messages[1]["role"], "user");
     assert_eq!(messages[1]["content"], "x");
 }
+
+#[test]
+fn raw_pinned_model_is_forwarded_verbatim() {
+    let is_raw = |m: &str| m.starts_with("claude-");
+    assert_eq!(
+        resolve_completion_model(Some("claude-opus-4"), "role-default".into(), is_raw),
+        "claude-opus-4"
+    );
+}
+
+#[test]
+fn managed_tier_hint_and_absent_models_use_the_resolved_model() {
+    let is_raw = |m: &str| m.starts_with("claude-");
+    for node_model in [Some("hint:fast"), Some("managed-tier"), None] {
+        assert_eq!(
+            resolve_completion_model(node_model, "role-default".into(), is_raw),
+            "role-default"
+        );
+    }
+}
