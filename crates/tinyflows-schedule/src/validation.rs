@@ -1,5 +1,5 @@
 //! Portable human-delay and delivery validation; hosts supply channel access.
-use crate::{delivery_mode, DeliveryConfig, JobOrigin, SessionTarget};
+use crate::{DeliveryConfig, JobOrigin, SessionTarget, delivery_mode};
 use anyhow::Result;
 
 /// Parse s/m/h/d suffixes, defaulting bare numbers to minutes.

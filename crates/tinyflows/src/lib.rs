@@ -19,14 +19,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+/// The validate-and-migrate door every authored graph passes before persistence.
+pub mod authoring;
 /// The builder-facing dry-run report: null `tool_call` args (with the honest
 /// "unverifiable" variant), null agent prompts / input_context, hidden
 /// `tool_call` errors and routing divergence, in a pinned JSON shape. Gated with
 /// `preflight`, whose upstream-binding analysis it reads.
 #[cfg(any(test, feature = "mock"))]
 pub mod authoring_report;
-/// The validate-and-migrate door every authored graph passes before persistence.
-pub mod authoring;
 /// Reading the expression bindings a graph declares — which node an `=`
 /// expression reads from, and whether it reads as prose.
 pub mod bindings;
