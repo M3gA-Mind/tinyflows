@@ -67,7 +67,7 @@ async fn a_family_whose_champion_was_already_tried_still_offers_its_variant() {
 // The retry edge: attempt four must not be attempt two in different words.
 // ---------------------------------------------------------------------------
 
-async fn with_history(tag: &str) -> (FileWorkflowStore, MemoryLedger, std::path::PathBuf) {
+async fn with_history(tag: &str) -> (DriverWorkflowStore, MemoryLedger, ()) {
     let (store, root) = empty_store(tag);
     let ledger = MemoryLedger::new();
     for (attempt, sig, desc, cause) in [
