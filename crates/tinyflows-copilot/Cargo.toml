@@ -29,7 +29,7 @@ publish = false
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-tinyflows = { workspace = true }
+tinyflows = { workspace = true, features = ["mock"] }
 tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog" }
 async-trait = { workspace = true }
 anyhow = "1.0"

@@ -33,7 +33,8 @@ fn expected_revise_workflow() -> serde_json::Value {
 
 #[test]
 fn revise_workflow_static_schema_matches_json_literal() {
-    let tool = ReviseWorkflowTool::new(std::sync::Arc::new(crate::config::Config::default()));
+    let h = std::sync::Arc::new(crate::tools::fakes::MemHost::default());
+    let tool = ReviseWorkflowTool::new(h);
     assert_eq!(
         tinytools::Tool::parameters_schema(&tool),
         expected_revise_workflow()

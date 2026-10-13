@@ -92,7 +92,7 @@ macro_rules! static_schema {
 pub(crate) use static_schema;
 
 #[cfg(test)]
-mod fakes;
+pub(crate) mod fakes;
 #[cfg(test)]
 #[path = "tools_tests.rs"]
 mod tests;

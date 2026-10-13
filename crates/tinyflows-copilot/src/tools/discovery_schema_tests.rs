@@ -66,7 +66,8 @@ fn expected_suggest_workflows() -> serde_json::Value {
 
 #[test]
 fn suggest_workflows_static_schema_matches_json_literal() {
-    let tool = SuggestWorkflowsTool::new(std::sync::Arc::new(crate::config::Config::default()));
+    let h = std::sync::Arc::new(crate::tools::fakes::MemHost::default());
+    let tool = SuggestWorkflowsTool::new(h);
     assert_eq!(
         tinytools::Tool::parameters_schema(&tool),
         expected_suggest_workflows()

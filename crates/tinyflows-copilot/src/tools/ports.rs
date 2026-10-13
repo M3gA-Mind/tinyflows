@@ -118,8 +118,6 @@ pub trait BuilderGates: Send + Sync {
     async fn engine_compatibility_errors(&self, graph: &WorkflowGraph) -> Vec<String>;
     /// Non-fatal wiring warnings (for example unwired required tool arguments).
     async fn wiring_warnings(&self, graph: &WorkflowGraph) -> Vec<String>;
-    /// Whether `graph`'s trigger fires on its own (schedule, webhook, app event).
-    fn trigger_is_automatic(&self, graph: &WorkflowGraph) -> bool;
     /// The outbound-effect approvals a run of `graph` would need.
     async fn approval_manifest(&self, graph: &WorkflowGraph) -> Vec<Value>;
     /// The `workflow_proposal` payload for a graph that passed validation, or

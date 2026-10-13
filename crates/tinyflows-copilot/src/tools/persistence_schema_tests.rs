@@ -34,7 +34,8 @@ fn expected_save_workflow() -> serde_json::Value {
 
 #[test]
 fn save_workflow_static_schema_matches_json_literal() {
-    let tool = SaveWorkflowTool::new(std::sync::Arc::new(crate::config::Config::default()));
+    let h = std::sync::Arc::new(crate::tools::fakes::MemHost::default());
+    let tool = SaveWorkflowTool::new(h.clone(), h.clone(), h);
     assert_eq!(
         tinytools::Tool::parameters_schema(&tool),
         expected_save_workflow()

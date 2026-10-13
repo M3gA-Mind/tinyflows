@@ -445,7 +445,7 @@ impl Tool for SaveWorkflowTool {
                 // automatic, saving a new graph onto it re-arms it live with no
                 // further confirmation. Surface that loudly so the copilot
                 // relays it to the user instead of staying silent.
-                if flow.enabled && self.gates.trigger_is_automatic(&flow.graph) {
+                if flow.enabled && tinyflows_catalog::graph_policy::trigger_is_automatic(&flow.graph) {
                     let trigger_desc = flow
                         .graph
                         .trigger()
