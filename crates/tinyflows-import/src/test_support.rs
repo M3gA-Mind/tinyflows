@@ -72,6 +72,7 @@ pub(crate) fn json<T: serde::Serialize>(value: &T) -> Value {
 
 /// `items` sorted by their `key` string, for comparing lists whose order the
 /// two stores define differently.
+#[cfg(feature = "catalog")]
 pub(crate) fn sorted_by(mut items: Vec<Value>, key: &str) -> Vec<Value> {
     items.sort_by(|a, b| a[key].as_str().cmp(&b[key].as_str()));
     items

@@ -33,6 +33,14 @@
 //!   be opened at all is an error, and the host decides whether to retry. A
 //!   store that is not there is simply an empty report.
 //!
+//! # Features
+//!
+//! `schedule` (`import_cron`), `catalog` (`import_flow_catalog`,
+//! `import_file_state`), `engine` (checkpoints) and `store`
+//! (`import_workflow_store`) are all on by default. A host without the flows
+//! engine builds with `default-features = false, features = ["schedule"]` and
+//! still imports its legacy cron jobs.
+//!
 //! The host decides when to run this and records that it has (a marker in its
 //! own storage); this crate keeps no state of its own.
 //!
@@ -41,20 +49,30 @@
 //! [`DriverCheckpointer`]: tinyflows_drivers::DriverCheckpointer
 //! [`DriverWorkflowStore`]: tinyflows_drivers::store::DriverWorkflowStore
 
+#[cfg(feature = "catalog")]
 mod catalog;
+#[cfg(feature = "engine")]
 mod checkpoints;
+#[cfg(feature = "schedule")]
 mod cron;
 mod legacy_db;
 mod report;
+#[cfg(feature = "catalog")]
 mod state;
+#[cfg(feature = "store")]
 mod workflow_store;
 
 #[cfg(test)]
 mod test_support;
 
+#[cfg(feature = "catalog")]
 pub use catalog::import_flow_catalog;
+#[cfg(feature = "engine")]
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
+#[cfg(feature = "schedule")]
 pub use cron::import_cron;
 pub use report::{ImportReport, Tally};
+#[cfg(feature = "catalog")]
 pub use state::import_file_state;
+#[cfg(feature = "store")]
 pub use workflow_store::{FileStoreLayout, import_workflow_store};
