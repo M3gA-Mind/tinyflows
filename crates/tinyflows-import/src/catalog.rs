@@ -31,7 +31,10 @@ use crate::report::ImportReport;
 /// When `flows.db` exists but cannot be read, a draft directory cannot be
 /// listed, or the target store fails. A record that cannot be decoded is not an
 /// error; it is counted in the report as invalid.
-pub async fn import_flow_catalog(dir: &Path, catalog: &FlowCatalogDocuments) -> Result<ImportReport> {
+pub async fn import_flow_catalog(
+    dir: &Path,
+    catalog: &FlowCatalogDocuments,
+) -> Result<ImportReport> {
     let mut report = ImportReport::default();
     if let Some(db) = LegacyDb::open(&dir.join("flows.db"))? {
         let tables = db.tables().await?;
@@ -78,7 +81,8 @@ struct FlowRow {
 /// first, so a definition saved by an older build keeps loading.
 fn decode_graph(raw: &str) -> Result<tinyflows::model::WorkflowGraph> {
     let value: Value = serde_json::from_str(raw).context("graph_json is not JSON")?;
-    let migrated = tinyflows::migrate::migrate(value).map_err(|error| anyhow::anyhow!("{error}"))?;
+    let migrated =
+        tinyflows::migrate::migrate(value).map_err(|error| anyhow::anyhow!("{error}"))?;
     serde_json::from_value(migrated).context("graph_json does not decode")
 }
 
@@ -167,13 +171,19 @@ async fn import_revisions(
         .await?;
     for (id, flow_id, graph_json, name, require_approval, created_at) in rows {
         if !flows.contains(&flow_id) {
-            report.invalid("revisions", format!("revision '{id}': flow '{flow_id}' was not imported"));
+            report.invalid(
+                "revisions",
+                format!("revision '{id}': flow '{flow_id}' was not imported"),
+            );
             continue;
         }
         let graph: Value = match serde_json::from_str(&graph_json) {
             Ok(graph) => graph,
             Err(error) => {
-                report.invalid("revisions", format!("revision '{id}': graph_json is not JSON: {error}"));
+                report.invalid(
+                    "revisions",
+                    format!("revision '{id}': graph_json is not JSON: {error}"),
+                );
                 continue;
             }
         };
@@ -238,20 +248,30 @@ async fn import_runs(
         .await?;
     for row in rows {
         if !flows.contains(&row.flow_id) {
-            report.invalid("runs", format!("run '{}': flow '{}' was not imported", row.id, row.flow_id));
+            report.invalid(
+                "runs",
+                format!("run '{}': flow '{}' was not imported", row.id, row.flow_id),
+            );
             continue;
         }
         let steps: Vec<FlowRunStep> = match serde_json::from_str(&row.steps_json) {
             Ok(steps) => steps,
             Err(error) => {
-                report.invalid("runs", format!("run '{}': steps are corrupt: {error}", row.id));
+                report.invalid(
+                    "runs",
+                    format!("run '{}': steps are corrupt: {error}", row.id),
+                );
                 continue;
             }
         };
-        let pending_approvals: Vec<String> = match serde_json::from_str(&row.pending_approvals_json) {
+        let pending_approvals: Vec<String> = match serde_json::from_str(&row.pending_approvals_json)
+        {
             Ok(approvals) => approvals,
             Err(error) => {
-                report.invalid("runs", format!("run '{}': pending approvals are corrupt: {error}", row.id));
+                report.invalid(
+                    "runs",
+                    format!("run '{}': pending approvals are corrupt: {error}", row.id),
+                );
                 continue;
             }
         };
@@ -279,8 +299,8 @@ async fn import_state(
 ) -> Result<()> {
     let rows = db
         .read("flow state", |conn| {
-            let mut statement =
-                conn.prepare("SELECT namespace, key, value FROM flow_state ORDER BY namespace, key")?;
+            let mut statement = conn
+                .prepare("SELECT namespace, key, value FROM flow_state ORDER BY namespace, key")?;
             statement
                 .query_map([], |row| {
                     Ok((
@@ -295,7 +315,10 @@ async fn import_state(
     for (namespace, key, value) in rows {
         match serde_json::from_str::<Value>(&value) {
             Ok(value) => report.wrote("state", catalog.import_kv(&namespace, &key, &value).await?),
-            Err(error) => report.invalid("state", format!("{namespace}/{key}: value is not JSON: {error}")),
+            Err(error) => report.invalid(
+                "state",
+                format!("{namespace}/{key}: value is not JSON: {error}"),
+            ),
         }
     }
     Ok(())
@@ -357,7 +380,10 @@ async fn import_suggestions(
             serde_json::from_str::<Vec<String>>(&row.slugs_json),
         );
         let (Ok(steps_outline), Ok(suggested_connections), Ok(suggested_slugs)) = lists else {
-            report.invalid("suggestions", format!("suggestion '{}': a list column is corrupt", row.id));
+            report.invalid(
+                "suggestions",
+                format!("suggestion '{}': a list column is corrupt", row.id),
+            );
             continue;
         };
         let suggestion = FlowSuggestion {
@@ -409,7 +435,11 @@ async fn import_drafts(
         match draft {
             Ok(draft) if !is_safe_draft_id(&draft.id) => report.invalid(
                 "drafts",
-                format!("{}: '{}' is not a usable draft id", path.display(), draft.id),
+                format!(
+                    "{}: '{}' is not a usable draft id",
+                    path.display(),
+                    draft.id
+                ),
             ),
             Ok(draft) => report.wrote("drafts", catalog.import_draft(&draft).await?),
             Err(error) => report.invalid("drafts", format!("{}: {error:#}", path.display())),

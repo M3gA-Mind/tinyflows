@@ -99,4 +99,3 @@ impl Inner {
         Ok(Self::decode_all(stored))
     }
 }
-

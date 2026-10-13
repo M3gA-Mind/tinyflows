@@ -55,12 +55,8 @@ use tinyflows::store::types::{
     RunRecord, WorkflowError, WorkflowNote, WorkflowProposal, WorkflowRecord, WorkflowRevision,
     WorkflowSummary,
 };
-use tinyflows::store::{
-    EnginePolicy, HostPolicy, MAX_NOTES, ProposalDecisionGuard, WorkflowStore,
-};
-use tinystoragedrivers_core::{
-    Blocking, CollectionSpec, DocumentStore, IndexSpec, StorageError,
-};
+use tinyflows::store::{EnginePolicy, HostPolicy, MAX_NOTES, ProposalDecisionGuard, WorkflowStore};
+use tinystoragedrivers_core::{Blocking, CollectionSpec, DocumentStore, IndexSpec, StorageError};
 use tokio::sync::OnceCell;
 
 mod definitions;
@@ -167,8 +163,10 @@ impl DriverWorkflowStore {
     pub fn collections() -> Vec<CollectionSpec> {
         vec![
             CollectionSpec::new(DEFINITIONS),
-            CollectionSpec::new(REVISIONS)
-                .index(IndexSpec::new("by_workflow", ["workflow_id", "superseded_at"])),
+            CollectionSpec::new(REVISIONS).index(IndexSpec::new(
+                "by_workflow",
+                ["workflow_id", "superseded_at"],
+            )),
             CollectionSpec::new(RUNS)
                 .index(IndexSpec::new("by_workflow", ["workflow_id", "started_at"]))
                 .index(IndexSpec::new("by_settled", ["settled", "started_at"])),
@@ -218,10 +216,7 @@ impl Inner {
         self.declared
             .get_or_try_init(|| async {
                 for spec in DriverWorkflowStore::collections() {
-                    self.docs
-                        .ensure_collection(&spec)
-                        .await
-                        .map_err(storage)?;
+                    self.docs.ensure_collection(&spec).await.map_err(storage)?;
                 }
                 Ok::<(), WorkflowError>(())
             })

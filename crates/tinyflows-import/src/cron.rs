@@ -51,7 +51,10 @@ pub async fn import_cron(jobs_db: &Path, cron: &CronDocuments) -> Result<ImportR
     if tables.contains("cron_runs") {
         for mut run in read_runs(&db, &mut report).await? {
             let Some(id) = filed_as.get(&run.job_id) else {
-                report.invalid("runs", format!("run {}: job '{}' was not imported", run.id, run.job_id));
+                report.invalid(
+                    "runs",
+                    format!("run {}: job '{}' was not imported", run.id, run.job_id),
+                );
                 continue;
             };
             run.job_id = id.clone();
@@ -211,7 +214,8 @@ fn decode_job(row: JobRow) -> Result<CronJob> {
         _ => None,
     };
     Ok(CronJob {
-        claim_generation: u64::try_from(row.claim_generation).context("claim generation is negative")?,
+        claim_generation: u64::try_from(row.claim_generation)
+            .context("claim generation is negative")?,
         policy: JobPolicy {
             retries: row
                 .retries
@@ -273,7 +277,8 @@ async fn read_runs(db: &LegacyDb, report: &mut ImportReport) -> Result<Vec<CronR
         })
         .await?;
     let mut runs = Vec::new();
-    for (id, job_id, started_at, finished_at, status, output, duration_ms, delivery_status) in rows {
+    for (id, job_id, started_at, finished_at, status, output, duration_ms, delivery_status) in rows
+    {
         match (instant(&started_at), instant(&finished_at)) {
             (Ok(started_at), Ok(finished_at)) => runs.push(CronRun {
                 id,

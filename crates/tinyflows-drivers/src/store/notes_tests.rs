@@ -44,7 +44,9 @@ fn a_workflow_with_no_journal_has_no_notes_rather_than_an_error() {
 fn journals_are_kept_apart_by_workflow() {
     let store = store();
     store.append_note(&note("sweep", 1, "about sweep")).unwrap();
-    store.append_note(&note("deploy", 1, "about deploy")).unwrap();
+    store
+        .append_note(&note("deploy", 1, "about deploy"))
+        .unwrap();
     assert_eq!(store.list_notes("sweep").unwrap().len(), 1);
     assert_eq!(store.list_notes("deploy").unwrap()[0].text, "about deploy");
 }
@@ -66,12 +68,19 @@ fn superseding_marks_the_note_without_removing_it() {
     store.append_note(&first).unwrap();
     store.append_note(&second).unwrap();
 
-    assert!(store.supersede_note("sweep", &first.id, &second.id).unwrap());
+    assert!(
+        store
+            .supersede_note("sweep", &first.id, &second.id)
+            .unwrap()
+    );
 
     let listed = store.list_notes("sweep").unwrap();
     assert_eq!(listed.len(), 2, "history keeps the superseded note");
     let superseded = listed.iter().find(|n| n.id == first.id).unwrap();
-    assert_eq!(superseded.superseded_by.as_deref(), Some(second.id.as_str()));
+    assert_eq!(
+        superseded.superseded_by.as_deref(),
+        Some(second.id.as_str())
+    );
     assert!(!superseded.is_current());
     let current = current_notes(&store, "sweep").unwrap();
     assert_eq!(current.len(), 1);
@@ -93,7 +102,11 @@ fn superseding_twice_changes_nothing_the_second_time() {
 fn superseding_a_note_that_is_not_there_is_not_a_failure() {
     let store = store();
     store.append_note(&note("sweep", 1, "something")).unwrap();
-    assert!(!store.supersede_note("sweep", "no-such-note", "whatever").unwrap());
+    assert!(
+        !store
+            .supersede_note("sweep", "no-such-note", "whatever")
+            .unwrap()
+    );
     assert!(!store.supersede_note("no-such-workflow", "n", "w").unwrap());
 }
 
@@ -130,13 +143,17 @@ fn an_unreadable_journal_reads_as_empty_and_is_set_aside_not_destroyed() {
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].doc["workflow_id"], "sweep");
     assert_eq!(
-        kept[0].doc["journal"]["notes_json"],
-        "{ this is not json",
+        kept[0].doc["journal"]["notes_json"], "{ this is not json",
         "what an operator could still recover is preserved"
     );
     // Moved, not copied: reading again does not set it aside a second time.
     assert!(store.list_notes("sweep").unwrap().is_empty());
-    assert_eq!(block_on(docs.query_all(QUARANTINE, &Query::all())).unwrap().len(), 1);
+    assert_eq!(
+        block_on(docs.query_all(QUARANTINE, &Query::all()))
+            .unwrap()
+            .len(),
+        1
+    );
     // And the journal is usable again from scratch.
     store.append_note(&note("sweep", 2, "fresh")).unwrap();
     assert_eq!(store.list_notes("sweep").unwrap().len(), 1);
@@ -157,7 +174,12 @@ fn repeated_corruption_preserves_each_quarantined_journal() {
         .unwrap();
         assert!(store.list_notes("sweep").unwrap().is_empty());
     }
-    assert_eq!(block_on(docs.query_all(QUARANTINE, &Query::all())).unwrap().len(), 2);
+    assert_eq!(
+        block_on(docs.query_all(QUARANTINE, &Query::all()))
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -173,7 +195,12 @@ fn a_journal_document_without_notes_is_treated_as_unreadable() {
     ))
     .unwrap();
     assert!(store.list_notes("sweep").unwrap().is_empty());
-    assert_eq!(block_on(docs.query_all(QUARANTINE, &Query::all())).unwrap().len(), 1);
+    assert_eq!(
+        block_on(docs.query_all(QUARANTINE, &Query::all()))
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

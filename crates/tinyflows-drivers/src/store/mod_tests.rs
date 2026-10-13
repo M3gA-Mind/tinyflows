@@ -124,7 +124,13 @@ fn an_id_that_is_empty_or_has_a_control_character_is_refused() {
 fn ids_with_separators_and_dots_are_just_ids() {
     // They decided a filename once; as document ids they are inert.
     let store = store();
-    for id in ["../../escape", "a/b", "dotted.name", "with space", "ünïcode"] {
+    for id in [
+        "../../escape",
+        "a/b",
+        "dotted.name",
+        "with space",
+        "ünïcode",
+    ] {
         store.save(&record(id, "x")).unwrap();
         assert_eq!(store.get(id).unwrap().unwrap().id, id);
     }

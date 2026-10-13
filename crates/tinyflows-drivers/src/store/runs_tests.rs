@@ -8,9 +8,15 @@ use tinyflows::store::{WorkflowStore, new_run_record, require_run};
 #[test]
 fn runs_are_listed_newest_first_and_scoped_to_their_workflow() {
     let store = store();
-    store.record_run(&new_run_record("r1", "alpha", 100)).unwrap();
-    store.record_run(&new_run_record("r2", "alpha", 300)).unwrap();
-    store.record_run(&new_run_record("r3", "beta", 200)).unwrap();
+    store
+        .record_run(&new_run_record("r1", "alpha", 100))
+        .unwrap();
+    store
+        .record_run(&new_run_record("r2", "alpha", 300))
+        .unwrap();
+    store
+        .record_run(&new_run_record("r3", "beta", 200))
+        .unwrap();
 
     let alpha = store.list_runs("alpha").unwrap();
     let ids: Vec<&str> = alpha.iter().map(|r| r.id.as_str()).collect();
@@ -34,7 +40,11 @@ fn a_run_record_survives_being_rewritten_as_it_settles() {
     assert_eq!(loaded.status, RunStatus::PendingApproval);
     assert_eq!(loaded.pending_approvals, vec!["review".to_string()]);
     assert!(!loaded.status.is_settled(), "an approval gate is resumable");
-    assert_eq!(store.list_runs("alpha").unwrap().len(), 1, "replaced, not added");
+    assert_eq!(
+        store.list_runs("alpha").unwrap().len(),
+        1,
+        "replaced, not added"
+    );
 }
 
 #[test]
@@ -120,7 +130,9 @@ fn an_unreadable_run_document_is_skipped_by_listings_and_named_by_a_direct_read(
     let storage = MemoryStorage::new();
     let docs = super::test_support::docs_in(&storage, "local");
     let store = super::DriverWorkflowStore::new(docs.clone());
-    store.record_run(&new_run_record("good", "alpha", 100)).unwrap();
+    store
+        .record_run(&new_run_record("good", "alpha", 100))
+        .unwrap();
     block_on(docs.put(
         super::RUNS,
         "bad",

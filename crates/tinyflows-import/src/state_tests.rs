@@ -28,24 +28,39 @@ async fn the_named_keys_come_across_under_their_namespace() {
         .await
         .unwrap();
     assert!(report.is_clean());
-    assert_eq!(report.tally("state").written, 2, "`never-written` has no file");
+    assert_eq!(
+        report.tally("state").written,
+        2,
+        "`never-written` has no file"
+    );
     assert_eq!(
         catalog.kv_get(&namespace, "cursor").await.unwrap(),
         Some(json!({ "page": 9 }))
     );
     assert_eq!(
-        catalog.kv_get(&namespace, "weird/key with spaces").await.unwrap(),
+        catalog
+            .kv_get(&namespace, "weird/key with spaces")
+            .await
+            .unwrap(),
         Some(json!([1, 2, 3]))
     );
-    assert_eq!(catalog.kv_get(&namespace, "never-written").await.unwrap(), None);
+    assert_eq!(
+        catalog.kv_get(&namespace, "never-written").await.unwrap(),
+        None
+    );
 }
 
 #[tokio::test]
 async fn a_key_in_the_wrong_namespace_finds_nothing() {
     let (_, keys) = keys();
-    let report = import_file_state(&fixtures().join("file-state"), "workflow:other", &keys, &target())
-        .await
-        .unwrap();
+    let report = import_file_state(
+        &fixtures().join("file-state"),
+        "workflow:other",
+        &keys,
+        &target(),
+    )
+    .await
+    .unwrap();
     assert_eq!(report.total_written(), 0);
 }
 
@@ -53,13 +68,19 @@ async fn a_key_in_the_wrong_namespace_finds_nothing() {
 async fn importing_again_keeps_what_the_state_store_holds() {
     let (namespace, keys) = keys();
     let catalog = target();
-    catalog.kv_set(&namespace, "cursor", &json!("newer")).await.unwrap();
+    catalog
+        .kv_set(&namespace, "cursor", &json!("newer"))
+        .await
+        .unwrap();
     let report = import_file_state(&fixtures().join("file-state"), &namespace, &keys, &catalog)
         .await
         .unwrap();
     assert_eq!(report.tally("state").existing, 1);
     assert_eq!(report.tally("state").written, 1);
-    assert_eq!(catalog.kv_get(&namespace, "cursor").await.unwrap(), Some(json!("newer")));
+    assert_eq!(
+        catalog.kv_get(&namespace, "cursor").await.unwrap(),
+        Some(json!("newer"))
+    );
 }
 
 #[tokio::test]
@@ -100,7 +121,9 @@ async fn a_key_whose_file_cannot_be_read_is_an_error() {
 #[tokio::test]
 async fn no_keys_and_no_directory_are_empty_reports() {
     let root = tempfile::tempdir().unwrap();
-    let report = import_file_state(root.path(), "ns", &[], &target()).await.unwrap();
+    let report = import_file_state(root.path(), "ns", &[], &target())
+        .await
+        .unwrap();
     assert_eq!(report.total_written(), 0);
     let report = import_file_state(&root.path().join("none"), "ns", &["k".into()], &target())
         .await

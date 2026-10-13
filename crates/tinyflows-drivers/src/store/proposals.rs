@@ -137,8 +137,7 @@ impl Inner {
         workflow_id: &str,
     ) -> Result<Vec<WorkflowProposal>, WorkflowError> {
         self.ensure().await?;
-        let query = Query::filter(Filter::eq("workflow_id", workflow_id))
-            .sort(Sort::desc("_id"));
+        let query = Query::filter(Filter::eq("workflow_id", workflow_id)).sort(Sort::desc("_id"));
         let stored = self
             .docs
             .query_all(PROPOSALS, &query)

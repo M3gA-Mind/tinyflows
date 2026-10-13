@@ -33,8 +33,8 @@ pub(super) fn to_doc(record: &WorkflowRecord, superseded_at: u64) -> Result<Valu
     // The path a record was read from is where it lived, not part of what it
     // was.
     kept.source_path = None;
-    let record_json = serde_json::to_string(&kept)
-        .map_err(|error| malformed("serializing revision", error))?;
+    let record_json =
+        serde_json::to_string(&kept).map_err(|error| malformed("serializing revision", error))?;
     Ok(json!({
         "workflow_id": record.id,
         "superseded_at": stamp(superseded_at),

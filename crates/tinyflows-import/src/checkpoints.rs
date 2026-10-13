@@ -51,7 +51,9 @@ pub async fn import_sqlite_checkpoints(
         for raw in rows {
             match serde_json::from_str::<Checkpoint<Value>>(&raw) {
                 Ok(checkpoint) => records.push(checkpoint),
-                Err(error) => report.invalid("checkpoints", format!("a record does not decode: {error}")),
+                Err(error) => {
+                    report.invalid("checkpoints", format!("a record does not decode: {error}"))
+                }
             }
         }
     }
@@ -193,7 +195,8 @@ struct WriteRecord {
 /// terminating newline that is not a complete JSON value is what a crash
 /// mid-append leaves, and the old reader forgave exactly that.
 fn lines(path: &Path, name: &str, kind: &'static str) -> Result<Vec<String>> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let complete = text.is_empty() || text.ends_with('\n');
     let mut out: Vec<String> = text
         .lines()

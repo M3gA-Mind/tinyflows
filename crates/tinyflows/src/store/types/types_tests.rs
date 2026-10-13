@@ -276,13 +276,12 @@ fn an_ordinary_value_is_not_mistaken_for_a_truncation_wrapper() {
 
 #[test]
 fn an_executor_and_a_cancel_request_survive_a_json_round_trip() {
-    let mut record = crate::store::new_run_record("owned", "alpha", 100).with_executor(Some(
-        RunExecutor {
+    let mut record =
+        crate::store::new_run_record("owned", "alpha", 100).with_executor(Some(RunExecutor {
             host: "somewhere".to_string(),
             pid: 4711,
             started_at_secs: Some(1_700_000_000),
-        },
-    ));
+        }));
     record.cancel_requested = true;
 
     let json = serde_json::to_string(&record).expect("serializes");

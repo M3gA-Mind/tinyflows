@@ -12,7 +12,10 @@ fn a_setting_that_names_a_database_is_refused_with_the_way_forward() {
         ("/var/lib/app/adaptive.db", "a sqlite path"),
         ("sqlite:./adaptive.db", "a sqlite path"),
         ("adaptive.db", "a sqlite path"),
-        ("mongodb://db.internal:27017/adaptive?replicaSet=rs0", "a mongodb:// URI"),
+        (
+            "mongodb://db.internal:27017/adaptive?replicaSet=rs0",
+            "a mongodb:// URI",
+        ),
         ("mongodb+srv://cluster.example.net", "a mongodb:// URI"),
     ] {
         let err = Config::parse(setting).expect_err(setting);
@@ -62,7 +65,9 @@ async fn one_call_scopes_both_halves() {
 #[tokio::test]
 async fn one_document_handle_holds_both_halves_and_survives_reopening() {
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
-    let scoped = MemoryStorage::new().for_scope(&Scope::local()).expect("scope");
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::local())
+        .expect("scope");
     let docs = scoped.documents().clone();
 
     let storage = Storage::from_documents(docs.clone());

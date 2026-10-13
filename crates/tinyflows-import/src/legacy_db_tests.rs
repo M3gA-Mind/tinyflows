@@ -13,7 +13,11 @@ fn build(path: &Path) {
 #[tokio::test]
 async fn a_missing_file_is_no_database_rather_than_an_error() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(LegacyDb::open(&dir.path().join("nope.db")).unwrap().is_none());
+    assert!(
+        LegacyDb::open(&dir.path().join("nope.db"))
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -88,13 +92,20 @@ async fn rows_that_only_live_in_the_wal_are_read() {
 async fn a_file_that_is_not_a_database_is_an_error_naming_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("junk.db");
-    std::fs::write(&path, b"this is not sqlite at all, just text, long enough to be a header.....").unwrap();
+    std::fs::write(
+        &path,
+        b"this is not sqlite at all, just text, long enough to be a header.....",
+    )
+    .unwrap();
     let outcome = match LegacyDb::open(&path) {
         Err(error) => error,
         Ok(Some(db)) => db.tables().await.unwrap_err(),
         Ok(None) => panic!("the file exists"),
     };
-    assert!(format!("{outcome:#}").contains("junk.db") || format!("{outcome:#}").contains("legacy database"));
+    assert!(
+        format!("{outcome:#}").contains("junk.db")
+            || format!("{outcome:#}").contains("legacy database")
+    );
 }
 
 #[test]

@@ -50,7 +50,9 @@ async fn every_job_and_run_comes_across_with_its_fields() {
         let runs = cron.list_runs(&new_id, 100).await.unwrap();
         let legacy_runs: Vec<Value> = expected["runs"][legacy_id].as_array().unwrap().clone();
         assert_eq!(
-            runs.iter().map(|r| without_ids(json(r))).collect::<Vec<_>>(),
+            runs.iter()
+                .map(|r| without_ids(json(r)))
+                .collect::<Vec<_>>(),
             legacy_runs.into_iter().map(without_ids).collect::<Vec<_>>(),
             "runs of {legacy_id}"
         );
@@ -75,7 +77,9 @@ async fn run_numbers_are_kept_and_new_runs_come_after_them() {
         .unwrap();
     let job = cron.list_jobs().await.unwrap().remove(0);
     let now = chrono::Utc::now();
-    cron.record_run(&job.id, now, now, "ok", None, 1).await.unwrap();
+    cron.record_run(&job.id, now, now, "ok", None, 1)
+        .await
+        .unwrap();
     let newest = cron.list_runs(&job.id, 1).await.unwrap();
     assert_eq!(newest[0].id, highest + 1);
 }
@@ -84,12 +88,19 @@ async fn run_numbers_are_kept_and_new_runs_come_after_them() {
 async fn a_flow_schedule_job_is_found_by_its_flow_after_the_import() {
     let cron = target();
     import_cron(&jobs_db(), &cron).await.unwrap();
-    let found = cron.find_flow_schedule_job("flow-beta").await.unwrap().unwrap();
+    let found = cron
+        .find_flow_schedule_job("flow-beta")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.command, "flow-beta");
     assert_eq!(found.id, "flow:flow-beta");
     // Registering the flow again returns it rather than adding a second.
     let again = cron
-        .add_flow_schedule_job("flow-beta", tinyflows_schedule::Schedule::Every { every_ms: 5_000 })
+        .add_flow_schedule_job(
+            "flow-beta",
+            tinyflows_schedule::Schedule::Every { every_ms: 5_000 },
+        )
         .await
         .unwrap();
     assert_eq!(again.id, found.id);
@@ -117,7 +128,9 @@ async fn the_legacy_files_are_left_exactly_as_they_were() {
 #[tokio::test]
 async fn a_missing_file_is_an_empty_report() {
     let dir = tempfile::tempdir().unwrap();
-    let report = import_cron(&dir.path().join("jobs.db"), &target()).await.unwrap();
+    let report = import_cron(&dir.path().join("jobs.db"), &target())
+        .await
+        .unwrap();
     assert_eq!(report.total_written(), 0);
 }
 
@@ -129,7 +142,10 @@ async fn a_database_without_the_jobs_table_imports_nothing() {
         .unwrap()
         .execute_batch("CREATE TABLE other (x INTEGER);")
         .unwrap();
-    assert_eq!(import_cron(&path, &target()).await.unwrap().total_written(), 0);
+    assert_eq!(
+        import_cron(&path, &target()).await.unwrap().total_written(),
+        0
+    );
 }
 
 fn legacy(dir: &std::path::Path, sql: &str) -> std::path::PathBuf {
@@ -206,7 +222,11 @@ async fn rows_that_do_not_decode_cost_only_themselves() {
 async fn a_file_that_is_not_a_database_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("jobs.db");
-    std::fs::write(&path, b"not a sqlite database, just a line of text that is long enough").unwrap();
+    std::fs::write(
+        &path,
+        b"not a sqlite database, just a line of text that is long enough",
+    )
+    .unwrap();
     assert!(import_cron(&path, &target()).await.is_err());
 }
 

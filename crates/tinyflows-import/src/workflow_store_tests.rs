@@ -22,7 +22,10 @@ fn layout() -> FileStoreLayout {
         runs: base().join("state/runs"),
         journal: base().join("state/journal"),
         proposals: base().join("state/proposals"),
-        revisions: vec![hashed.join("revisions"), base().join("workflows/.revisions")],
+        revisions: vec![
+            hashed.join("revisions"),
+            base().join("workflows/.revisions"),
+        ],
     }
 }
 
@@ -57,8 +60,15 @@ async fn the_whole_store_comes_across_with_its_ids_and_every_field() {
     // Definitions: the legacy store's `load()`, id for id.
     for legacy in expected["workflows"].as_array().unwrap() {
         let id = legacy["id"].as_str().unwrap();
-        let imported = store.get(id).unwrap().unwrap_or_else(|| panic!("{id} imported"));
-        assert_eq!(portable(json(&imported)), portable(legacy.clone()), "workflow {id}");
+        let imported = store
+            .get(id)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{id} imported"));
+        assert_eq!(
+            portable(json(&imported)),
+            portable(legacy.clone()),
+            "workflow {id}"
+        );
     }
     assert_eq!(store.list().unwrap().len(), 2);
     // Revisions, including the one a delete left behind.
@@ -75,14 +85,24 @@ async fn the_whole_store_comes_across_with_its_ids_and_every_field() {
     // Runs.
     for (id, legacy) in expected["runs"].as_object().unwrap() {
         let imported = store.list_runs(id).unwrap();
-        assert_eq!(Value::Array(imported.iter().map(json).collect()), *legacy, "runs of {id}");
+        assert_eq!(
+            Value::Array(imported.iter().map(json).collect()),
+            *legacy,
+            "runs of {id}"
+        );
     }
     assert_eq!(store.unsettled_runs().unwrap().len(), 1);
     // Notes and proposals.
     let notes = store.list_notes("sweep").unwrap();
-    assert_eq!(Value::Array(notes.iter().map(json).collect()), expected["notes"]);
+    assert_eq!(
+        Value::Array(notes.iter().map(json).collect()),
+        expected["notes"]
+    );
     let proposals = store.list_proposals("sweep").unwrap();
-    assert_eq!(Value::Array(proposals.iter().map(json).collect()), expected["proposals"]);
+    assert_eq!(
+        Value::Array(proposals.iter().map(json).collect()),
+        expected["proposals"]
+    );
 }
 
 #[tokio::test]
@@ -138,13 +158,17 @@ async fn nothing_the_target_already_holds_is_replaced() {
     let report = import_workflow_store(&layout(), &store).await.unwrap();
 
     assert_eq!(report.tally("workflows").existing, 1);
-    assert_eq!(store.get("sweep").unwrap().unwrap().description, "live description");
+    assert_eq!(
+        store.get("sweep").unwrap().unwrap().description,
+        "live description"
+    );
 }
 
 #[tokio::test]
 async fn files_that_do_not_parse_are_counted_and_the_rest_imported() {
     let root = tempfile::tempdir().unwrap();
-    let layout = FileStoreLayout::with_state(root.path().join("workflows"), &root.path().join("state"));
+    let layout =
+        FileStoreLayout::with_state(root.path().join("workflows"), &root.path().join("state"));
     let write = |path: PathBuf, body: &str| {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, body).unwrap();
@@ -158,7 +182,10 @@ async fn files_that_do_not_parse_are_counted_and_the_rest_imported() {
     // An id from the file name, since the document has none.
     write(layout.definitions.join("good.json"), &good);
     write(layout.definitions.join("junk.json"), "{nope");
-    write(layout.definitions.join("hollow.json"), r#"{"nodes":[],"edges":[]}"#);
+    write(
+        layout.definitions.join("hollow.json"),
+        r#"{"nodes":[],"edges":[]}"#,
+    );
     write(layout.definitions.join("notes.txt"), "ignored");
     write(layout.runs.join("bad.json"), "{nope");
     write(layout.journal.join("w.json"), "not an array");

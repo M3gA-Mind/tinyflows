@@ -50,8 +50,15 @@ pub(crate) fn tree_digest(dir: &Path) -> BTreeMap<String, String> {
             if path.is_dir() {
                 pending.push(path);
             } else {
-                let relative = path.strip_prefix(dir).unwrap().to_string_lossy().into_owned();
-                digests.insert(relative, hex::encode(Sha256::digest(std::fs::read(&path).unwrap())));
+                let relative = path
+                    .strip_prefix(dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                digests.insert(
+                    relative,
+                    hex::encode(Sha256::digest(std::fs::read(&path).unwrap())),
+                );
             }
         }
     }

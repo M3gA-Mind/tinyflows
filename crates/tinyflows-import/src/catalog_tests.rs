@@ -31,7 +31,10 @@ async fn the_whole_catalog_comes_across_with_its_ids_and_every_field() {
         let revisions = catalog.list_revisions(&flow.id, 100).await.unwrap();
         assert_eq!(
             sorted_by(revisions.iter().map(json).collect(), "id"),
-            sorted_by(expected["revisions"][&flow.id].as_array().unwrap().clone(), "id"),
+            sorted_by(
+                expected["revisions"][&flow.id].as_array().unwrap().clone(),
+                "id"
+            ),
             "revisions of {}",
             flow.id
         );
@@ -70,7 +73,9 @@ async fn the_whole_catalog_comes_across_with_its_ids_and_every_field() {
 
 #[tokio::test]
 async fn the_report_counts_every_kind() {
-    let report = import_flow_catalog(&catalog_dir(), &target()).await.unwrap();
+    let report = import_flow_catalog(&catalog_dir(), &target())
+        .await
+        .unwrap();
     for (kind, written) in [
         ("flows", 2),
         ("revisions", 2),
@@ -114,7 +119,9 @@ async fn importing_again_writes_nothing_and_finds_everything_already_there() {
 #[tokio::test]
 async fn the_legacy_files_are_left_exactly_as_they_were() {
     let before = tree_digest(&fixtures());
-    import_flow_catalog(&catalog_dir(), &target()).await.unwrap();
+    import_flow_catalog(&catalog_dir(), &target())
+        .await
+        .unwrap();
     assert_eq!(tree_digest(&fixtures()), before);
 }
 
@@ -135,15 +142,24 @@ async fn nothing_the_target_already_holds_is_replaced() {
     let mut owned = live.clone();
     owned.id = "flow-alpha".into();
     catalog.upsert_flow(&owned).await.unwrap();
-    catalog.kv_set("workflow:flow-alpha", "cursor", &json!("mine")).await.unwrap();
+    catalog
+        .kv_set("workflow:flow-alpha", "cursor", &json!("mine"))
+        .await
+        .unwrap();
 
     let report = import_flow_catalog(&catalog_dir(), &catalog).await.unwrap();
 
     assert_eq!(report.tally("flows").existing, 1);
     assert_eq!(report.tally("flows").written, 1);
-    assert_eq!(catalog.get_flow("flow-alpha").await.unwrap().unwrap().name, "live name");
     assert_eq!(
-        catalog.kv_get("workflow:flow-alpha", "cursor").await.unwrap(),
+        catalog.get_flow("flow-alpha").await.unwrap().unwrap().name,
+        "live name"
+    );
+    assert_eq!(
+        catalog
+            .kv_get("workflow:flow-alpha", "cursor")
+            .await
+            .unwrap(),
         Some(json!("mine"))
     );
     assert_eq!(report.tally("state").existing, 1);
@@ -190,7 +206,10 @@ async fn a_database_from_before_later_columns_reads_with_their_defaults() {
     let report = import_flow_catalog(dir.path(), &catalog).await.unwrap();
     assert!(report.is_clean(), "{:?}", report.problems());
     let flow = catalog.get_flow("old").await.unwrap().unwrap();
-    assert!(!flow.require_approval, "a column that did not exist is false");
+    assert!(
+        !flow.require_approval,
+        "a column that did not exist is false"
+    );
     let run = catalog.get_flow_run("r").await.unwrap().unwrap();
     assert!(run.graph_hash.is_none());
 }
@@ -243,7 +262,12 @@ async fn a_row_that_does_not_decode_costs_only_itself_and_its_dependents() {
     assert_eq!(report.tally("suggestions").written, 1);
     assert_eq!(report.tally("suggestions").invalid, 1);
     assert!(!report.is_clean());
-    assert!(report.problems().iter().any(|p| p.contains("flow 'broken'")));
+    assert!(
+        report
+            .problems()
+            .iter()
+            .any(|p| p.contains("flow 'broken'"))
+    );
     assert!(catalog.get_flow("good").await.unwrap().is_some());
     assert!(catalog.get_flow("broken").await.unwrap().is_none());
     assert!(catalog.get_flow_run("run-orphan").await.unwrap().is_none());
@@ -257,7 +281,7 @@ async fn drafts_that_are_not_usable_are_counted_and_staging_files_are_ignored() 
     let draft = |id: &str| {
         json!({ "id": id, "name": "d", "graph": {}, "origin": "chat",
                 "created_at": "2025-01-01T00:00:00Z", "updated_at": "2025-01-01T00:00:00Z" })
-            .to_string()
+        .to_string()
     };
     std::fs::write(drafts.join("fine.json"), draft("fine")).unwrap();
     std::fs::write(drafts.join("garbage.json"), "not json").unwrap();

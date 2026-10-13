@@ -37,7 +37,10 @@ async fn assert_fixture_data_came_across(checkpointer: &DriverCheckpointer<Value
         );
     }
     let writes = checkpointer.get_writes(&c2()).await.unwrap();
-    assert_eq!(Value::Array(writes.iter().map(json).collect()), expected["writes"]);
+    assert_eq!(
+        Value::Array(writes.iter().map(json).collect()),
+        expected["writes"]
+    );
     // The subgraph's checkpoint stays in its own namespace.
     let sub = checkpointer
         .get_scoped("run-1", None, &["sub".to_string()])
@@ -52,7 +55,10 @@ async fn assert_fixture_data_came_across(checkpointer: &DriverCheckpointer<Value
         .await
         .unwrap();
     assert_eq!(
-        lineage.iter().map(|t| t.checkpoint.checkpoint_id.as_str()).collect::<Vec<_>>(),
+        lineage
+            .iter()
+            .map(|t| t.checkpoint.checkpoint_id.as_str())
+            .collect::<Vec<_>>(),
         ["c2", "c1"]
     );
 }
@@ -60,7 +66,9 @@ async fn assert_fixture_data_came_across(checkpointer: &DriverCheckpointer<Value
 #[tokio::test]
 async fn sqlite_checkpoints_and_writes_come_across_in_order() {
     let checkpointer = target();
-    let report = import_sqlite_checkpoints(&sqlite_db(), &checkpointer).await.unwrap();
+    let report = import_sqlite_checkpoints(&sqlite_db(), &checkpointer)
+        .await
+        .unwrap();
     assert!(report.is_clean(), "{:?}", report.problems());
     assert_eq!(report.tally("checkpoints").written, 4);
     assert_eq!(report.tally("writes").written, 3);
@@ -70,7 +78,9 @@ async fn sqlite_checkpoints_and_writes_come_across_in_order() {
 #[tokio::test]
 async fn file_checkpoints_and_writes_come_across_and_a_torn_last_line_is_forgiven() {
     let checkpointer = target();
-    let report = import_file_checkpoints(&file_dir(), &checkpointer).await.unwrap();
+    let report = import_file_checkpoints(&file_dir(), &checkpointer)
+        .await
+        .unwrap();
     assert!(report.is_clean(), "{:?}", report.problems());
     assert_eq!(report.tally("checkpoints").written, 4);
     assert_eq!(report.tally("writes").written, 3);
@@ -83,19 +93,33 @@ async fn file_checkpoints_and_writes_come_across_and_a_torn_last_line_is_forgive
 #[tokio::test]
 async fn importing_again_writes_nothing_and_keeps_each_thread_in_order() {
     let checkpointer = target();
-    let first = import_sqlite_checkpoints(&sqlite_db(), &checkpointer).await.unwrap();
-    let second = import_sqlite_checkpoints(&sqlite_db(), &checkpointer).await.unwrap();
+    let first = import_sqlite_checkpoints(&sqlite_db(), &checkpointer)
+        .await
+        .unwrap();
+    let second = import_sqlite_checkpoints(&sqlite_db(), &checkpointer)
+        .await
+        .unwrap();
     assert_eq!(second.total_written(), 0);
-    assert_eq!(second.tally("checkpoints").existing, first.tally("checkpoints").written);
-    assert_eq!(second.tally("writes").existing, first.tally("writes").written);
+    assert_eq!(
+        second.tally("checkpoints").existing,
+        first.tally("checkpoints").written
+    );
+    assert_eq!(
+        second.tally("writes").existing,
+        first.tally("writes").written
+    );
     assert_fixture_data_came_across(&checkpointer).await;
 }
 
 #[tokio::test]
 async fn the_second_backend_adds_nothing_when_the_first_already_brought_the_same_data() {
     let checkpointer = target();
-    import_sqlite_checkpoints(&sqlite_db(), &checkpointer).await.unwrap();
-    let from_files = import_file_checkpoints(&file_dir(), &checkpointer).await.unwrap();
+    import_sqlite_checkpoints(&sqlite_db(), &checkpointer)
+        .await
+        .unwrap();
+    let from_files = import_file_checkpoints(&file_dir(), &checkpointer)
+        .await
+        .unwrap();
     assert_eq!(from_files.total_written(), 0);
     assert_fixture_data_came_across(&checkpointer).await;
 }
@@ -103,8 +127,12 @@ async fn the_second_backend_adds_nothing_when_the_first_already_brought_the_same
 #[tokio::test]
 async fn the_legacy_files_are_left_exactly_as_they_were() {
     let before = tree_digest(&fixtures());
-    import_sqlite_checkpoints(&sqlite_db(), &target()).await.unwrap();
-    import_file_checkpoints(&file_dir(), &target()).await.unwrap();
+    import_sqlite_checkpoints(&sqlite_db(), &target())
+        .await
+        .unwrap();
+    import_file_checkpoints(&file_dir(), &target())
+        .await
+        .unwrap();
     assert_eq!(tree_digest(&fixtures()), before);
 }
 
@@ -138,14 +166,19 @@ async fn a_database_without_the_tables_imports_nothing() {
                         INSERT INTO thread_leases VALUES ('t', 'o', 1);")
         .unwrap();
     let report = import_sqlite_checkpoints(&path, &target()).await.unwrap();
-    assert_eq!(report.total_written(), 0, "leases are runtime state, not data");
+    assert_eq!(
+        report.total_written(),
+        0,
+        "leases are runtime state, not data"
+    );
 }
 
 #[tokio::test]
 async fn rows_that_do_not_decode_cost_only_themselves() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("checkpoints.db");
-    let good = serde_json::to_string(&crate::checkpoints::tests::sample("t", "c1", None, &[])).unwrap();
+    let good =
+        serde_json::to_string(&crate::checkpoints::tests::sample("t", "c1", None, &[])).unwrap();
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(
         "CREATE TABLE checkpoints (seq INTEGER PRIMARY KEY AUTOINCREMENT, record TEXT NOT NULL);
@@ -153,8 +186,10 @@ async fn rows_that_do_not_decode_cost_only_themselves() {
              task_id TEXT NOT NULL, idx INTEGER NOT NULL, node TEXT NOT NULL, channel TEXT NOT NULL, payload TEXT NOT NULL);",
     )
     .unwrap();
-    conn.execute("INSERT INTO checkpoints (record) VALUES (?1)", [&good]).unwrap();
-    conn.execute("INSERT INTO checkpoints (record) VALUES ('{broken')", []).unwrap();
+    conn.execute("INSERT INTO checkpoints (record) VALUES (?1)", [&good])
+        .unwrap();
+    conn.execute("INSERT INTO checkpoints (record) VALUES ('{broken')", [])
+        .unwrap();
     for (namespace, payload) in [("[]", "{\"ok\":1}"), ("not json", "1"), ("[]", "not json")] {
         conn.execute(
             "INSERT INTO checkpoint_writes VALUES ('t', ?1, 'c1', 'task', 0, 'n', 'ch', ?2)",
@@ -164,7 +199,9 @@ async fn rows_that_do_not_decode_cost_only_themselves() {
     }
     drop(conn);
     let checkpointer = target();
-    let report = import_sqlite_checkpoints(&path, &checkpointer).await.unwrap();
+    let report = import_sqlite_checkpoints(&path, &checkpointer)
+        .await
+        .unwrap();
     assert_eq!(report.tally("checkpoints").written, 1);
     assert_eq!(report.tally("checkpoints").invalid, 1);
     assert_eq!(report.tally("writes").written, 1);
@@ -183,11 +220,17 @@ mod files {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("t.jsonl"),
-            format!("{}\nnot json\n\n{}\n", line("t", "c1", None), line("t", "c2", Some("c1"))),
+            format!(
+                "{}\nnot json\n\n{}\n",
+                line("t", "c1", None),
+                line("t", "c2", Some("c1"))
+            ),
         )
         .unwrap();
         let checkpointer = target();
-        let report = import_file_checkpoints(dir.path(), &checkpointer).await.unwrap();
+        let report = import_file_checkpoints(dir.path(), &checkpointer)
+            .await
+            .unwrap();
         assert_eq!(report.tally("checkpoints").written, 2);
         assert_eq!(report.tally("checkpoints").invalid, 1);
         let ids: Vec<_> = checkpointer
@@ -204,14 +247,20 @@ mod files {
     async fn a_file_that_is_complete_but_not_a_record_is_invalid_not_torn() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("t.jsonl"), "{\"checkpoint_id\":\"x\"}\n").unwrap();
-        let report = import_file_checkpoints(dir.path(), &target()).await.unwrap();
+        let report = import_file_checkpoints(dir.path(), &target())
+            .await
+            .unwrap();
         assert_eq!(report.tally("checkpoints").invalid, 1);
     }
 
     #[tokio::test]
     async fn an_existing_checkpoint_and_an_existing_control_plane_write_are_not_overwritten() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("t.jsonl"), format!("{}\n", line("t", "c1", None))).unwrap();
+        std::fs::write(
+            dir.path().join("t.jsonl"),
+            format!("{}\n", line("t", "c1", None)),
+        )
+        .unwrap();
         let write = |payload: Value| {
             json!({
                 "namespace": [],
@@ -220,7 +269,11 @@ mod files {
             })
             .to_string()
         };
-        std::fs::write(dir.path().join("t.writes.jsonl"), format!("{}\n", write(json!("legacy")))).unwrap();
+        std::fs::write(
+            dir.path().join("t.writes.jsonl"),
+            format!("{}\n", write(json!("legacy"))),
+        )
+        .unwrap();
 
         let checkpointer = target();
         let mut live = sample("t", "c1", None, &[]);
@@ -244,7 +297,9 @@ mod files {
             .await
             .unwrap();
 
-        let report = import_file_checkpoints(dir.path(), &checkpointer).await.unwrap();
+        let report = import_file_checkpoints(dir.path(), &checkpointer)
+            .await
+            .unwrap();
 
         assert_eq!(report.total_written(), 0);
         assert_eq!(report.tally("checkpoints").existing, 1);
@@ -273,10 +328,16 @@ mod files {
         // Current escaping (`%52` is `R`), the older kind that left capitals alone,
         // a malformed escape, and bytes that are not UTF-8.
         for name in ["%52un%2F1", "Alice", "bad%ZZ", "short%4", "%FF%FE"] {
-            std::fs::write(dir.path().join(format!("{name}.writes.jsonl")), format!("{write}\n")).unwrap();
+            std::fs::write(
+                dir.path().join(format!("{name}.writes.jsonl")),
+                format!("{write}\n"),
+            )
+            .unwrap();
         }
         let checkpointer = target();
-        let report = import_file_checkpoints(dir.path(), &checkpointer).await.unwrap();
+        let report = import_file_checkpoints(dir.path(), &checkpointer)
+            .await
+            .unwrap();
         assert_eq!(report.tally("writes").written, 2);
         assert_eq!(report.tally("writes").invalid, 3);
         for thread in ["Run/1", "Alice"] {
@@ -285,7 +346,11 @@ mod files {
                 checkpoint_id: Some("c1".into()),
                 namespace: vec![],
             };
-            assert_eq!(checkpointer.get_writes(&config).await.unwrap().len(), 1, "{thread}");
+            assert_eq!(
+                checkpointer.get_writes(&config).await.unwrap().len(),
+                1,
+                "{thread}"
+            );
         }
     }
 
@@ -295,7 +360,9 @@ mod files {
         std::fs::write(dir.path().join("README.txt"), "x").unwrap();
         std::fs::write(dir.path().join("t.jsonl.tmp.1.2"), "not a record").unwrap();
         std::fs::create_dir_all(dir.path().join("sub.jsonl")).unwrap();
-        let report = import_file_checkpoints(dir.path(), &target()).await.unwrap();
+        let report = import_file_checkpoints(dir.path(), &target())
+            .await
+            .unwrap();
         assert_eq!(report.total_written(), 0);
         assert!(report.is_clean());
     }
@@ -311,7 +378,10 @@ mod files {
 
 #[test]
 fn escaping_round_trips_the_way_the_old_stores_wrote_it() {
-    assert_eq!(unescape_thread_id("plain-1.x_y").as_deref(), Some("plain-1.x_y"));
+    assert_eq!(
+        unescape_thread_id("plain-1.x_y").as_deref(),
+        Some("plain-1.x_y")
+    );
     assert_eq!(unescape_thread_id("a%20b%2Fc").as_deref(), Some("a b/c"));
     assert_eq!(unescape_thread_id("%C3%A9").as_deref(), Some("é"));
     assert_eq!(unescape_thread_id("").as_deref(), Some(""));

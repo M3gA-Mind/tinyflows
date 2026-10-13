@@ -36,7 +36,10 @@ fn a_proposal_round_trips() {
     let store = store();
     let written = proposal("sweep", 1);
     store.save_proposal(&written).unwrap();
-    assert_eq!(store.get_proposal(&written.id).unwrap(), Some(written.clone()));
+    assert_eq!(
+        store.get_proposal(&written.id).unwrap(),
+        Some(written.clone())
+    );
     assert_eq!(require_proposal(&store, &written.id).unwrap(), written);
 }
 
@@ -85,7 +88,11 @@ fn a_decision_replaces_the_document_rather_than_adding_one() {
     store.save_proposal(&written).unwrap();
 
     let listed = store.list_proposals("sweep").unwrap();
-    assert_eq!(listed.len(), 1, "a decision is a state change, not a new row");
+    assert_eq!(
+        listed.len(),
+        1,
+        "a decision is a state change, not a new row"
+    );
     assert_eq!(listed[0].status, ProposalStatus::Rejected);
     assert_eq!(
         listed[0].decision_reason.as_deref(),
@@ -145,7 +152,10 @@ fn ops_survive_as_the_json_they_arrived_as() {
     let mut written = proposal("sweep", 1);
     written.ops = json!([{ "op": "some_future_op", "wholly": { "unknown": ["shape"] } }]);
     store.save_proposal(&written).unwrap();
-    assert_eq!(store.get_proposal(&written.id).unwrap().unwrap().ops, written.ops);
+    assert_eq!(
+        store.get_proposal(&written.id).unwrap().unwrap().ops,
+        written.ops
+    );
 }
 
 #[test]
@@ -268,7 +278,9 @@ fn an_edit_that_lands_between_the_check_and_the_write_refuses_the_proposal() {
             .unwrap(),
         "the graph moved, so the observation is stale"
     );
-    assert!(block_on(docs.query_all(PROPOSALS, &tinystoragedrivers_core::Query::all()))
-        .unwrap()
-        .is_empty());
+    assert!(
+        block_on(docs.query_all(PROPOSALS, &tinystoragedrivers_core::Query::all()))
+            .unwrap()
+            .is_empty()
+    );
 }

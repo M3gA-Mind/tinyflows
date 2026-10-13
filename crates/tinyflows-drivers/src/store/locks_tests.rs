@@ -49,8 +49,12 @@ fn different_workflows_do_not_wait_for_each_other() {
 #[test]
 fn different_scopes_do_not_wait_for_each_other() {
     let storage = MemoryStorage::new();
-    let _alice = store_over(&storage, "alice").lock_proposal_decision("same").unwrap();
-    let _bob = store_over(&storage, "bob").lock_proposal_decision("same").unwrap();
+    let _alice = store_over(&storage, "alice")
+        .lock_proposal_decision("same")
+        .unwrap();
+    let _bob = store_over(&storage, "bob")
+        .lock_proposal_decision("same")
+        .unwrap();
 }
 
 #[test]

@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn revision_ids_minted_in_the_same_millisecond_sort_in_order() {
-    let ids: Vec<String> = (0..8).map(|_| mint_revision_id(1_700_000_000_000)).collect();
+    let ids: Vec<String> = (0..8)
+        .map(|_| mint_revision_id(1_700_000_000_000))
+        .collect();
     let mut sorted = ids.clone();
     sorted.sort();
     assert_eq!(ids, sorted);
@@ -15,7 +17,9 @@ fn revision_ids_sort_by_when_they_were_superseded() {
 
 #[test]
 fn proposal_ids_minted_in_the_same_millisecond_sort_in_order() {
-    let ids: Vec<String> = (0..8).map(|_| mint_proposal_id(1_700_000_000_000)).collect();
+    let ids: Vec<String> = (0..8)
+        .map(|_| mint_proposal_id(1_700_000_000_000))
+        .collect();
     let mut sorted = ids.clone();
     sorted.sort();
     assert_eq!(ids, sorted);

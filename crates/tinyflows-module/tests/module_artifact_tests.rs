@@ -240,7 +240,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         "unclaimed jobs preserve the legacy wire bytes"
     );
     assert!(listed[0].get("claim_generation").is_none());
-    let _: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"remove","job_id":created["id"]}}),)).await.unwrap();
+    let _: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"remove","job_id":created["id"]}}),),
+        )
+        .await
+        .unwrap();
     // Admission retries a real transaction conflict without creating a second job.
     let flow: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await.unwrap();
     assert!(!conflict_once.load(std::sync::atomic::Ordering::SeqCst));

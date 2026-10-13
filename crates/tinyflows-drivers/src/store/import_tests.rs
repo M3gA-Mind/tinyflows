@@ -1,7 +1,7 @@
 use serde_json::json;
 use tinyflows::store::types::{
-    NoteKind, NoteSource, ProposalStatus, RunStatus, WorkflowError, WorkflowNote,
-    WorkflowProposal, WorkflowRevision,
+    NoteKind, NoteSource, ProposalStatus, RunStatus, WorkflowError, WorkflowNote, WorkflowProposal,
+    WorkflowRevision,
 };
 use tinyflows::store::{MAX_NOTES, MAX_REVISIONS, WorkflowStore, mint_note_id, new_run_record};
 use tinystoragedrivers_core::MemoryStorage;
@@ -81,7 +81,10 @@ async fn imported_revisions_are_listed_newest_first_and_scoped_to_their_workflow
     assert!(!store.import_revision(&newer).await.unwrap());
 
     let history = store.list_revisions("w").unwrap();
-    let descriptions: Vec<&str> = history.iter().map(|r| r.record.description.as_str()).collect();
+    let descriptions: Vec<&str> = history
+        .iter()
+        .map(|r| r.record.description.as_str())
+        .collect();
     assert_eq!(descriptions, ["newer", "older"]);
     assert_eq!(history[1].superseded_at, 1);
     assert!(store.list_revisions("other").unwrap().is_empty());
@@ -110,7 +113,10 @@ async fn imported_runs_keep_their_ids_and_unsettled_state() {
     assert!(store.import_run(&settled).await.unwrap());
     assert!(store.import_run(&live).await.unwrap());
     assert!(!store.import_run(&live).await.unwrap());
-    assert_eq!(store.get_run("done").unwrap().unwrap().status, RunStatus::Succeeded);
+    assert_eq!(
+        store.get_run("done").unwrap().unwrap().status,
+        RunStatus::Succeeded
+    );
     let unsettled = store.unsettled_runs().unwrap();
     assert_eq!(unsettled.len(), 1);
     assert_eq!(unsettled[0].id, "live");
@@ -133,7 +139,10 @@ async fn imported_notes_merge_into_the_journal_without_duplicating_or_overwritin
     assert_eq!(added, 1, "the note the journal had is kept as it was");
     let listed = store.list_notes("sweep").unwrap();
     assert_eq!(listed.len(), 2);
-    assert_eq!(listed.iter().find(|n| n.id == first.id).unwrap().text, "first");
+    assert_eq!(
+        listed.iter().find(|n| n.id == first.id).unwrap().text,
+        "first"
+    );
     // Importing the same notes again adds nothing.
     assert_eq!(store.import_notes("sweep", &[second]).await.unwrap(), 0);
 }
@@ -176,7 +185,10 @@ async fn an_imported_proposal_keeps_its_id_and_state() {
     };
     assert!(store.import_proposal(&proposal).await.unwrap());
     assert!(!store.import_proposal(&proposal).await.unwrap());
-    assert_eq!(store.get_proposal(&proposal.id).unwrap(), Some(proposal.clone()));
+    assert_eq!(
+        store.get_proposal(&proposal.id).unwrap(),
+        Some(proposal.clone())
+    );
     assert_eq!(store.list_proposals("w").unwrap(), vec![proposal]);
 }
 

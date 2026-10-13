@@ -13,10 +13,10 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tinyflows::store::parse_workflow;
 use tinyflows::store::types::{
     RunRecord, WorkflowNote, WorkflowProposal, WorkflowRecord, WorkflowRevision,
 };
-use tinyflows::store::parse_workflow;
 use tinyflows_drivers::store::DriverWorkflowStore;
 
 use crate::report::ImportReport;
@@ -171,7 +171,8 @@ pub async fn import_workflow_store(
         };
         for workflow_dir in workflows.into_iter().filter(|path| path.is_dir()) {
             for (path, id) in json_files(&workflow_dir)? {
-                let Some(stored) = read_json::<StoredRevision>(&path, "revisions", &mut report)? else {
+                let Some(stored) = read_json::<StoredRevision>(&path, "revisions", &mut report)?
+                else {
                     continue;
                 };
                 let revision = WorkflowRevision {
@@ -194,7 +195,10 @@ pub async fn import_workflow_store(
         let Some(notes) = read_json::<Vec<WorkflowNote>>(&path, "notes", &mut report)? else {
             continue;
         };
-        let offered = notes.iter().filter(|n| n.workflow_id == workflow_id).count();
+        let offered = notes
+            .iter()
+            .filter(|n| n.workflow_id == workflow_id)
+            .count();
         let added = store.import_notes(&workflow_id, &notes).await?;
         for _ in 0..added {
             report.wrote("notes", true);
@@ -203,7 +207,10 @@ pub async fn import_workflow_store(
             report.wrote("notes", false);
         }
         for _ in offered..notes.len() {
-            report.invalid("notes", format!("{}: a note belongs to another workflow", path.display()));
+            report.invalid(
+                "notes",
+                format!("{}: a note belongs to another workflow", path.display()),
+            );
         }
     }
 
@@ -242,7 +249,12 @@ fn json_files(dir: &Path) -> Result<Vec<(PathBuf, String)>> {
     Ok(list_dir(dir)?
         .unwrap_or_default()
         .into_iter()
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("json")))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        })
         .filter_map(|path| {
             let stem = path.file_stem()?.to_str()?.to_string();
             Some((path, stem))

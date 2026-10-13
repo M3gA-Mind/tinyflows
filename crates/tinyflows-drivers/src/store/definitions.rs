@@ -3,9 +3,7 @@
 
 use serde_json::{Value, json};
 use tinyflows::store::types::{WorkflowError, WorkflowId, WorkflowRecord, WorkflowSummary};
-use tinystoragedrivers_core::{
-    DocumentStoreExt, ErrorKind, Precondition, Query, Sort, Versioned,
-};
+use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Precondition, Query, Sort, Versioned};
 
 use super::{CAS_ATTEMPTS, DEFINITIONS, Inner, doc_id, malformed, storage};
 
@@ -14,17 +12,19 @@ pub(super) fn to_doc(record: &WorkflowRecord) -> Result<Value, WorkflowError> {
     let mut persisted = record.clone();
     // Where a record was read from is not part of what it is.
     persisted.source_path = None;
-    let record_json =
-        serde_json::to_string(&persisted).map_err(|error| malformed("serializing workflow", error))?;
+    let record_json = serde_json::to_string(&persisted)
+        .map_err(|error| malformed("serializing workflow", error))?;
     Ok(json!({ "id": record.id, "name": record.name, "record_json": record_json }))
 }
 
 /// Decodes a stored record, migrating its graph to the current schema first so
 /// a definition saved by an older build keeps loading.
 pub(super) fn decode(raw: &str) -> Result<WorkflowRecord, String> {
-    let mut value: Value = serde_json::from_str(raw).map_err(|error| format!("invalid JSON: {error}"))?;
+    let mut value: Value =
+        serde_json::from_str(raw).map_err(|error| format!("invalid JSON: {error}"))?;
     if let Some(graph) = value.get_mut("graph") {
-        let migrated = tinyflows::migrate::migrate(graph.take()).map_err(|error| error.to_string())?;
+        let migrated =
+            tinyflows::migrate::migrate(graph.take()).map_err(|error| error.to_string())?;
         *graph = migrated;
     }
     serde_json::from_value(value).map_err(|error| format!("invalid workflow: {error}"))
@@ -69,7 +69,8 @@ impl Inner {
         self.policy
             .check_defaults(&record.defaults)
             .map_err(|error| format!("invalid `defaults`: {error}"))?;
-        tinyflows::store::validate_graph(&record.id, &record.graph).map_err(|error| error.to_string())?;
+        tinyflows::store::validate_graph(&record.id, &record.graph)
+            .map_err(|error| error.to_string())?;
         Ok(record)
     }
 
@@ -116,7 +117,9 @@ impl Inner {
                 Some(superseded) => Some(self.capture(&superseded).await?),
                 None => None,
             };
-            let precondition = stored.as_ref().map_or(Precondition::Absent, Versioned::unchanged);
+            let precondition = stored
+                .as_ref()
+                .map_or(Precondition::Absent, Versioned::unchanged);
             match self
                 .docs
                 .put(DEFINITIONS, &id, doc.clone(), precondition)

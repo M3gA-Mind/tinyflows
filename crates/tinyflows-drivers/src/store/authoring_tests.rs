@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use tinyflows::graph_ops::GraphOp;
 use serde_json::json;
+use tinyflows::graph_ops::GraphOp;
 
 use tinyflows::store::types::WorkflowError;
 use tinyflows::store::{

@@ -41,10 +41,10 @@ mod checkpoint;
 mod checkpoint_keys;
 #[cfg(feature = "schedule")]
 pub mod schedule;
-#[cfg(feature = "store")]
-pub mod store;
 #[cfg(feature = "engine")]
 mod state_store;
+#[cfg(feature = "store")]
+pub mod store;
 
 #[cfg(feature = "engine")]
 pub use checkpoint::{DEFAULT_PREFIX, DriverCheckpointer};

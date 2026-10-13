@@ -23,9 +23,7 @@ use super::definitions::{is_race, to_doc as definition_doc};
 use super::history::to_doc as revision_doc;
 use super::proposals::to_doc as proposal_doc;
 use super::runs::to_doc as run_doc;
-use super::{
-    DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, storage,
-};
+use super::{DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, storage};
 
 /// Writes `doc` at `collection/id` only if absent; `Ok(false)` when taken.
 async fn put_if_absent(
@@ -69,7 +67,10 @@ impl DriverWorkflowStore {
     /// # Errors
     ///
     /// When the backend fails.
-    pub async fn import_revision(&self, revision: &WorkflowRevision) -> Result<bool, WorkflowError> {
+    pub async fn import_revision(
+        &self,
+        revision: &WorkflowRevision,
+    ) -> Result<bool, WorkflowError> {
         self.inner.ensure().await?;
         let doc = revision_doc(&revision.record, revision.superseded_at)?;
         let wrote = put_if_absent(self.inner.docs.as_ref(), REVISIONS, &revision.id, doc).await?;
@@ -102,7 +103,10 @@ impl DriverWorkflowStore {
     /// # Errors
     ///
     /// When the id is unusable or the backend fails.
-    pub async fn import_proposal(&self, proposal: &WorkflowProposal) -> Result<bool, WorkflowError> {
+    pub async fn import_proposal(
+        &self,
+        proposal: &WorkflowProposal,
+    ) -> Result<bool, WorkflowError> {
         self.inner.ensure().await?;
         put_if_absent(
             self.inner.docs.as_ref(),
@@ -131,8 +135,7 @@ impl DriverWorkflowStore {
             .update_journal(workflow_id, |journal| {
                 let mut count = 0;
                 for note in notes {
-                    if note.workflow_id == workflow_id && !journal.iter().any(|n| n.id == note.id)
-                    {
+                    if note.workflow_id == workflow_id && !journal.iter().any(|n| n.id == note.id) {
                         journal.push(note.clone());
                         count += 1;
                     }

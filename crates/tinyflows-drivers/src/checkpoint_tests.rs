@@ -401,7 +401,9 @@ async fn a_corrupt_record_is_a_checkpoint_error() {
 async fn put_get_list_roundtrip_survives_a_fresh_handle() {
     let storage = MemoryStorage::new();
     let cp = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "local"));
-    cp.put(checkpoint("t1", "c1", None, 1, json!(1))).await.unwrap();
+    cp.put(checkpoint("t1", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
     cp.put(checkpoint("t1", "c2", Some("c1"), 2, json!(2)))
         .await
         .unwrap();
@@ -440,7 +442,9 @@ async fn thread_ids_with_separators_and_spaces_list_and_delete() {
     cp.put(checkpoint("a/b c", "x1", None, 1, json!(1)))
         .await
         .unwrap();
-    cp.put(checkpoint("b", "b1", None, 1, json!(1))).await.unwrap();
+    cp.put(checkpoint("b", "b1", None, 1, json!(1)))
+        .await
+        .unwrap();
 
     let mut threads = cp.list_threads().await.unwrap();
     threads.sort();
@@ -456,7 +460,9 @@ async fn thread_ids_with_separators_and_spaces_list_and_delete() {
 #[tokio::test]
 async fn copy_thread_carries_the_lineage_under_the_new_thread_id() {
     let cp = store();
-    cp.put(checkpoint("src", "c1", None, 1, json!(1))).await.unwrap();
+    cp.put(checkpoint("src", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
     cp.put(checkpoint("src", "c2", Some("c1"), 2, json!(2)))
         .await
         .unwrap();
@@ -483,7 +489,9 @@ async fn copy_thread_carries_the_lineage_under_the_new_thread_id() {
 #[tokio::test]
 async fn get_thread_reads_in_insertion_order() {
     let cp = store();
-    cp.put(checkpoint("t", "c1", None, 1, json!(1))).await.unwrap();
+    cp.put(checkpoint("t", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
     cp.put(checkpoint("t", "c2", Some("c1"), 2, json!(2)))
         .await
         .unwrap();
