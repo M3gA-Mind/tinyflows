@@ -33,6 +33,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check the published crate carries no storage git dependency
+        run: scripts/check-published-crate.sh
+
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 

@@ -256,6 +256,9 @@ package cannot carry a git dependency, so these adapters live here
 (`publish = false`). The engine stays dependency-free and keeps its MSRV; this
 crate needs Rust 1.88, the storage crates' MSRV.
 
+The split is a recorded decision, with what would end it, in
+[`docs/storage-crate-split.md`](../../docs/storage-crate-split.md).
+
 ## Moving off the retired stores
 
 `tinyflows-sqlite` (`flows.db`, `jobs.db`, `checkpoints.db`, JSON drafts) and the
