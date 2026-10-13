@@ -1,0 +1,82 @@
+[
+  {
+    "event_id": "evt-0",
+    "run_id": "run-9",
+    "root_run_id": "run-9",
+    "thread_id": "flow:flow-1:uuid-1",
+    "graph_id": "workflow",
+    "step": 0,
+    "offset": 0,
+    "ts_ms": 1000,
+    "event": {
+      "RunStarted": {
+        "run_id": "run-9"
+      }
+    }
+  },
+  {
+    "event_id": "evt-1",
+    "run_id": "run-9",
+    "root_run_id": "run-9",
+    "thread_id": "flow:flow-1:uuid-1",
+    "graph_id": "workflow",
+    "step": 1,
+    "offset": 1,
+    "ts_ms": 1010,
+    "event": {
+      "StepStarted": {
+        "step": 1,
+        "active": [
+          "fetch"
+        ]
+      }
+    }
+  },
+  {
+    "event_id": "evt-2",
+    "run_id": "run-9",
+    "root_run_id": "run-9",
+    "thread_id": "flow:flow-1:uuid-1",
+    "graph_id": "workflow",
+    "step": 1,
+    "offset": 2,
+    "ts_ms": 1020,
+    "event": {
+      "NodeStarted": {
+        "node": "fetch",
+        "step": 1
+      }
+    }
+  },
+  {
+    "event_id": "evt-3",
+    "run_id": "run-9",
+    "root_run_id": "run-9",
+    "thread_id": "flow:flow-1:uuid-1",
+    "graph_id": "workflow",
+    "step": 1,
+    "offset": 3,
+    "ts_ms": 1050,
+    "event": {
+      "NodeCompleted": {
+        "node": "fetch",
+        "step": 1
+      }
+    }
+  },
+  {
+    "event_id": "evt-4",
+    "run_id": "run-9",
+    "root_run_id": "run-9",
+    "thread_id": "flow:flow-1:uuid-1",
+    "graph_id": "workflow",
+    "step": 1,
+    "offset": 4,
+    "ts_ms": 1060,
+    "event": {
+      "StepCompleted": {
+        "step": 1
+      }
+    }
+  }
+]

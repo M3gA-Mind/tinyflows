@@ -32,13 +32,16 @@
 //! about a host, not about a saved flow, and they belong in the host's own
 //! overlay on [`tinyflows::catalog`].
 
+pub mod approval_manifest;
 pub mod build_registry;
 pub mod graph_hash;
 pub mod graph_policy;
 pub mod import;
+pub mod run_management;
 pub mod run_registry;
 pub mod run_summary;
 pub mod store;
+pub mod validation;
 
 #[cfg(test)]
 #[path = "run_summary_tests.rs"]
