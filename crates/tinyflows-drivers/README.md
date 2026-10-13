@@ -8,9 +8,8 @@ opened a storage backend (SQLite on a desktop, MongoDB in the cloud, memory in
 tests) gets the engine's durable pieces on it, scoped per tenant by the
 document handle it passes in.
 
-It is a crate of its own rather than a feature of `tinyflows` because the
-storage crates are git dependencies and the published `tinyflows` package
-cannot carry one, even an optional one.
+See [Why a separate crate](#why-a-separate-crate) for why this is not a feature
+of `tinyflows` itself.
 
 | Type | Implements | Layout |
 | --- | --- | --- |
@@ -36,6 +35,7 @@ let checkpointer = DriverCheckpointer::<serde_json::Value>::new(docs);
 | `engine` | yes | `DriverStateStore`, `DriverCheckpointer` (needs `tinyflows`) |
 | `catalog` | no | `catalog::FlowCatalogDocuments`, `catalog::FlowStateDocuments` |
 | `schedule` | no | `schedule::CronDocuments`; needs only `tinyflows-schedule`, not the engine |
+| `store` | no | `store::DriverWorkflowStore` (turns on `tinyflows/store`) |
 | `test-fixtures` | no | the catalog's two fixture-only writers |
 
 A host that runs scheduled jobs but no flows builds with
@@ -102,6 +102,36 @@ documents as `kv_get` / `kv_set` / `kv_delete`. It is the engine's
 storage crates' `Blocking` bridge (one per process, or the host's own via
 `with_bridge`), so it is safe inside any runtime. `DriverStateStore` is
 unchanged: un-namespaced, for a host that gives each run its own collection.
+
+## The workflow store (`store`)
+
+`DriverWorkflowStore` implements `tinyflows::store::WorkflowStore` (the engine's
+authoring layer: saved workflows, their undo history, run records, the notes
+journal and proposed changes) over a document handle. The trait is synchronous,
+so each call runs on the storage crates' `Blocking` bridge, which is safe from
+inside any runtime.
+
+| Collection | One document per |
+| --- | --- |
+| `wf_definitions` | workflow |
+| `wf_revisions` | superseded copy (newest 20 per workflow kept) |
+| `wf_runs` | run record |
+| `wf_notes` | workflow's whole journal (capped at 100 notes) |
+| `wf_proposals` | proposal |
+| `wf_locks` | decision lease |
+| `wf_quarantine` | journal that could not be parsed, set aside |
+
+- Every definition write is a compare-and-swap on the version it read, and the
+  revision of what it replaces is written first and taken back if the swap
+  loses, so concurrent saves, deletes and fingerprint-guarded saves from any
+  number of processes or store instances never lose a revision or a write.
+- `lock_proposal_decision` is a lease document (claimed with a write-if-absent,
+  or a swap over an expired one), so it excludes across processes. The lease
+  lasts `store::LOCK_LEASE` (two minutes).
+- `save_proposal_if_fingerprint` fences the definition in the same atomic batch
+  on a backend with transactions.
+- A document the host policy now refuses, or that no longer decodes, is hidden
+  from `get` and `list` (and logged) rather than served.
 
 ## Cron store
 
@@ -225,3 +255,14 @@ exactly one `DocumentStore` trait in its graph. The published `tinyflows`
 package cannot carry a git dependency, so these adapters live here
 (`publish = false`). The engine stays dependency-free and keeps its MSRV; this
 crate needs Rust 1.88, the storage crates' MSRV.
+
+## Moving off the retired stores
+
+`tinyflows-sqlite` (`flows.db`, `jobs.db`, `checkpoints.db`, JSON drafts) and the
+engine's `FileWorkflowStore`, `FileStateStore` and `FileCheckpointer` are gone;
+this crate is the only storage tinyflows has. To bring a host's existing data
+across, every store has write-if-absent import methods
+(`FlowCatalogDocuments::import_flow` / `import_run` / ..., `CronDocuments::import_job`
+/ `import_run`, `DriverWorkflowStore::import_workflow` / ...), and the unpublished
+`tinyflows-import` crate reads the legacy files and calls them: id for id, never
+replacing what is already there, and never touching the legacy files.
