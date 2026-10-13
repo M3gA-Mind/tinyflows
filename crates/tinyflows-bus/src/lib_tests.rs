@@ -32,7 +32,11 @@ fn method_constants_match_advertised_members() {
 
 #[test]
 fn run_event_round_trips() {
-    let ev = runs::RunEvent { seq: 3, kind: "step".into(), data: serde_json::json!({"a": 1}) };
+    let ev = runs::RunEvent {
+        seq: 3,
+        kind: "step".into(),
+        data: serde_json::json!({"a": 1}),
+    };
     let back: runs::RunEvent = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
     assert_eq!(ev, back);
 }

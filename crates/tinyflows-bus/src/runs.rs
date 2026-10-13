@@ -44,7 +44,13 @@ pub mod caps {
     /// `ShellRunner::run(request) -> ShellOutcome`.
     pub const SHELL_RUN: &str = "ShellRun";
     /// `MemoryProvider::{recall,flavour,people,remember,forget}`.
-    pub const MEMORY: &[&str] = &["MemoryRecall", "MemoryFlavour", "MemoryPeople", "MemoryRemember", "MemoryForget"];
+    pub const MEMORY: &[&str] = &[
+        "MemoryRecall",
+        "MemoryFlavour",
+        "MemoryPeople",
+        "MemoryRemember",
+        "MemoryForget",
+    ];
     /// `WorkflowResolver::resolve(id) -> graph`.
     pub const RESOLVE_WORKFLOW: &str = "ResolveWorkflow";
     /// `StateStore::{load,store}`.
