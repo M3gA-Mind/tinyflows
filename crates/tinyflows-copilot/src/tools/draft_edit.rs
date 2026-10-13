@@ -18,7 +18,7 @@ const VALID_OP_TYPES: &str = "add_node, update_node_config, set_node_name, renam
 /// The expected field shape for a given `op` tag, used in `edit_workflow`'s
 /// per-op parse diagnostics so a failing op tells the agent exactly what that
 /// op type wants. Returns `None` for an unrecognized tag.
-fn edit_op_shape(op: &str) -> Option<&'static str> {
+pub fn edit_op_shape(op: &str) -> Option<&'static str> {
     Some(match op {
         "add_node" => "{ op, node: { id, kind, name, config? } }",
         "update_node_config" => {
