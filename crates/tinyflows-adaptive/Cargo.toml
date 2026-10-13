@@ -31,6 +31,10 @@ storage-drivers = ["dep:tinystoragedrivers-core", "dep:sha2", "dep:tokio"]
 
 [dev-dependencies]
 tinyflows = { path = "../tinyflows", features = ["store", "mock"] }
+# The engine's `WorkflowStore` on an in-memory storage backend, for tests and
+# the eval example.
+tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["store"] }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints.rust]
