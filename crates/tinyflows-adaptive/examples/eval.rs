@@ -172,11 +172,9 @@ impl Runner for Simulated {
     }
 }
 
-/// A workflow store under a scratch directory of its own.
-///
-/// Cleared on the way in rather than on the way out, so a run that panicked
-/// half way through does not quietly seed the next one — the treatment arm
-/// starting with a workflow it did not earn would fake the entire result.
+/// A workflow store of its own: a fresh in-memory backend per call, so one run
+/// never quietly seeds the next — the treatment arm starting with a workflow it
+/// did not earn would fake the entire result.
 fn store(_tag: &str) -> Arc<dyn WorkflowStore> {
     driver_store::shared()
 }
