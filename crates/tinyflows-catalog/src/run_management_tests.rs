@@ -2,7 +2,13 @@ use super::*;
 
 #[test]
 fn settled_statuses_are_terminal_and_live_ones_are_not() {
-    for s in ["completed", "completed_with_warnings", "failed", "cancelled", "interrupted"] {
+    for s in [
+        "completed",
+        "completed_with_warnings",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ] {
         assert!(is_terminal_run_status(s), "{s}");
     }
     for s in ["running", "pending_approval", ""] {
@@ -15,7 +21,10 @@ fn messages_name_the_run_and_status() {
     assert!(already_terminal_error("r1", "failed").contains("'r1'"));
     assert!(already_terminal_error("r1", "failed").contains("status: failed"));
     assert!(settled_concurrently_error("r2").contains("'r2'"));
-    assert_eq!(parked_expiry_message(60), "parked run expired after 60s awaiting approval");
+    assert_eq!(
+        parked_expiry_message(60),
+        "parked run expired after 60s awaiting approval"
+    );
 }
 
 #[test]

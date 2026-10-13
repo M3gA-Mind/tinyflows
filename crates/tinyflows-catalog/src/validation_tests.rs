@@ -5,7 +5,7 @@ use serde_json::json;
 fn structural_error_keeps_code_message_and_node() {
     let graph: WorkflowGraph = serde_json::from_value(json!({
         "name": "x",
-        "nodes": [{ "id": "a", "kind": "set", "name": "A" }],
+        "nodes": [{ "id": "a", "kind": "transform", "name": "A" }],
         "edges": []
     }))
     .unwrap();

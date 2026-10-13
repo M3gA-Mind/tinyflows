@@ -14,7 +14,7 @@ pub const TERMINAL_RUN_STATUSES: &[&str] = &[
 
 /// Seconds a run may stay parked in `pending_approval` before it is expired to
 /// `cancelled`.
-pub const PARKED_RUN_TTL_SECS: i64 = 24 * 60 * 60;
+pub const PARKED_RUN_TTL_SECS: i64 = 600;
 
 /// The recorded reason on a run reconciled by the boot orphan sweep.
 pub const ORPHANED_RUN_REASON: &str =
