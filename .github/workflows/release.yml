@@ -250,11 +250,18 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $stage | Out-Null
           # Name the token's own SID: $env:USERNAME is not always the account
-          # the process runs as (windows-11-arm64).
-          $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-          icacls $stage /setowner "*$me" | Out-Null
-          icacls $stage /inheritance:r /grant:r "*${me}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "could not restrict $stage" }
+          # the process runs as. Rewrite the DACL as protected (no inherited
+          # entries) with only the current user, SYSTEM and Administrators.
+          $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+          $acl = New-Object System.Security.AccessControl.DirectorySecurity
+          $acl.SetAccessRuleProtection($true, $false)
+          $acl.SetOwner($me)
+          $inherit = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+          $none = [Security.AccessControl.PropagationFlags]::None
+          foreach ($sid in @($me, (New-Object Security.Principal.SecurityIdentifier 'S-1-5-18'), (New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-544'))) {
+            $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $inherit, $none, 'Allow')))
+          }
+          Set-Acl -Path $stage -AclObject $acl
           icacls $stage
           Copy-Item 'target/release/tinyflows_module.dll' $stage
           $env:TINYFLOWS_MODULE_ARTIFACT = (Resolve-Path (Join-Path $stage 'tinyflows_module.dll')).Path
