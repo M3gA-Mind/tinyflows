@@ -19,9 +19,7 @@ use tinyflows::caps::Capabilities;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::types::FlowSuggestion;
-use tinyflows_catalog::{
-    DraftOrigin, Flow, FlowDraft, FlowRevision, FlowRun, FlowValidation,
-};
+use tinyflows_catalog::{DraftOrigin, Flow, FlowDraft, FlowRevision, FlowRun, FlowValidation};
 
 /// A port call that failed, as the sentence the model will read.
 pub type PortResult<T> = Result<T, String>;
@@ -68,12 +66,7 @@ pub trait FlowStore: Send + Sync {
     /// A saved flow's graph, or `None` when no such flow exists.
     async fn load_graph(&self, id: &str) -> PortResult<Option<WorkflowGraph>>;
     /// Persists a NEW flow from `graph`.
-    async fn create(
-        &self,
-        name: String,
-        graph: Value,
-        require_approval: bool,
-    ) -> PortResult<Flow>;
+    async fn create(&self, name: String, graph: Value, require_approval: bool) -> PortResult<Flow>;
     /// Writes `graph` (and optionally a new `name`) onto an existing flow.
     async fn update(
         &self,

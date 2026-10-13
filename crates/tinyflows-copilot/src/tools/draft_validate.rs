@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::ports::{BuilderGates, DraftStore, FlowStore};
 use tinytools::{PermissionLevel, Tool, ToolResult};

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tinyflows::caps::Capabilities;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
@@ -301,7 +301,10 @@ impl BuilderGates for MemHost {
     async fn strict_gate(&self, graph: &Value) -> PortResult<()> {
         let validation = self.validate(graph.clone()).await;
         if !validation.valid {
-            return Err(format!("strict validation failed:\n{}", validation.errors.join("\n")));
+            return Err(format!(
+                "strict validation failed:\n{}",
+                validation.errors.join("\n")
+            ));
         }
         let gates = self.gate_errors.lock().unwrap().clone();
         if gates.is_empty() {
@@ -336,7 +339,10 @@ impl BuilderGates for MemHost {
     ) -> Result<Value, String> {
         let gates = self.gate_errors.lock().unwrap().clone();
         if !gates.is_empty() {
-            return Err(format!("{}\n\nFix these and call {retry_tool} again.", gates.join("\n\n")));
+            return Err(format!(
+                "{}\n\nFix these and call {retry_tool} again.",
+                gates.join("\n\n")
+            ));
         }
         Ok(json!({
             "type": "workflow_proposal",
@@ -373,7 +379,10 @@ impl AgentDirectory for MemHost {
 #[async_trait]
 impl SuggestionStore for MemHost {
     async fn upsert(&self, suggestions: &[FlowSuggestion]) -> PortResult<usize> {
-        self.suggestions.lock().unwrap().extend_from_slice(suggestions);
+        self.suggestions
+            .lock()
+            .unwrap()
+            .extend_from_slice(suggestions);
         Ok(suggestions.len())
     }
 }

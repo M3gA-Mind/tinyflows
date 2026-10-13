@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tinyflows::model::WorkflowGraph;
 
 use super::ports::{BuilderGates, DraftStore, FlowStore};
@@ -220,7 +220,7 @@ impl Tool for DryRunWorkflowTool {
             Err(e) => {
                 return Ok(ToolResult::error(format!(
                     "Cannot dry-run an invalid graph: {e}. Fix the graph first."
-                )))
+                )));
             }
         };
 
@@ -235,7 +235,7 @@ impl Tool for DryRunWorkflowTool {
             Err(e) => {
                 return Ok(ToolResult::error(format!(
                     "Draft graph failed to compile: {e}"
-                )))
+                )));
             }
         };
 
@@ -303,7 +303,7 @@ impl Tool for DryRunWorkflowTool {
             Err(_elapsed) => {
                 return Ok(ToolResult::error(format!(
                     "Sandbox dry-run timed out after {DRY_RUN_TIMEOUT_SECS}s"
-                )))
+                )));
             }
         };
 

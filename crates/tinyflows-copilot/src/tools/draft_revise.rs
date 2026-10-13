@@ -105,18 +105,18 @@ impl Tool for ReviseWorkflowTool {
         match self
             .gates
             .build_proposal(
-            "revise_workflow",
-            &name,
-            &graph,
-            require_approval,
-            true,
-            instruction,
-            // revise_workflow takes only an inline graph — no draft/flow handle
-            // to echo. The payload still carries persisted:false unconditionally.
-            None,
-            None,
-        )
-        .await
+                "revise_workflow",
+                &name,
+                &graph,
+                require_approval,
+                true,
+                instruction,
+                // revise_workflow takes only an inline graph — no draft/flow handle
+                // to echo. The payload still carries persisted:false unconditionally.
+                None,
+                None,
+            )
+            .await
         {
             Ok(payload) => Ok(ToolResult::success(serde_json::to_string_pretty(&payload)?)),
             Err(message) => {

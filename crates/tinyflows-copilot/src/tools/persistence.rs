@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::ports::{BuilderGates, DraftStore, FlowStore};
 use super::static_schema;
@@ -210,14 +210,12 @@ impl Tool for DuplicateFlowTool {
         };
         tracing::info!(target: "flows", %flow_id, "[flows] duplicate_flow: agent-initiated duplicate");
         match self.flows.duplicate(&flow_id).await {
-            Ok(flow) => {
-                Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
-                    "type": "workflow_duplicated",
-                    "flow_id": flow.id,
-                    "name": flow.name,
-                    "enabled": flow.enabled,
-                }))?))
-            }
+            Ok(flow) => Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
+                "type": "workflow_duplicated",
+                "flow_id": flow.id,
+                "name": flow.name,
+                "enabled": flow.enabled,
+            }))?)),
             Err(e) => Ok(ToolResult::error(format!("Could not duplicate flow: {e}"))),
         }
     }
@@ -320,7 +318,7 @@ impl Tool for SaveWorkflowTool {
                     "Missing 'flow_id' — save_workflow only updates an EXISTING saved flow. \
                      If there is no flow yet, return the proposal and let the user save it."
                         .to_string(),
-                ))
+                ));
             }
         };
         // Graph source: a working draft (the usual post-edit_workflow handle) or
@@ -406,11 +404,7 @@ impl Tool for SaveWorkflowTool {
             "[flows] save_workflow: agent-initiated save to existing flow"
         );
 
-        match self
-            .flows
-            .update(&flow_id, name, Some(graph_json))
-            .await
-        {
+        match self.flows.update(&flow_id, name, Some(graph_json)).await {
             Ok(outcome) => {
                 let flow = outcome.value;
                 tracing::info!(
@@ -445,7 +439,9 @@ impl Tool for SaveWorkflowTool {
                 // automatic, saving a new graph onto it re-arms it live with no
                 // further confirmation. Surface that loudly so the copilot
                 // relays it to the user instead of staying silent.
-                if flow.enabled && tinyflows_catalog::graph_policy::trigger_is_automatic(&flow.graph) {
+                if flow.enabled
+                    && tinyflows_catalog::graph_policy::trigger_is_automatic(&flow.graph)
+                {
                     let trigger_desc = flow
                         .graph
                         .trigger()

@@ -28,7 +28,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::ports::SuggestionStore;
@@ -67,7 +67,13 @@ fn suggestion_id(title: &str) -> String {
     let digest = Sha256::digest(normalized.as_bytes());
     // 16 hex chars (64 bits) is plenty to avoid collisions across a user's
     // handful of suggestions while keeping the id short and log-friendly.
-    format!("sug_{}", digest[..8].iter().map(|b| format!("{b:02x}")).collect::<String>())
+    format!(
+        "sug_{}",
+        digest[..8]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    )
 }
 
 /// Reads an optional string array field into a `Vec<String>`, trimming empties.
@@ -134,7 +140,7 @@ impl Tool for SuggestWorkflowsTool {
                 return Ok(ToolResult::error(
                     "Missing or empty 'suggestions' array. Return 1-8 suggestions, best first."
                         .to_string(),
-                ))
+                ));
             }
         };
 

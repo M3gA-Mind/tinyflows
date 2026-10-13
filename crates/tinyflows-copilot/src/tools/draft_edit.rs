@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::ports::{BuilderGates, DraftStore, FlowStore};
 use super::static_schema;
@@ -437,16 +437,16 @@ impl Tool for EditWorkflowTool {
         match self
             .gates
             .build_proposal(
-            "edit_workflow",
-            &name,
-            &edited,
-            require_approval,
-            true,
-            instruction,
-            write_back_draft.clone(),
-            edited_from_flow.clone(),
-        )
-        .await
+                "edit_workflow",
+                &name,
+                &edited,
+                require_approval,
+                true,
+                instruction,
+                write_back_draft.clone(),
+                edited_from_flow.clone(),
+            )
+            .await
         {
             Ok(mut payload) => {
                 // A prominent, one-line pointer at where the edit actually lives

@@ -62,7 +62,7 @@ mod persistence;
 mod run_control;
 
 pub use discovery::SuggestWorkflowsTool;
-pub use draft_edit::{edit_op_shape, EditWorkflowTool};
+pub use draft_edit::{EditWorkflowTool, edit_op_shape};
 pub use draft_revise::ReviseWorkflowTool;
 pub use draft_validate::ValidateWorkflowTool;
 pub use dry_run::DryRunWorkflowTool;

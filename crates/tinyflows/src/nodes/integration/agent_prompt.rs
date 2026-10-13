@@ -358,6 +358,28 @@ pub fn resolve_node_model(request: &Value, entry_model: Option<&str>) -> Option<
         .map(str::to_string)
 }
 
+/// The model an `agent` node completion actually runs on.
+///
+/// `resolved_model` is what the host's provider factory returned for the node's
+/// workload role. A node may instead pin a **raw/BYOK** model id (for example
+/// `claude-opus-4`) that the role mapping collapsed to the default chat role; in
+/// that case the pinned id, not the role default, is the model the user
+/// selected, so it is forwarded verbatim. Managed tiers and every `hint:*` alias
+/// fall through to `resolved_model` unchanged.
+///
+/// Which ids count as raw passthrough is the host's vocabulary (`is_raw`), so
+/// this stays a pure precedence pick.
+pub fn resolve_completion_model(
+    node_model: Option<&str>,
+    resolved_model: String,
+    is_raw: impl Fn(&str) -> bool,
+) -> String {
+    match node_model {
+        Some(pinned) if is_raw(pinned) => pinned.to_string(),
+        _ => resolved_model,
+    }
+}
+
 /// Builds `OpenHumanAgentRunner::run_via_harness`'s single run message: the
 /// node's `input_context` (when present — see [`input_context_block`]'s doc),
 /// then the JSON-steering instruction (when the node requested structured

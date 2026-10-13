@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 use super::fakes::{MemHost, OverlayKinds};
@@ -199,7 +199,12 @@ async fn editing_a_flow_id_seeds_a_new_draft_and_never_touches_the_flow() {
     let draft_id = payload["draft_id"].as_str().expect("draft handle");
     assert_eq!(payload["flow_id"], "flow-1");
     assert_eq!(payload["persisted"], false);
-    assert!(payload["next"].as_str().unwrap().contains("NOT on flow flow-1"));
+    assert!(
+        payload["next"]
+            .as_str()
+            .unwrap()
+            .contains("NOT on flow flow-1")
+    );
 
     let drafts = h.drafts.lock().unwrap();
     let draft = drafts.get(draft_id).expect("draft was created");
@@ -234,8 +239,17 @@ async fn editing_a_draft_writes_back_to_the_same_draft() {
     let payload = json_of(&result);
     assert_eq!(payload["draft_id"], "d1");
     assert!(payload["next"].as_str().unwrap().contains("not yet linked"));
-    assert_eq!(h.drafts.lock().unwrap().len(), 1, "no second draft is minted");
-    assert!(h.drafts.lock().unwrap()["d1"].graph.to_string().contains("Again"));
+    assert_eq!(
+        h.drafts.lock().unwrap().len(),
+        1,
+        "no second draft is minted"
+    );
+    assert!(
+        h.drafts.lock().unwrap()["d1"]
+            .graph
+            .to_string()
+            .contains("Again")
+    );
 }
 
 #[tokio::test]
@@ -252,7 +266,10 @@ async fn a_failed_draft_write_back_is_reported_not_swallowed() {
         .unwrap();
     assert!(result.is_error);
     let message = text(&result);
-    assert!(message.contains("could NOT be written back to draft d1"), "{message}");
+    assert!(
+        message.contains("could NOT be written back to draft d1"),
+        "{message}"
+    );
     assert!(message.contains("PREVIOUS graph"), "{message}");
 }
 
@@ -343,7 +360,10 @@ async fn revise_workflow_validates_then_proposes_without_persisting() {
     assert_eq!(payload["require_approval"], true);
     assert!(h.flows.lock().unwrap().is_empty());
 
-    let missing = tool.execute(json!({ "graph": valid_graph() })).await.unwrap();
+    let missing = tool
+        .execute(json!({ "graph": valid_graph() }))
+        .await
+        .unwrap();
     assert!(text(&missing).contains("Missing 'name'"));
     let invalid = tool
         .execute(json!({ "name": "x", "graph": { "nodes": [], "edges": [] } }))
@@ -358,7 +378,11 @@ fn validate_report_fails_closed() {
     use super::draft_validate::validate_workflow_report_is_ok;
     assert!(validate_workflow_report_is_ok(true, &[], false));
     assert!(!validate_workflow_report_is_ok(false, &[], false));
-    assert!(!validate_workflow_report_is_ok(true, &["gate".into()], false));
+    assert!(!validate_workflow_report_is_ok(
+        true,
+        &["gate".into()],
+        false
+    ));
     assert!(!validate_workflow_report_is_ok(true, &[], true));
 }
 
@@ -366,20 +390,32 @@ fn validate_report_fails_closed() {
 async fn validate_workflow_reports_structure_and_gates_without_proposing() {
     let h = host();
     let tool = ValidateWorkflowTool::new(h.clone(), h.clone(), h.clone());
-    let ok = tool.execute(json!({ "graph": valid_graph() })).await.unwrap();
+    let ok = tool
+        .execute(json!({ "graph": valid_graph() }))
+        .await
+        .unwrap();
     let report = json_of(&ok);
     assert_eq!(report["ok"], true);
     assert_eq!(report["structurally_valid"], true);
 
     *h.gate_errors.lock().unwrap() = vec!["bad slug".to_string()];
-    let gated = json_of(&tool.execute(json!({ "graph": valid_graph() })).await.unwrap());
+    let gated = json_of(
+        &tool
+            .execute(json!({ "graph": valid_graph() }))
+            .await
+            .unwrap(),
+    );
     assert_eq!(gated["ok"], false);
     assert_eq!(gated["gate_errors"], json!(["bad slug"]));
 
     h.put_draft("d1", None, "D", json!({ "nodes": [], "edges": [] }));
     let broken = json_of(&tool.execute(json!({ "draft_id": "d1" })).await.unwrap());
     assert_eq!(broken["structurally_valid"], false);
-    assert_eq!(broken["gate_errors"], json!([]), "gates only run on valid graphs");
+    assert_eq!(
+        broken["gate_errors"],
+        json!([]),
+        "gates only run on valid graphs"
+    );
 
     let none = tool.execute(json!({})).await.unwrap();
     assert!(text(&none).contains("Provide one of `draft_id`"));
@@ -399,7 +435,12 @@ async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
     let payload = json_of(&result);
     assert_eq!(payload["sandbox"], true);
     assert_eq!(payload["ok"], true);
-    assert!(payload["note"].as_str().unwrap().contains("NO real side effects"));
+    assert!(
+        payload["note"]
+            .as_str()
+            .unwrap()
+            .contains("NO real side effects")
+    );
 
     let invalid = tool
         .execute(json!({ "graph": { "nodes": [], "edges": [] } }))
@@ -433,7 +474,10 @@ async fn create_workflow_always_leaves_the_flow_disabled() {
     assert_eq!(payload["enabled"], false);
     assert_eq!(payload["type"], "workflow_created");
     let id = payload["flow_id"].as_str().unwrap();
-    assert!(!h.flows.lock().unwrap()[id].enabled, "force-disabled in the store");
+    assert!(
+        !h.flows.lock().unwrap()[id].enabled,
+        "force-disabled in the store"
+    );
 }
 
 #[tokio::test]
@@ -447,7 +491,10 @@ async fn create_workflow_reports_the_true_state_when_disable_fails() {
             .await
             .unwrap(),
     );
-    assert_eq!(payload["enabled"], true, "a manual flow is born enabled and stays so");
+    assert_eq!(
+        payload["enabled"], true,
+        "a manual flow is born enabled and stays so"
+    );
     assert!(payload["note"].as_str().unwrap().contains("ENABLED"));
 }
 
@@ -485,8 +532,10 @@ async fn save_workflow_prefers_the_draft_and_relays_host_notes() {
     h.put_draft("d1", Some("flow-1"), "Digest v2", scheduled_graph());
     let tool = SaveWorkflowTool::new(h.clone(), h.clone(), h.clone());
     let result = tool
-        .execute(json!({ "flow_id": "flow-1", "draft_id": "d1", "graph": valid_graph(),
-                         "name": "Digest v2" }))
+        .execute(
+            json!({ "flow_id": "flow-1", "draft_id": "d1", "graph": valid_graph(),
+                         "name": "Digest v2" }),
+        )
         .await
         .unwrap();
     assert!(!result.is_error, "{}", text(&result));
@@ -524,18 +573,21 @@ async fn save_workflow_warns_loudly_when_it_leaves_an_automatic_flow_live() {
             .await
             .unwrap(),
     );
-    assert!(payload["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|w| w.as_str().unwrap().starts_with("WARNING: this flow is ENABLED")));
+    assert!(payload["warnings"].as_array().unwrap().iter().any(|w| {
+        w.as_str()
+            .unwrap()
+            .starts_with("WARNING: this flow is ENABLED")
+    }));
 }
 
 #[tokio::test]
 async fn save_workflow_needs_a_target_and_passes_the_gates() {
     let h = host();
     let tool = SaveWorkflowTool::new(h.clone(), h.clone(), h.clone());
-    let no_flow = tool.execute(json!({ "graph": valid_graph() })).await.unwrap();
+    let no_flow = tool
+        .execute(json!({ "graph": valid_graph() }))
+        .await
+        .unwrap();
     assert!(text(&no_flow).contains("Missing 'flow_id'"));
     let no_graph = tool.execute(json!({ "flow_id": "f" })).await.unwrap();
     assert!(text(&no_graph).contains("Provide `draft_id`"));
@@ -578,8 +630,10 @@ async fn resume_forwards_approvals_and_ignores_non_strings() {
     let h = host();
     let tool = ResumeFlowRunTool::new(h.clone());
     let result = tool
-        .execute(json!({ "flow_id": "f", "run_id": "r", "approve": ["n1", 7, "n2"],
-                         "reject": ["n3"] }))
+        .execute(
+            json!({ "flow_id": "f", "run_id": "r", "approve": ["n1", 7, "n2"],
+                         "reject": ["n3"] }),
+        )
         .await
         .unwrap();
     assert!(!result.is_error);
@@ -594,7 +648,12 @@ async fn flow_reads_shape_their_payloads() {
     h.put_flow("flow-1", "Digest", true, valid_graph());
     h.put_run("run-1", "flow-1", "completed");
 
-    let listed = json_of(&ListFlowsTool::new(h.clone()).execute(json!({})).await.unwrap());
+    let listed = json_of(
+        &ListFlowsTool::new(h.clone())
+            .execute(json!({}))
+            .await
+            .unwrap(),
+    );
     assert_eq!(listed["flows"][0]["id"], "flow-1");
     assert_eq!(listed["flows"][0]["enabled"], true);
 
@@ -630,7 +689,10 @@ async fn flow_reads_shape_their_payloads() {
     );
     assert_eq!(history["revisions"], json!([]));
 
-    let gone = GetFlowTool::new(h).execute(json!({ "id": "ghost" })).await.unwrap();
+    let gone = GetFlowTool::new(h)
+        .execute(json!({ "id": "ghost" }))
+        .await
+        .unwrap();
     assert!(text(&gone).contains("Failed to get flow 'ghost'"));
 }
 
@@ -639,7 +701,12 @@ async fn flow_reads_shape_their_payloads() {
 #[tokio::test]
 async fn node_kind_tools_read_the_host_supplied_catalog() {
     let kinds: Arc<dyn NodeKindSource> = Arc::new(OverlayKinds);
-    let listed = json_of(&ListNodeKindsTool::new(kinds.clone()).execute(json!({})).await.unwrap());
+    let listed = json_of(
+        &ListNodeKindsTool::new(kinds.clone())
+            .execute(json!({}))
+            .await
+            .unwrap(),
+    );
     assert_eq!(
         listed["node_kinds"].as_array().unwrap().len(),
         tinyflows::catalog::NODE_KINDS.len()
@@ -651,7 +718,10 @@ async fn node_kind_tools_read_the_host_supplied_catalog() {
             .await
             .unwrap(),
     );
-    assert!(contract.to_string().contains("overlay"), "host overlay reached the model");
+    assert!(
+        contract.to_string().contains("overlay"),
+        "host overlay reached the model"
+    );
 
     let unknown = GetNodeKindContractTool::new(kinds)
         .execute(json!({ "kind": "banana" }))
