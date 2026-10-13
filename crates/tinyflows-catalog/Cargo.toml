@@ -8,8 +8,9 @@
 # every host that persists workflows had to reinvent it.
 #
 # Deliberately storage-free: it defines the shapes and the traits, never a
-# database. `tinyflows-sqlite` is one implementation; a host with its own
-# catalog table implements the same traits and takes nothing from it.
+# database. `tinyflows-drivers` implements it over the storage ports; a host
+# with its own catalog table implements the same traits and takes nothing from
+# it.
 [package]
 name = "tinyflows-catalog"
 version = "0.1.0"

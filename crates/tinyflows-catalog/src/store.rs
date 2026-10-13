@@ -1,8 +1,8 @@
 //! What every catalog store shares, whichever backend holds it: the error a
 //! guarded graph update reports and the retention caps.
 //!
-//! `tinyflows-sqlite` and `tinyflows-drivers` both implement the catalog; a
-//! host matches one [`FlowUpdateError`] whichever it was handed.
+//! `tinyflows-drivers` implements the catalog (as did `tinyflows-sqlite`,
+//! retired); a host with its own store matches the same [`FlowUpdateError`].
 
 use crate::Flow;
 

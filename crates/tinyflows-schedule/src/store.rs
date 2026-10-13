@@ -1,9 +1,9 @@
 //! Pieces every job store shares, whatever it stores into: the spec an agent
 //! job is created from and the bound on stored run output.
 //!
-//! `tinyflows-sqlite` and `tinyflows-drivers` both persist [`CronJob`]s and
-//! [`CronRun`]s; keeping these here means the two stores cannot drift on
-//! what an agent job defaults to or how much output a run keeps.
+//! Every job store persists [`CronJob`]s and [`CronRun`]s (`tinyflows-drivers`
+//! does, and `tinyflows-sqlite` did); keeping these here means stores cannot
+//! drift on what an agent job defaults to or how much output a run keeps.
 //!
 //! [`CronJob`]: crate::CronJob
 //! [`CronRun`]: crate::CronRun
