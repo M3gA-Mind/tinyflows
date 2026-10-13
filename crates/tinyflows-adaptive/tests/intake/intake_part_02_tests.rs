@@ -174,8 +174,7 @@ async fn the_selector_is_shown_the_same_history_in_the_same_words() {
 async fn lessons_from_other_episodes_reach_the_planner() {
     // consolidate() was writing these and nothing was reading them — a
     // knowledge store that costs money and returns nothing.
-    let (store, root) = empty_store("retry-3");
-    let _ = root;
+    let (store, _root) = empty_store("retry-3");
     let ledger = MemoryLedger::new();
     ledger
         .promote(
