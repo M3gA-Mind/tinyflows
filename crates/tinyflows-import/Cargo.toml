@@ -18,11 +18,25 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 
+[features]
+# Every importer by default. A host builds with `default-features = false` and
+# only the importers it ships: a build that runs scheduled jobs but no flows
+# takes `schedule` alone and pulls neither the engine nor its expression stack.
+default = ["engine", "store", "catalog", "schedule"]
+# `import_sqlite_checkpoints`, `import_file_checkpoints`.
+engine = ["dep:tinyflows", "tinyflows-drivers/engine"]
+# `import_workflow_store`.
+store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
+# `import_flow_catalog`, `import_file_state`.
+catalog = ["engine", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
+# `import_cron`.
+schedule = ["dep:tinyflows-schedule", "tinyflows-drivers/schedule"]
+
 [dependencies]
-tinyflows = { workspace = true, features = ["store"] }
-tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog" }
-tinyflows-schedule = { version = "0.1.0", path = "../tinyflows-schedule" }
-tinyflows-drivers = { path = "../tinyflows-drivers", features = ["catalog", "schedule", "store"] }
+tinyflows = { workspace = true, optional = true }
+tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog", optional = true }
+tinyflows-schedule = { version = "0.1.0", path = "../tinyflows-schedule", optional = true }
+tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false }
 tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0" }
 # The SQLite driver's native handle: how the legacy `.db` files are opened. It
 # re-exports the `rusqlite` its handle hands out, which is all this crate uses.
