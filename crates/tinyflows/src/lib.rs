@@ -54,7 +54,7 @@ pub mod graph_ops;
 /// `StepInterceptor` returns is obeyed. What breakpoints and output overrides
 /// are built on.
 pub mod interception;
-// Only the file-backed store, the process-backed capabilities, and the
+// Only the workflow store's ids, the process-backed capabilities, and the
 // testkit's debug sessions need unique scratch names, and all three are
 // optional.
 #[cfg(any(test, feature = "store", feature = "host-caps", feature = "testkit"))]
@@ -73,7 +73,8 @@ pub mod postcondition;
 #[cfg(any(test, feature = "mock"))]
 pub mod preflight;
 /// Stored workflows and their run history: the durable model around a graph,
-/// and a file-backed store for it. Behind the `store` feature.
+/// the `WorkflowStore` contract and patch-based authoring. Behind the `store`
+/// feature; storage is the ports' (`tinyflows-drivers`), not this crate's.
 #[cfg(any(test, feature = "store"))]
 pub mod store;
 /// A one-line trigger description and a per-step config hint for a graph,

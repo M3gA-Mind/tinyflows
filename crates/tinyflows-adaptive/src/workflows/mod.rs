@@ -1,14 +1,14 @@
 //! Workflows in whatever the host configured, behind the engine's own trait.
 //!
-//! The ledger has three backends chosen at boot. Workflows had one — a
-//! directory of JSON files — which is wrong for a hosted service and wrong for
-//! the symmetry: a deployment picks Mongo for one half of its durable state and
-//! gets a filesystem for the other.
+//! The ledger and the workflows are stored the same way: in memory, or on a
+//! `tinystoragedrivers` document handle the host opened (`drivers::DriverVault`).
+//! Workflows once had only a directory of JSON files, which is wrong for a
+//! hosted service and wrong for the symmetry.
 //!
 //! # Why this is a snapshot and not a store
 //!
 //! [`tinyflows::store::WorkflowStore`] is **synchronous** — ten required
-//! methods, none of them `async`. A Mongo driver is not. The obvious fixes are
+//! methods, none of them `async`. A document store is not. The obvious fixes are
 //! both bad: `block_on` inside a sync method deadlocks a current-thread
 //! runtime, and async-ifying the trait upstream means rewriting the file store
 //! and the authoring module and then contending with that rewrite on every
@@ -44,10 +44,6 @@ use tinyflows::store::types::{
 use tinyflows::store::{HostPolicy, WorkflowStore};
 
 pub mod memory;
-#[cfg(feature = "mongo")]
-pub mod mongo;
-#[cfg(feature = "sqlite")]
-pub mod sqlite;
 
 pub mod compat;
 pub mod conformance;

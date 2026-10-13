@@ -202,7 +202,3 @@ pub fn validate_handle(
     store.policy().check_graph(&record.id, &record.graph)?;
     Ok(record)
 }
-
-#[cfg(test)]
-#[path = "authoring_tests.rs"]
-mod tests;

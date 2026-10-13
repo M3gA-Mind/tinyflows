@@ -13,11 +13,14 @@
 //!   `engine::run_with_checkpointer` / `resume_with_checkpointer`.
 //!
 //! - `catalog` (feature `catalog`) is the flow catalog and authoring
-//!   drafts: `catalog::FlowCatalogDocuments`, the document-port counterpart
-//!   of `tinyflows-sqlite`'s `flows` and `drafts`, and
-//!   `catalog::FlowStateDocuments`, one flow's namespaced state.
+//!   drafts: `catalog::FlowCatalogDocuments` (flows, revisions, runs,
+//!   suggestions, drafts), and `catalog::FlowStateDocuments`, one flow's
+//!   namespaced state.
+//! - `store::DriverWorkflowStore` (feature `store`) is the engine's
+//!   `WorkflowStore` — saved workflows with revisions, run records, the notes
+//!   journal and proposals — on documents.
 //! - `schedule::CronDocuments` (feature `schedule`) is the cron job and
-//!   run-history store, the document-port twin of `tinyflows_sqlite::schedule`.
+//!   run-history store.
 //!   It needs only `tinyflows-schedule`, not the engine.
 //!
 //! The default collections (`flows_state`, `flows_graph_*`) stay apart from
@@ -40,6 +43,8 @@ mod checkpoint_keys;
 pub mod schedule;
 #[cfg(feature = "engine")]
 mod state_store;
+#[cfg(feature = "store")]
+pub mod store;
 
 #[cfg(feature = "engine")]
 pub use checkpoint::{DEFAULT_PREFIX, DriverCheckpointer};

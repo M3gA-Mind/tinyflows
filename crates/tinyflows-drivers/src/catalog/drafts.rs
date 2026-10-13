@@ -1,5 +1,4 @@
-//! `flows_drafts`: authoring drafts, one document per draft (the SQLite
-//! backend keeps one JSON file each).
+//! `flows_drafts`: authoring drafts, one document per draft.
 //!
 //! The whole [`FlowDraft`] is stored as a JSON string beside `updated_ns`,
 //! which orders the listing. `update_draft` is a compare-and-swap on the
@@ -18,7 +17,7 @@ use super::{DRAFTS, FlowCatalogDocuments, compare_and_swap, instant_ns, next_sta
 
 /// The same id rule as the file store, so an id valid on one backend is
 /// valid on the other.
-fn check_id(id: &str) -> Result<()> {
+pub(super) fn check_id(id: &str) -> Result<()> {
     let safe = !id.is_empty()
         && id.len() <= 64
         && id
@@ -30,7 +29,7 @@ fn check_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn to_doc(draft: &FlowDraft) -> Result<Value> {
+pub(super) fn to_doc(draft: &FlowDraft) -> Result<Value> {
     Ok(json!({
         "draft_json": serde_json::to_string(draft).context("serializing draft")?,
         "updated_ns": instant_ns(&draft.updated_at),

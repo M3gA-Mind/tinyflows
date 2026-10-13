@@ -6,29 +6,23 @@ fn memory_has_to_be_asked_for_by_name() {
     assert_eq!(Config::parse(":memory:").expect("parse"), Config::Memory);
 }
 
-#[cfg(feature = "sqlite")]
 #[test]
-fn a_bare_path_reads_as_sqlite() {
-    assert_eq!(
-        Config::parse("/var/lib/app/adaptive.db").expect("parse"),
-        Config::Sqlite(PathBuf::from("/var/lib/app/adaptive.db"))
-    );
-    assert_eq!(
-        Config::parse("sqlite:./adaptive.db").expect("parse"),
-        Config::Sqlite(PathBuf::from("./adaptive.db"))
-    );
-}
-
-#[cfg(feature = "mongo")]
-#[test]
-fn a_mongo_uri_carries_its_database_or_gets_the_default() {
-    match Config::parse("mongodb://db.internal:27017/adaptive?replicaSet=rs0").expect("parse") {
-        Config::Mongo { database, .. } => assert_eq!(database, "adaptive"),
-        other => panic!("{other:?}"),
-    }
-    match Config::parse("mongodb+srv://cluster.example.net").expect("parse") {
-        Config::Mongo { database, .. } => assert_eq!(database, "tinyflows_adaptive"),
-        other => panic!("{other:?}"),
+fn a_setting_that_names_a_database_is_refused_with_the_way_forward() {
+    for (setting, names) in [
+        ("/var/lib/app/adaptive.db", "a sqlite path"),
+        ("sqlite:./adaptive.db", "a sqlite path"),
+        ("adaptive.db", "a sqlite path"),
+        (
+            "mongodb://db.internal:27017/adaptive?replicaSet=rs0",
+            "a mongodb:// URI",
+        ),
+        ("mongodb+srv://cluster.example.net", "a mongodb:// URI"),
+    ] {
+        let err = Config::parse(setting).expect_err(setting);
+        let message = err.to_string();
+        assert!(message.contains(names), "{message}");
+        assert!(message.contains("Storage::from_documents"), "{message}");
+        assert!(message.contains("memory"), "{message}");
     }
 }
 
@@ -67,17 +61,19 @@ async fn one_call_scopes_both_halves() {
     assert_eq!(storage.ledger().scope(), None, "the root stays unscoped");
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "storage-drivers")]
 #[tokio::test]
-async fn one_sqlite_setting_yields_one_file_holding_both_halves() {
-    let dir = std::env::temp_dir().join(format!("adaptive-storage-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let path = dir.join("adaptive.db");
+async fn one_document_handle_holds_both_halves_and_survives_reopening() {
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::local())
+        .expect("scope");
+    let docs = scoped.documents().clone();
 
-    let config = Config::parse(path.to_str().expect("utf8 path")).expect("parse");
-    let storage = Storage::open(&config).await.expect("open");
+    let storage = Storage::from_documents(docs.clone());
     let tenant = storage.for_tenant("user-7");
-
+    assert_eq!(tenant.ledger().scope(), Some("user-7"));
+    assert_eq!(tenant.vault().scope(), Some("user-7"));
     tenant
         .ledger()
         .append(&crate::ledger::conformance::row("ep-1", 1, "authored"))
@@ -89,10 +85,11 @@ async fn one_sqlite_setting_yields_one_file_holding_both_halves() {
         .await
         .expect("put");
 
-    // Reopen from the same setting: both halves are still there, scoped.
-    let again = Storage::open(&config).await.expect("reopen");
+    // A new `Storage` over the same handle sees both halves, still scoped.
+    let again = Storage::from_documents(docs);
     let tenant = again.for_tenant("user-7");
     assert_eq!(tenant.ledger().rows("ep-1").await.expect("rows").len(), 1);
     assert_eq!(tenant.vault().load().await.expect("load").len(), 1);
-    let _ = std::fs::remove_dir_all(&dir);
+    let other = again.for_tenant("user-8");
+    assert!(other.vault().load().await.expect("load").is_empty());
 }

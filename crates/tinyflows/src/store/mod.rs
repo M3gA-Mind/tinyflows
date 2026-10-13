@@ -7,36 +7,33 @@
 //! one: [`WorkflowStore`].
 //!
 //! The trait exists so the backing store is a decision, not a fact of the
-//! codebase. [`FileWorkflowStore`] — JSON documents under the host's data
-//! directory,
-//! optionally layered over repository-provided defaults — is the only
-//! implementation today, but a remote catalog or a database is a new impl
-//! rather than a refactor.
+//! codebase. This crate ships no implementation: it carries the contract, the
+//! record types, the rules a store judges documents by ([`HostPolicy`]), the
+//! patch-based [`authoring`] on top, and the pieces every implementation
+//! shares (ids, the revision cap, note pruning). Storage belongs to the
+//! `tinystoragedrivers` ports, and `tinyflows-drivers`' `DriverWorkflowStore`
+//! implements this trait over a document handle. A host with its own catalog
+//! implements it directly.
 
 pub mod authoring;
-mod file;
+mod ids;
+mod notes;
+mod policy;
 pub mod types;
 
 #[cfg(test)]
-mod concurrency_tests;
-#[cfg(test)]
-mod tests;
+mod parsing_tests;
 
 pub use authoring::{
     GraphHandle, apply_workflow_ops, apply_workflow_ops_if_unchanged, apply_workflow_ops_observed,
     create_workflow, mutate_workflow_record, preview_workflow_ops, validate_handle,
 };
-pub use file::{
-    EnginePolicy, FileWorkflowStore, HostPolicy, LoadReport, MAX_NOTES, MAX_REVISIONS,
-    gate_failures_into_error, mint_note_id, mint_proposal_id, new_run_record, parse_workflow,
-    parse_workflow_with, read_workflow, read_workflow_with, validate_graph, workflow_dirs,
-    workspace_state_dir_under,
+pub use ids::{MAX_REVISIONS, mint_proposal_id, mint_revision_id};
+pub use notes::{MAX_NOTES, mint_id as mint_note_id, prune as prune_notes};
+pub use policy::{
+    EnginePolicy, HostPolicy, gate_failures_into_error, new_run_record, parse_workflow,
+    parse_workflow_with, validate_graph,
 };
-// The filename guard and the atomic write are how *every* file-backed piece of
-// workflow state lands on disk. A host keeping its own per-workflow state
-// alongside this store's needs the same two, and a second copy could disagree
-// about what a safe name is — so they are public rather than internal.
-pub use file::{safe_component, workspace_scope, write_atomic};
 
 pub use self::types::{
     Diagnosis, LEGACY_TRUNCATED_KEY, NoteId, NoteKind, NoteSource, ProposalId, ProposalStatus,
@@ -60,7 +57,7 @@ impl ProposalDecisionGuard for NoopProposalDecisionGuard {}
 ///
 /// Implementations are shared across threads and may be called from async
 /// contexts, so they must be `Send + Sync`; the methods are synchronous because
-/// every backing store in view is either local files or an in-process database,
+/// every backing store in view is either a local database or an in-process one,
 /// and a blocking read there is cheaper than the machinery to avoid it. Callers
 /// on an async runtime should wrap these in `spawn_blocking`, as the TUI already
 /// does for its task repository.
@@ -103,7 +100,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Save only when the current graph still has `expected_fingerprint`.
     ///
-    /// File-backed stores override this atomically. The default preserves the
+    /// Durable stores override this atomically. The default preserves the
     /// contract for lightweight test stores that do not expose transactions.
     fn save_if_fingerprint(
         &self,
@@ -118,7 +115,7 @@ pub trait WorkflowStore: Send + Sync {
     /// Save only when the entire current record still has `expected_fingerprint`.
     ///
     /// Definition edits use this stronger comparison so a graph write cannot
-    /// silently restore stale defaults or metadata. File-backed stores override
+    /// silently restore stale defaults or metadata. Durable stores override
     /// it atomically; the default supports lightweight test stores.
     fn save_if_record_fingerprint(
         &self,
@@ -226,7 +223,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Save a proposal only while its workflow still has `expected_fingerprint`.
     ///
-    /// File-backed stores override this atomically with definition writes. The
+    /// Durable stores override this atomically with definition writes. The
     /// default preserves the contract for lightweight test stores that do not
     /// expose transactions.
     fn save_proposal_if_fingerprint(
@@ -258,7 +255,7 @@ pub trait WorkflowStore: Send + Sync {
 
     /// Claim exclusive decision access for every proposal on one workflow.
     ///
-    /// File stores override this with a cross-process lock held across reading
+    /// Durable stores override this with a cross-process claim held across reading
     /// the proposal, applying or rejecting it, and persisting the outcome.
     fn lock_proposal_decision(
         &self,

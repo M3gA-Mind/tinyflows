@@ -1,0 +1,40 @@
+# Reads the stores tinyflows hosts used before storage moved to the
+# `tinystoragedrivers` ports, and writes what they held into the port-backed
+# stores (`tinyflows-drivers`), id for id and only where nothing exists yet.
+#
+# A crate of its own, and not published: it names the storage crates by git tag
+# (as `tinyflows-drivers` does), and it is the one place that still knows the
+# retired formats (`flows.db`, `jobs.db`, `checkpoints.db`, the JSON/JSONL
+# stores). The SQLite files are read through the SQLite driver's native handle,
+# never a database client of this crate's own.
+[package]
+name = "tinyflows-import"
+version = "0.1.0"
+description = "One-time, read-only import of legacy tinyflows stores into the storage-port stores"
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[dependencies]
+tinyflows = { workspace = true, features = ["store"] }
+tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog" }
+tinyflows-schedule = { version = "0.1.0", path = "../tinyflows-schedule" }
+tinyflows-drivers = { path = "../tinyflows-drivers", features = ["catalog", "schedule", "store"] }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0" }
+# The SQLite driver's native handle: how the legacy `.db` files are opened. It
+# re-exports the `rusqlite` its handle hands out, which is all this crate uses.
+tinystoragedrivers-sqlite = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0" }
+anyhow = "1.0"
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+tempfile = "3"
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

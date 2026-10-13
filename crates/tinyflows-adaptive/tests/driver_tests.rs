@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use tinyflows::caps::mock::mock_capabilities;
 use tinyflows::caps::{Capabilities, LlmProvider};
 use tinyflows::error::Result as EngineResult;
-use tinyflows::store::{FileWorkflowStore, WorkflowStore};
+use tinyflows::store::WorkflowStore;
 use tinyflows_adaptive::contracts::Goal;
 use tinyflows_adaptive::driver::{Clock, Loop};
 use tinyflows_adaptive::execute::{Local, Unobserved};
@@ -74,14 +74,11 @@ fn caps_with(llm: Arc<Always>) -> Capabilities {
     }
 }
 
-fn store(tag: &str) -> Arc<dyn WorkflowStore> {
-    let root = std::env::temp_dir().join(format!("adaptive-driver-{}-{tag}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("workflows")).expect("temp dir");
-    Arc::new(FileWorkflowStore::new(
-        vec![root.join("workflows")],
-        root.join("runs"),
-    ))
+#[path = "support/driver_store.rs"]
+mod driver_store;
+
+fn store(_tag: &str) -> Arc<dyn WorkflowStore> {
+    driver_store::shared()
 }
 
 fn authoring() -> Arc<Always> {

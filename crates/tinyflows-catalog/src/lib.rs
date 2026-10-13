@@ -23,9 +23,9 @@
 //!
 //! # What is deliberately not here
 //!
-//! **Storage.** This crate names no database. `tinyflows-sqlite` is one
-//! backend; a host with its own catalog table implements persistence itself and
-//! still shares this vocabulary.
+//! **Storage.** This crate names no database. `tinyflows-drivers` keeps the
+//! catalog on the storage ports; a host with its own catalog table implements
+//! persistence itself and still shares this vocabulary.
 //!
 //! **Host policy.** Which node kinds a host advertises, what a `tool_call` slug
 //! resolves to, whether a trigger kind actually dispatches — those are facts

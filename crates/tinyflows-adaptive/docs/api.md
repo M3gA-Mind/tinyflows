@@ -8,9 +8,9 @@ tinyflows-adaptive --open`. The runnable companion is
 
 ```toml
 [dependencies]
-tinyflows-adaptive = "0.1"                       # sqlite ledger/vault on by default
-# mongo-only service:
-tinyflows-adaptive = { version = "0.1", default-features = false, features = ["mongo"] }
+tinyflows-adaptive = "0.1"                       # memory ledger/vault; no database of its own
+# durable, on the host's tinystoragedrivers backend (SQLite, MongoDB, files):
+tinyflows-adaptive = { version = "0.1", features = ["storage-drivers"] }
 ```
 
 Modules: `contracts` · `driver` · `execute` · `intake` · `closing` · `ledger` ·
@@ -32,8 +32,8 @@ use tinyflows_adaptive::ledger::EpisodeStatus;
 use tinyflows_adaptive::workflows::Snapshot;
 
 // once, at boot
-let ledger_root = MongoLedger::connect(&uri, "adaptive").await?;
-let vault_root  = MongoVault::connect(&uri, "adaptive").await?;
+let storage = Storage::from_documents(scoped_storage.documents().clone());  // the host's backend
+let (ledger_root, vault_root) = (storage.ledger(), storage.vault());
 let caps = Capabilities { llm: Arc::new(MyTieredClient::new(cfg)), /* … */ };
 
 // per request (handles are free)
@@ -119,7 +119,7 @@ fn now(&self) -> String;   // RFC 3339; opaque to the crate, drives tests frozen
 
 ### `Ledger` (`ledger`) / `Vault` (`workflows`) — only for a custom backend
 
-Three of each ship (`memory`, `sqlite`, `mongo`). A fourth implementation runs
+Two of each ship (`memory`, and the `storage-drivers` ones on a document handle). Another implementation runs
 the public conformance suites: `ledger::conformance::{run_all, run_tenants,
 run_lineage, run_episodes, run_transcripts}` and
 `workflows::conformance::{run_all, run_tenants}`.
@@ -146,25 +146,24 @@ let tenant  = storage.for_tenant(&user_id);                          // per requ
 | `storage` value | meaning |
 |---|---|
 | `memory` / `:memory:` | forgets on restart — must be asked for by name, never a fallback |
-| `adaptive.db` or any path, `sqlite:<path>` | one SQLite file holding ledger **and** vault |
-| `mongodb://host:27017/adaptive` | one Mongo database, both halves; db name from the URI path, default `tinyflows_adaptive` |
 
-A URI for a backend the build lacks fails **at parse time**, naming the missing
-feature.
+Anything durable is a `tinystoragedrivers` backend the host opens and hands over
+with `Storage::from_documents(docs)` (feature `storage-drivers`) — the crate
+opens no database of its own. A setting that names one (a SQLite path, a
+`mongodb://` URI) fails **at parse time** and says so.
 
 What a service configures, and who consumes it:
 
 | setting | consumed by | values / default |
 |---|---|---|
 | storage string | `storage::Config::parse`, or `Config::from_env()` / `Storage::from_env()` reading **`TINYFLOWS_ADAPTIVE_STORAGE`** | table above; unset = boot error naming the variable, never a default |
-| `TINYFLOWS_ADAPTIVE_DB` env | `SqliteLedger::from_env_or` / `at_default_location` | overrides the sqlite path without a rebuild |
 | `Budget { attempts, min_attempts, stall_limit }` | the loop, per `Loop` (per tenant if you like) | `12 / 3 / 2` |
 | `conn` | passed verbatim to your `LlmProvider` | opaque tenant credential *reference*, never a secret |
 | tier → model map | **your** `LlmProvider`, off the request's `tier` | e.g. select→flash, author/judge→strong, consolidate→mid |
 | relay deadline | **your** `Relay` | example uses 30 s; size to your longest workflow |
 | `HostFacts` | authoring prompt + post-author check | 15 fields describing the executing machine; `unknown()` forbids nothing |
 | `HostPolicy` | store saves + authored graphs | your veto for harnesses/slugs this deployment lacks |
-| Cargo features | build | `default = ["sqlite"]`; `mongo`; `default-features = false` for memory-only |
+| Cargo features | build | `default = []` (memory only); `storage-drivers` for the document-port ledger and vault |
 
 **Deliberately not configurable** (behaviour, not policy): `MIN_TRIALS` = 3
 runs before a variant can take a family's slot; `RECALL_LIMIT` = all lessons in
@@ -177,13 +176,10 @@ scope; `RECORD_BUDGET`/`PROMPT_BUDGET` = 256 KiB / 4 KiB per node.
 | backend | construct |
 |---|---|
 | memory (always compiled; forgets) | `MemoryLedger::new()` |
-| sqlite (default feature) | `SqliteLedger::open(path)` · `::in_memory()` · `::from_env_or(fallback)` · `::at_default_location()` |
-| mongo (feature `mongo`) | `MongoLedger::connect(uri, db).await` · `::with_database(db)` |
+| document port (feature `storage-drivers`) | `DriverLedger::new(docs)` · or both halves: `Storage::from_documents(docs)` |
 
-All three: `.for_tenant(scope)` → a cheap scoped handle sharing the
-connection. `SqliteLedger::open` creates the parent directory; env var
-`TINYFLOWS_ADAPTIVE_DB` overrides the path in `from_env_or` /
-`at_default_location`. The ledger and the sqlite vault may share one file.
+Both: `.for_tenant(scope)` → a cheap scoped handle sharing the connection. The
+ledger and the vault share one document handle, in separate collections.
 
 **The scoping rule everywhere**: writes go to the handle's bucket; reads
 return the handle's bucket **plus global** (an unscoped handle's bucket *is*

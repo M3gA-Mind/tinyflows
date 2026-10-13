@@ -38,8 +38,8 @@ fn to_revision(stored: &Versioned<Value>) -> Result<FlowRevision> {
 impl FlowCatalogDocuments {
     /// Replaces a flow's name, graph and `require_approval`, bumping
     /// `updated_at`, capturing the prior graph as a revision, and enforcing
-    /// optimistic concurrency — the same contract, including the R-m2 disarm
-    /// rules, as `tinyflows_sqlite::flows::update_flow_graph`.
+    /// optimistic concurrency, including the R-m2 disarm rules (an edit that
+    /// would arm an automatic trigger without approval leaves the flow disabled).
     ///
     /// The revision is written first and the definition swapped second, keyed
     /// on the `updated_at` just read; when the swap loses to a concurrent

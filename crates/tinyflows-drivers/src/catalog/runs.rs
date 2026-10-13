@@ -67,7 +67,7 @@ fn parked_before(doc: &Value, cutoff: &str) -> bool {
 }
 
 /// Stamps `finished_at` (and its sort key) on `doc`, or clears both.
-fn set_finished(doc: &mut Value, finished_at: Option<&str>) {
+pub(super) fn set_finished(doc: &mut Value, finished_at: Option<&str>) {
     set_optional(doc, "finished_at", finished_at);
     match finished_at {
         Some(at) => doc["finished_ns"] = json!(instant_ns(at)),

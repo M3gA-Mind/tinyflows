@@ -12,7 +12,7 @@ use tinystoragedrivers_core::Blocking;
 
 use super::FlowCatalogDocuments;
 
-/// The document-port counterpart of `tinyflows_sqlite::flows::SqliteStateStore`:
+/// One flow's state:
 /// state scoped to one namespace (a host passes one per flow), over the same
 /// `flows_kv` documents as [`FlowCatalogDocuments::kv_get`] /
 /// [`FlowCatalogDocuments::kv_set`] / [`FlowCatalogDocuments::kv_delete`].

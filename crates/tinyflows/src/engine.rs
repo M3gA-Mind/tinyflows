@@ -32,14 +32,15 @@ use serde_json::{Map, Value, json};
 /// implement them without reaching into the runtime module directly.
 ///
 /// A host that wants durable, cross-process HITL resume implements
-/// [`Checkpointer<serde_json::Value>`] (or reuses [`FileCheckpointer`]) and
+/// [`Checkpointer<serde_json::Value>`] (for example `tinyflows-drivers`'s `DriverCheckpointer`, on a
+/// storage backend) and
 /// injects it via [`run_with_checkpointer`] / [`resume_with_checkpointer`]. The
 /// engine keys persisted state by a caller-supplied `thread_id`.
 ///
 /// [`InMemoryCheckpointer`] is the process-local default used by [`run`],
 /// [`run_with_observer`], [`run_resumable`], and [`resume`]; [`DurabilityMode`]
 /// configures how aggressively a checkpointer persists.
-pub use crate::graph::{Checkpointer, DurabilityMode, FileCheckpointer, InMemoryCheckpointer};
+pub use crate::graph::{Checkpointer, DurabilityMode, InMemoryCheckpointer};
 
 /// Graph-observability types re-exported from [`crate::graph`] so a host can
 /// journal a run's durable [`GraphObservation`]s without taking a direct

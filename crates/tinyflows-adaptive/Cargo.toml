@@ -12,25 +12,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
 thiserror = "2"
-rusqlite = { version = "0.40", features = ["bundled"], optional = true }
-mongodb = { version = "3.6.0", optional = true }
 # `storage-drivers` only: the storage ports (no database client), named by git
 # tag so a host that vendors tinystoragedrivers once can `[patch]` it; SHA-256
 # for over-long document ids; tokio's `OnceCell` for one-time collection setup.
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.5.0", optional = true }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0", optional = true }
 sha2 = { version = "0.11", optional = true }
 tokio = { version = "1", features = ["sync"], optional = true }
 
 [features]
-# Persistence out of the box. The alternative — no backend unless asked — meant
-# `cargo add tinyflows-adaptive` gave you a crate whose whole value is that
-# learning accumulates, and no way to make it accumulate.
-#
-# It costs a bundled SQLite build. A deployment that only wants Mongo turns it
-# off: `default-features = false, features = ["mongo"]`.
-default = ["sqlite"]
-sqlite = ["dep:rusqlite"]
-mongo = ["dep:mongodb"]
+# No feature opens a database: the crate keeps no storage of its own. The
+# ledger and vault are in memory by default, and durable on the host's
+# `tinystoragedrivers` backend with `storage-drivers`.
+default = []
 # The ledger and vault on a `tinystoragedrivers` document port
 # (`Storage::from_documents`), so the host's storage backend (SQLite, MongoDB,
 # memory) holds them alongside everything else. Needs Rust 1.88.
@@ -38,6 +31,10 @@ storage-drivers = ["dep:tinystoragedrivers-core", "dep:sha2", "dep:tokio"]
 
 [dev-dependencies]
 tinyflows = { path = "../tinyflows", features = ["store", "mock"] }
+# The engine's `WorkflowStore` on an in-memory storage backend, for tests and
+# the eval example.
+tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["store"] }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints.rust]

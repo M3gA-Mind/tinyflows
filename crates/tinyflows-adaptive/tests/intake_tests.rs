@@ -14,12 +14,13 @@ use tinyflows::caps::mock::mock_capabilities;
 use tinyflows::caps::{Capabilities, LlmProvider};
 use tinyflows::error::Result as EngineResult;
 use tinyflows::model::{Edge, InputType, Node, NodeKind, WorkflowGraph, WorkflowInput};
+use tinyflows::store::WorkflowStore;
 use tinyflows::store::types::WorkflowRecord;
-use tinyflows::store::{FileWorkflowStore, WorkflowStore};
 use tinyflows_adaptive::contracts::{Approach, Goal};
 use tinyflows_adaptive::host::HostFacts;
 use tinyflows_adaptive::intake::decide;
 use tinyflows_adaptive::ledger::{Ledger, memory::MemoryLedger};
+use tinyflows_drivers::store::DriverWorkflowStore;
 
 /// A provider that answers from a script and records what it was asked.
 struct Scripted {
@@ -71,13 +72,14 @@ fn caps_with(llm: std::sync::Arc<Scripted>) -> Capabilities {
     }
 }
 
-/// A store on a fresh temp directory, so each case starts empty.
-fn empty_store(tag: &str) -> (FileWorkflowStore, std::path::PathBuf) {
-    let root = std::env::temp_dir().join(format!("adaptive-intake-{}-{tag}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("workflows")).expect("temp dir");
-    let store = FileWorkflowStore::new(vec![root.join("workflows")], root.join("runs"));
-    (store, root)
+#[path = "support/driver_store.rs"]
+mod driver_store;
+
+/// A store on a fresh in-memory backend, so each case starts empty. The second
+/// element is what a directory-backed store used to hand back for cleanup; there
+/// is nothing to clean up now.
+fn empty_store(_tag: &str) -> (DriverWorkflowStore, ()) {
+    (driver_store::empty(), ())
 }
 
 /// A minimal graph that validates: one trigger, one transform.

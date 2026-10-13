@@ -1,7 +1,7 @@
 use super::*;
 use crate::ledger::memory::MemoryLedger;
 use tinyflows::model::WorkflowGraph;
-use tinyflows::store::{FileWorkflowStore, types::WorkflowRecord};
+use tinyflows::store::types::WorkflowRecord;
 
 /// The store validates on save, so a fixture needs a graph that compiles.
 fn tiny_graph(id: &str) -> WorkflowGraph {
@@ -36,14 +36,8 @@ fn stored(id: &str, enabled: bool) -> WorkflowRecord {
     }
 }
 
-fn store(tag: &str) -> Arc<dyn WorkflowStore> {
-    let root = std::env::temp_dir().join(format!("adaptive-shelf-{}-{tag}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("workflows")).expect("temp dir");
-    Arc::new(FileWorkflowStore::new(
-        vec![root.join("workflows")],
-        root.join("runs"),
-    ))
+fn store(_tag: &str) -> Arc<dyn WorkflowStore> {
+    crate::driver_store::shared()
 }
 
 #[tokio::test]

@@ -47,7 +47,7 @@ async fn old_run_history_does_not_attach_to_a_recreated_flow_job() {
         .unwrap();
     let io = Arc::new(Replacement(documents.clone()));
     let ports = RuntimePorts {
-        store: Arc::new(Store::Documents(documents.clone())),
+        store: Arc::new(Store(documents.clone())),
         executor: io.clone(),
         delivery: io.clone(),
         triggers: io,

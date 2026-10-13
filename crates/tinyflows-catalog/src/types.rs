@@ -169,8 +169,9 @@ impl DraftOrigin {
 /// copy the agent tools and the canvas both read/write across turns and reloads
 /// (audit F5).
 ///
-/// Stored as a plain JSON file on disk (`{workspace_dir}/flows/drafts/<id>.json`),
-/// not in SQLite — trivially inspectable and deletable, no schema/migration.
+/// Kept as one document per draft (`flows_drafts` in `tinyflows-drivers`), so a
+/// draft is a working copy that is trivially replaced or deleted, with no schema
+/// of its own.
 /// A draft is **never live**: promoting it (`flows_draft_promote`) runs the
 /// existing `flows_create`/`flows_update` gates (same forced `require_approval`
 /// floor, same human-in-the-loop) and removes the file. `graph` is a raw JSON

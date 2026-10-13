@@ -34,6 +34,32 @@ fn to_suggestion(stored: &Versioned<Value>) -> Result<FlowSuggestion> {
     })
 }
 
+/// The stored document for `s` with the given `status` and `created_at`.
+pub(crate) fn suggestion_doc(s: &FlowSuggestion, status: &str, created_at: &str) -> Result<Value> {
+    let steps =
+        serde_json::to_string(&s.steps_outline).context("Failed to serialize suggestion steps")?;
+    let connections = serde_json::to_string(&s.suggested_connections)
+        .context("Failed to serialize suggestion connections")?;
+    let slugs = serde_json::to_string(&s.suggested_slugs)
+        .context("Failed to serialize suggestion slugs")?;
+    let mut doc = json!({
+        "title": s.title,
+        "one_liner": s.one_liner,
+        "rationale": s.rationale,
+        "steps_json": steps,
+        "connections_json": connections,
+        "slugs_json": slugs,
+        "build_prompt": s.build_prompt,
+        "confidence": s.confidence,
+        "status": status,
+        "created_at": created_at,
+        "created_ns": instant_ns(created_at),
+    });
+    set_optional(&mut doc, "trigger_hint", s.trigger_hint.as_deref());
+    set_optional(&mut doc, "source_run_id", s.source_run_id.as_deref());
+    Ok(doc)
+}
+
 impl FlowCatalogDocuments {
     /// Inserts a batch of suggestions. A suggestion already stored (its id is
     /// a content hash) has its pitch refreshed but keeps the `status` and
@@ -45,12 +71,6 @@ impl FlowCatalogDocuments {
         }
         let docs = self.docs().await?;
         for s in suggestions {
-            let steps = serde_json::to_string(&s.steps_outline)
-                .context("Failed to serialize suggestion steps")?;
-            let connections = serde_json::to_string(&s.suggested_connections)
-                .context("Failed to serialize suggestion connections")?;
-            let slugs = serde_json::to_string(&s.suggested_slugs)
-                .context("Failed to serialize suggestion slugs")?;
             upsert(docs, SUGGESTIONS, &s.id, |existing| {
                 let status = existing
                     .and_then(|doc| text(doc, "status"))
@@ -58,22 +78,7 @@ impl FlowCatalogDocuments {
                 let created_at = existing
                     .and_then(|doc| text(doc, "created_at"))
                     .unwrap_or(&s.created_at);
-                let mut doc = json!({
-                    "title": s.title,
-                    "one_liner": s.one_liner,
-                    "rationale": s.rationale,
-                    "steps_json": steps,
-                    "connections_json": connections,
-                    "slugs_json": slugs,
-                    "build_prompt": s.build_prompt,
-                    "confidence": s.confidence,
-                    "status": status,
-                    "created_at": created_at,
-                    "created_ns": instant_ns(created_at),
-                });
-                set_optional(&mut doc, "trigger_hint", s.trigger_hint.as_deref());
-                set_optional(&mut doc, "source_run_id", s.source_run_id.as_deref());
-                Ok(doc)
+                suggestion_doc(s, status, created_at)
             })
             .await
             .context("Failed to upsert flow suggestion")?;

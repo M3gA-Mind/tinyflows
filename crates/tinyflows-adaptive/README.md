@@ -83,8 +83,9 @@ What survives is exactly the loop.
 
 - [x] **0 · repo** — workspace member beside the engine; engine untouched.
 - [x] **1a · contracts** — `Goal`, `Approach`, `Verdict`, `Blocker`, `Budget`.
-- [x] **1b · ledger** — the `Ledger` trait plus two backends behind features,
-      `sqlite` and `mongo`, both checked by one conformance suite. Kept separate
+- [x] **1b · ledger** — the `Ledger` trait plus an in-memory backend and a
+      document-port one (`storage-drivers`), both checked by one conformance
+      suite. Kept separate
       from `WorkflowStore` so an upstream merge never contends with it.
 - [x] **2 · intake** — `decide()`: select a stored workflow, else author one.
       Selection sees the catalogue with both score counters and never sees a
@@ -277,7 +278,7 @@ throughout produces a graph the engine refuses.
 |---|---|
 | `Relay` | the service, to reach a runner elsewhere |
 | `Workspace` | whatever can say what changed outside a run |
-| `Ledger` | ships as `sqlite` and `mongo`; a third passes `conformance` |
+| `Ledger` | ships as `memory` and the document port (`storage-drivers`); another passes `conformance` |
 | `Runner` | ships as `Local` and `Remote`; rarely custom |
 | `LlmProvider`, `ToolInvoker`, `HttpClient`, `CodeRunner`, `StateStore`, `WorkflowResolver` | the engine's `Capabilities` bundle |
 | `AgentRunner`, `MemoryProvider` | optional capabilities |
@@ -290,57 +291,27 @@ snapshot before the loop and flush after.
 ## Choosing a ledger backend
 
 ```toml
-tinyflows-adaptive = "0.1"                       # sqlite, on by default
-tinyflows-adaptive = { version = "0.1", default-features = false, features = ["mongo"] }
+tinyflows-adaptive = "0.1"                                         # memory only
+tinyflows-adaptive = { version = "0.1", features = ["storage-drivers"] }  # durable
 ```
 
-**sqlite is a default feature**, so the crate persists out of the box. A crate
-whose whole value is that learning accumulates should not ship unable to
-accumulate it. It costs a bundled SQLite build; a deployment that only wants
-Mongo turns it off with `default-features = false`.
+The crate opens no database of its own. Durable storage is the host's
+[`tinystoragedrivers`](https://github.com/tinyhumansai/tinystoragedrivers)
+backend (SQLite on a desktop, MongoDB in the cloud, files, memory), opened once
+and handed over as a document handle:
 
 ```rust
-// The parent directory is created — `/var/lib/app/` on a first run need not exist.
-let ledger = SqliteLedger::from_env_or("./adaptive.db")?;
+let storage = Storage::from_documents(scoped_storage.documents().clone());
+let tenant = storage.for_tenant(&user_id);       // ledger and vault, scoped together
 ```
 
-`from_env_or` reads `TINYFLOWS_ADAPTIVE_DB` and uses the argument when it is
-unset, so ops can move the file without a rebuild while the fallback stays
-visible in your code.
+The ledger and the vault live in separate collections of that handle, so a
+single-node deployment backs up exactly one thing, and the tenant scope is the
+same `for_tenant` as ever. A setting that names a database (a SQLite path, a
+`mongodb://` URI) is refused at parse time and says to open a backend instead.
 
-For a CLI or a desktop agent there is a convention instead:
-
-```rust
-let ledger = SqliteLedger::at_default_location()?;
-```
-
-| Platform | Path |
-|---|---|
-| Linux / XDG | `$XDG_DATA_HOME/tinyflows/adaptive.db`, else `~/.local/share/tinyflows/adaptive.db` |
-| macOS | `~/Library/Application Support/tinyflows/adaptive.db` |
-| Windows | `%LOCALAPPDATA%\tinyflows\adaptive.db` |
-
-Four decisions in that table, each of which could have gone the other way:
-
-- **Data, not cache or config.** A ledger is not regenerable, so a cache sweeper
-  finding it deletes everything the loop has learned; and it is not something a
-  person edits, so a config directory would invite exactly that.
-- **`%LOCALAPPDATA%`, not `%APPDATA%`.** The roaming profile syncs between
-  machines, and a SQLite file copied mid-write between two that both think they
-  own it is a corrupted database.
-- **Namespaced `tinyflows/`, not `tinyflows-adaptive/`**, so a sibling crate
-  shares the folder rather than scattering one per crate across a disk.
-- **No directory is an error, not a guess.** A daemon under a user with no home
-  has nowhere by convention; the error says to set the variable rather than
-  putting a database somewhere nobody looks.
-
-`TINYFLOWS_ADAPTIVE_DB` still wins. And a container or a service should name its
-own path — a volume mount is the point, and a convention that lands the database
-inside an ephemeral layer is worse than no convention at all.
-
-Three implementations, all checked by the same public
-[`ledger::conformance`] suite — so "it works on sqlite" cannot quietly mean "it
-works only on sqlite", and a host writing a fourth runs the identical cases.
+Two implementations, both checked by the same public [`ledger::conformance`]
+suite, so a host writing another backend runs the identical cases.
 
 `MemoryLedger` is always compiled: no feature, no driver, no C library, so the
 crate is usable the moment it is added. It **forgets everything on restart**,
@@ -352,7 +323,7 @@ the exclusion list works within an episode, lessons are written and scored, the
 tests pass — and every restart throws all of it away. Nobody notices, because
 the only symptom is that it never gets better. So there is no `Default` impl
 that would hand it to a host that did not ask, it is named for what it does, and
-`sqlite` or `mongo` is the answer the moment learning is supposed to outlive a
+`storage-drivers` is the answer the moment learning is supposed to outlive a
 process.
 
 Workflow scores live here, not on `WorkflowRecord`: a score is a fact that spans
@@ -360,13 +331,12 @@ runs, and the engine's record is a fact about one document.
 
 ## Workflows in the configured store too
 
-The ledger had three backends; workflows had a directory of JSON files. A
-deployment picking Mongo for one half of its durable state and getting a
-filesystem for the other is wrong, so `workflows::Vault` mirrors `Ledger` —
-`memory`, `sqlite`, `mongo`, one conformance suite.
+Workflows once lived in a directory of JSON files, which is wrong for a hosted
+service, so `workflows::Vault` mirrors `Ledger` — `memory` and the document
+port, one conformance suite.
 
 ```rust
-let vault = MongoVault::connect(&uri, "adaptive").await?.for_tenant(&user);
+let vault = DriverVault::new(docs).for_tenant(&user);
 let snapshot = Snapshot::load(&vault, policy).await?;
 let store: Arc<dyn WorkflowStore> = Arc::new(snapshot.clone());
 // … the loop runs, repair and keep call store.save() …
@@ -374,9 +344,9 @@ snapshot.flush(&vault).await?;
 ```
 
 **Why a snapshot rather than a store.** `WorkflowStore` is synchronous — ten
-required methods, none `async`. A Mongo driver is not. `block_on` inside a sync
+required methods, none `async`. A document store is not. `block_on` inside a sync
 method deadlocks a current-thread runtime, and async-ifying the trait upstream
-means rewriting the file store and the authoring module and contending with that
+means rewriting the store trait and the authoring module and contending with that
 rewrite on every merge. So the async half is ours and the sync half reads from
 memory: load once, buffer writes, flush after. That also suits how the loop uses
 a store — several reads while deciding, one or two writes when closing.
@@ -420,13 +390,13 @@ rather than being orphaned.
 ## Reading a catalogue that already exists
 
 The loop's own procedures live in a `Vault`. Everyone else's live in a
-`WorkflowStore` — the engine's file store, a host's own, a device's local
-catalogue. Same records, different way in, and without one the loop can only
+`WorkflowStore` — `tinyflows-drivers`' document-port one, a host's own, a device's
+local catalogue. Same records, different way in, and without one the loop can only
 select what it wrote itself.
 
 ```rust
 let theirs = Arc::new(DeviceVault::new(&relay, &user));      // read-only, fetched
-let ours   = Arc::new(MongoVault::….for_tenant(&user));      // writable
+let ours   = Arc::new(DriverVault::new(docs).for_tenant(&user)); // writable
 let vault  = Layered::new(vec![("device".into(), theirs)], ours)
     .degrading(Arc::new(|layer, why| warn!(%layer, %why, "catalogue unavailable")));
 

@@ -165,7 +165,7 @@ async fn repaired_family(
     tag: &str,
     parent: (u32, u32),
     variant: (u32, u32),
-) -> (FileWorkflowStore, MemoryLedger, std::path::PathBuf) {
+) -> (DriverWorkflowStore, MemoryLedger, ()) {
     let (store, root) = empty_store(tag);
     store
         .save(&stored("weekly", "writes the weekly report", None))
@@ -192,7 +192,7 @@ async fn repaired_family(
 }
 
 /// What the selector was actually shown.
-async fn offered(store: &FileWorkflowStore, ledger: &MemoryLedger) -> String {
+async fn offered(store: &DriverWorkflowStore, ledger: &MemoryLedger) -> String {
     let llm = std::sync::Arc::new(Scripted::new(vec![
         json!({"workflow_id": "none"}),
         authored_reply("fallback", None),

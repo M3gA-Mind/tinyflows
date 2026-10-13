@@ -22,12 +22,12 @@ use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, storage_erro
 
 /// The document id of `flow_id`'s schedule job. Deterministic, so writing it
 /// only if absent makes registration idempotent across processes.
-fn flow_job_id(flow_id: &str) -> String {
+pub(super) fn flow_job_id(flow_id: &str) -> String {
     format!("flow:{flow_id}")
 }
 
 /// The document for a newly created `job`, with a fresh incarnation.
-fn new_job_doc(job: &CronJob) -> Result<Value> {
+pub(super) fn new_job_doc(job: &CronJob) -> Result<Value> {
     let mut doc = job_to_doc(job)?;
     doc[INCARNATION] = json!(Uuid::new_v4().to_string());
     Ok(doc)

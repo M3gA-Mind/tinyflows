@@ -17,7 +17,7 @@ use super::{
 };
 
 /// The counter document run numbers are drawn from.
-const RUN_COUNTER: &str = "runs";
+pub(super) const RUN_COUNTER: &str = "runs";
 
 struct HistoryWrite<'a> {
     job_id: &'a str,
@@ -247,7 +247,7 @@ impl CronDocuments {
     }
 
     /// The stored document of `job_id`, or the job-not-found error.
-    async fn job_doc(&self, job_id: &str) -> Result<Value> {
+    pub(super) async fn job_doc(&self, job_id: &str) -> Result<Value> {
         self.docs
             .get(JOBS, job_id)
             .await

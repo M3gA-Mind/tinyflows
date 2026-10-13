@@ -55,6 +55,10 @@ pub enum WorkflowError {
         source: std::io::Error,
     },
 
+    /// The storage backend refused or failed an operation.
+    #[error("storage: {0}")]
+    Storage(String),
+
     /// The engine refused to compile or run the graph.
     #[error("{0}")]
     Engine(String),
