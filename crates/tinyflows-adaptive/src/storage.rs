@@ -62,10 +62,10 @@ impl Config {
     /// Read a storage setting.
     ///
     /// * `memory` (or `:memory:`) — the ledger and vault that forget;
-    /// * `mongodb://…` / `mongodb+srv://…` — Mongo, database from the URI's
-    ///   first path segment, `tinyflows_adaptive` when it has none;
-    /// * `sqlite:<path>` — SQLite at that path;
-    /// * anything else — treated as a filesystem path, SQLite.
+    /// * anything else — an error. The crate opens no database of its own: a
+    ///   SQLite path or a `mongodb://` URI names storage the host opens as a
+    ///   `tinystoragedrivers` backend and hands over with
+    ///   [`Storage::from_documents`].
     ///
     /// Read the setting from the environment: [`STORAGE_VAR`].
     ///
@@ -87,61 +87,35 @@ impl Config {
         match value.map(str::trim).filter(|v| !v.is_empty()) {
             Some(value) => Self::parse(value),
             None => Err(StorageError::Config(format!(
-                "{STORAGE_VAR} is not set; expected `memory`, a sqlite path, or a mongodb:// URI"
+                "{STORAGE_VAR} is not set; expected `memory` (durable storage is a tinystoragedrivers backend the host opens, not a setting)"
             ))),
         }
     }
 
     /// # Errors
-    /// When the value names a backend this build was compiled without — caught
-    /// here so it fails at boot with the feature named, not at first use.
+    /// When the value names a database. Caught here so it fails at boot with
+    /// the way forward named, not as a service that quietly forgets.
     pub fn parse(value: &str) -> Result<Self, StorageError> {
         let value = value.trim();
         if value.is_empty() {
             return Err(StorageError::Config(
-                "empty storage setting; expected `memory`, a sqlite path, or a mongodb:// URI"
+                "empty storage setting; expected `memory` (durable storage is a tinystoragedrivers backend the host opens, not a setting)"
                     .to_string(),
             ));
         }
         if value == "memory" || value == ":memory:" {
             return Ok(Self::Memory);
         }
-        if value.starts_with("mongodb://") || value.starts_with("mongodb+srv://") {
-            #[cfg(feature = "mongo")]
-            return Ok(Self::Mongo {
-                uri: value.to_string(),
-                database: mongo_database(value),
-            });
-            #[cfg(not(feature = "mongo"))]
-            return Err(StorageError::Config(
-                "a mongodb:// URI, but this build has no `mongo` feature".to_string(),
-            ));
-        }
-        let path = value.strip_prefix("sqlite:").unwrap_or(value);
-        #[cfg(feature = "sqlite")]
-        return Ok(Self::Sqlite(PathBuf::from(path)));
-        #[cfg(not(feature = "sqlite"))]
-        {
-            let _ = path;
-            Err(StorageError::Config(format!(
-                "`{value}` reads as a sqlite path, but this build has no `sqlite` feature"
-            )))
-        }
-    }
-}
-
-/// The database named by a Mongo URI's first path segment, or the default.
-#[cfg(feature = "mongo")]
-fn mongo_database(uri: &str) -> String {
-    let after_scheme = uri.split_once("://").map_or(uri, |(_, rest)| rest);
-    let path = after_scheme.split_once('/').map(|(_, path)| path);
-    let database = path
-        .map(|p| p.split(['?', '/']).next().unwrap_or(""))
-        .unwrap_or("");
-    if database.is_empty() {
-        "tinyflows_adaptive".to_string()
-    } else {
-        database.to_string()
+        let names = if value.starts_with("mongodb://") || value.starts_with("mongodb+srv://") {
+            "a mongodb:// URI"
+        } else {
+            "a sqlite path"
+        };
+        Err(StorageError::Config(format!(
+            "`{value}` reads as {names}, but this crate opens no database of its own; \
+             open a tinystoragedrivers backend and use `Storage::from_documents` \
+             (feature `storage-drivers`), or set `memory`"
+        )))
     }
 }
 
@@ -163,10 +137,6 @@ impl Storage {
 
     /// Open both halves of the configured backend.
     ///
-    /// SQLite puts them in **one file** — their schemas share no table — so a
-    /// single-node deployment backs up exactly one thing. Mongo puts them in
-    /// one database, in separate collections.
-    ///
     /// # Errors
     /// When the backend cannot be opened or reached.
     pub async fn open(config: &Config) -> Result<Self, StorageError> {
@@ -174,20 +144,6 @@ impl Storage {
             Config::Memory => Self {
                 ledger: AnyLedger::Memory(MemoryLedger::new()),
                 vault: AnyVault::Memory(MemoryVault::new()),
-            },
-            #[cfg(feature = "sqlite")]
-            Config::Sqlite(path) => Self {
-                ledger: AnyLedger::Sqlite(crate::ledger::sqlite::SqliteLedger::open(path)?),
-                vault: AnyVault::Sqlite(crate::workflows::sqlite::SqliteVault::open(path)?),
-            },
-            #[cfg(feature = "mongo")]
-            Config::Mongo { uri, database } => Self {
-                ledger: AnyLedger::Mongo(
-                    crate::ledger::mongo::MongoLedger::connect(uri, database).await?,
-                ),
-                vault: AnyVault::Mongo(
-                    crate::workflows::mongo::MongoVault::connect(uri, database).await?,
-                ),
             },
         })
     }
@@ -241,12 +197,6 @@ impl Storage {
 pub enum AnyLedger {
     /// Forgets on restart.
     Memory(MemoryLedger),
-    /// One SQLite file.
-    #[cfg(feature = "sqlite")]
-    Sqlite(crate::ledger::sqlite::SqliteLedger),
-    /// A MongoDB database.
-    #[cfg(feature = "mongo")]
-    Mongo(crate::ledger::mongo::MongoLedger),
     /// A `tinystoragedrivers` document store.
     #[cfg(feature = "storage-drivers")]
     Driver(crate::drivers::DriverLedger),
@@ -258,10 +208,6 @@ impl AnyLedger {
     pub fn for_tenant(&self, scope: &str) -> Self {
         match self {
             Self::Memory(l) => Self::Memory(l.for_tenant(scope)),
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(l) => Self::Sqlite(l.for_tenant(scope)),
-            #[cfg(feature = "mongo")]
-            Self::Mongo(l) => Self::Mongo(l.for_tenant(scope)),
             #[cfg(feature = "storage-drivers")]
             Self::Driver(l) => Self::Driver(l.for_tenant(scope)),
         }
@@ -273,10 +219,6 @@ macro_rules! on_ledger {
     ($self:ident, $l:ident => $call:expr) => {
         match $self {
             AnyLedger::Memory($l) => $call,
-            #[cfg(feature = "sqlite")]
-            AnyLedger::Sqlite($l) => $call,
-            #[cfg(feature = "mongo")]
-            AnyLedger::Mongo($l) => $call,
             #[cfg(feature = "storage-drivers")]
             AnyLedger::Driver($l) => $call,
         }
@@ -342,12 +284,6 @@ impl Ledger for AnyLedger {
 pub enum AnyVault {
     /// Forgets on restart.
     Memory(MemoryVault),
-    /// One SQLite file — the same one the ledger may use.
-    #[cfg(feature = "sqlite")]
-    Sqlite(crate::workflows::sqlite::SqliteVault),
-    /// A MongoDB database.
-    #[cfg(feature = "mongo")]
-    Mongo(crate::workflows::mongo::MongoVault),
     /// A `tinystoragedrivers` document store.
     #[cfg(feature = "storage-drivers")]
     Driver(crate::drivers::DriverVault),
@@ -359,10 +295,6 @@ impl AnyVault {
     pub fn for_tenant(&self, scope: &str) -> Self {
         match self {
             Self::Memory(v) => Self::Memory(v.for_tenant(scope)),
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(v) => Self::Sqlite(v.for_tenant(scope)),
-            #[cfg(feature = "mongo")]
-            Self::Mongo(v) => Self::Mongo(v.for_tenant(scope)),
             #[cfg(feature = "storage-drivers")]
             Self::Driver(v) => Self::Driver(v.for_tenant(scope)),
         }
@@ -373,10 +305,6 @@ macro_rules! on_vault {
     ($self:ident, $v:ident => $call:expr) => {
         match $self {
             AnyVault::Memory($v) => $call,
-            #[cfg(feature = "sqlite")]
-            AnyVault::Sqlite($v) => $call,
-            #[cfg(feature = "mongo")]
-            AnyVault::Mongo($v) => $call,
             #[cfg(feature = "storage-drivers")]
             AnyVault::Driver($v) => $call,
         }
