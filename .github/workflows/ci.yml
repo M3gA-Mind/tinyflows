@@ -42,6 +42,9 @@ jobs:
       - name: Clippy the schedule-only drivers build
         run: cargo clippy -p tinyflows-drivers --all-targets --no-default-features --features schedule -- -D warnings
 
+      - name: Clippy the schedule-only importer build
+        run: cargo clippy -p tinyflows-import --all-targets --no-default-features --features schedule -- -D warnings
+
       - name: Build
         run: cargo build --all-targets
 
@@ -60,6 +63,10 @@ jobs:
       - name: Test the schedule-only drivers build
         # The cron store must build and pass without the engine.
         run: cargo test -p tinyflows-drivers --no-default-features --features schedule
+
+      - name: Test the schedule-only importer build
+        # Legacy cron jobs must import without the flows engine.
+        run: cargo test -p tinyflows-import --no-default-features --features schedule
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 
