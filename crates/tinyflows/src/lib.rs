@@ -65,6 +65,8 @@ pub mod migrate;
 pub mod model;
 pub mod nodes;
 pub mod observability;
+/// Pure step-status and exporter-observation mappers for run observability.
+pub mod observe;
 pub mod postcondition;
 /// Proving a graph's outbound arguments can resolve, by running it against
 /// mocks before an author is allowed to save it.
