@@ -454,8 +454,8 @@ async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
 #[test]
 fn create_report_is_honest_about_a_failed_force_disable() {
     use super::persistence::create_workflow_report;
-    assert_eq!(create_workflow_report(false, true).0, false);
-    assert_eq!(create_workflow_report(true, true).0, false);
+    assert!(!create_workflow_report(false, true).0);
+    assert!(!create_workflow_report(true, true).0);
     let (enabled, note) = create_workflow_report(true, false);
     assert!(enabled);
     assert!(note.contains("could NOT be force-disabled"));
