@@ -1,5 +1,5 @@
 //! Module-owned persistence dispatch. Hosts pass configuration and JSON only.
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
@@ -8,7 +8,6 @@ use tinybus::Connection;
 use tinyflows_bus::schedule::{StoreBackend, StoreConfig, StoreRequest};
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::{AgentJobSpec, CronJob, CronJobPatch, DeliveryStatus, Schedule};
-use tinyflows_sqlite::schedule::{self as sql, CronStoreOptions};
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -77,30 +76,17 @@ enum Operation {
     },
 }
 
-pub(super) enum Store {
-    Sqlite(CronStoreOptions),
-    Documents(CronDocuments),
-}
+/// The module's schedule store: `CronDocuments` over the host's document port.
+pub(super) struct Store(CronDocuments);
 impl Store {
     pub(super) async fn new(connection: Connection, config: StoreConfig) -> Result<Self> {
-        Ok(match config.backend {
-            StoreBackend::Sqlite { path } => {
-                if path.is_empty() {
-                    bail!("empty schedule database path");
-                }
-                Self::Sqlite(CronStoreOptions {
-                    db_path: path.into(),
-                    max_run_history: config.max_run_history,
-                    max_tasks: config.max_tasks,
-                })
-            }
-            StoreBackend::Documents { callback } => Self::Documents(
-                CronDocuments::new(Arc::new(
-                    super::schedule_documents::Documents::new(connection, callback).await?,
-                ))
-                .with_limits(config.max_run_history, config.max_tasks),
-            ),
-        })
+        let StoreBackend::Documents { callback } = config.backend;
+        Ok(Self(
+            CronDocuments::new(Arc::new(
+                super::schedule_documents::Documents::new(connection, callback).await?,
+            ))
+            .with_limits(config.max_run_history, config.max_tasks),
+        ))
     }
     pub(super) async fn request(connection: Connection, request: StoreRequest) -> Result<Value> {
         Self::new(connection, request.storage)
@@ -109,13 +95,11 @@ impl Store {
             .await
     }
     async fn execute(&self, operation: Operation) -> Result<Value> {
-        // Each backend owns validation, migration, output limits and history pruning.
+        // The store owns validation, migration, output limits and history pruning.
+        let documents = &self.0;
         macro_rules! dispatch {
             ($method:ident $(, $arg:expr)*) => {
-                match self {
-                    Self::Sqlite(options) => serde_json::to_value(sql::$method(options $(, $arg)*)?)?,
-                    Self::Documents(documents) => serde_json::to_value(documents.$method($($arg),*).await?)?,
-                }
+                serde_json::to_value(documents.$method($($arg),*).await?)?
             };
         }
         Ok(match operation {
@@ -178,26 +162,17 @@ impl Store {
 #[async_trait::async_trait]
 impl tinyflows_schedule::runtime::JobStore for Store {
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
-        match self {
-            Self::Sqlite(options) => sql::due_jobs(options, now),
-            Self::Documents(documents) => documents.due_jobs(now).await,
-        }
+        self.0.due_jobs(now).await
     }
     async fn due_jobs_excluding(
         &self,
         now: DateTime<Utc>,
         excluded: &[String],
     ) -> Result<Vec<CronJob>> {
-        match self {
-            Self::Sqlite(options) => sql::due_jobs_excluding(options, now, excluded),
-            Self::Documents(documents) => documents.due_jobs_excluding(now, excluded).await,
-        }
+        self.0.due_jobs_excluding(now, excluded).await
     }
     async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
-        let claimed = match self {
-            Self::Sqlite(options) => sql::claim_slot(options, job, next)?,
-            Self::Documents(documents) => documents.claim_slot(job, next).await?,
-        };
+        let claimed = self.0.claim_slot(job, next).await?;
         anyhow::ensure!(
             claimed,
             "schedule occurrence was removed, edited or already claimed"
@@ -205,10 +180,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         Ok(())
     }
     async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {
-        match self {
-            Self::Sqlite(options) => sql::record_claimed_run(options, &record),
-            Self::Documents(documents) => documents.record_claimed_run(&record).await,
-        }
+        self.0.record_claimed_run(&record).await
     }
 
     async fn complete(
@@ -216,10 +188,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         job: &CronJob,
         completion: tinyflows_schedule::runtime::Completion,
     ) -> Result<()> {
-        match self {
-            Self::Sqlite(options) => sql::complete_run(options, job, &completion),
-            Self::Documents(documents) => documents.complete_run(job, &completion).await,
-        }
+        self.0.complete_run(job, &completion).await
     }
 }
 
