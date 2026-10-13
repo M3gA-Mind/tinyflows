@@ -249,8 +249,13 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'tinyflows-module-verify'
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $stage | Out-Null
-          icacls $stage /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
+          # Name the token's own SID: $env:USERNAME is not always the account
+          # the process runs as (windows-11-arm64).
+          $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          icacls $stage /setowner "*$me" | Out-Null
+          icacls $stage /inheritance:r /grant:r "*${me}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "could not restrict $stage" }
+          icacls $stage
           Copy-Item 'target/release/tinyflows_module.dll' $stage
           $env:TINYFLOWS_MODULE_ARTIFACT = (Resolve-Path (Join-Path $stage 'tinyflows_module.dll')).Path
           bash scripts/verify-module-artifact.sh
