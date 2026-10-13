@@ -5,8 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::FlowStore;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,12 +16,12 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// approving/rejecting its pending node(s). Execute + approval-gated — it
 /// advances a REAL run that can fire real outbound effects.
 pub struct ResumeFlowRunTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl ResumeFlowRunTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -76,10 +75,8 @@ impl Tool for ResumeFlowRunTool {
         let approve = string_array(&args, "approve");
         let reject = string_array(&args, "reject");
         tracing::debug!(target: "flows", %flow_id, %run_id, approve = approve.len(), reject = reject.len(), "[flows] resume_flow_run: resuming parked run");
-        match ops::flows_resume(&self.config, &flow_id, &run_id, approve, reject).await {
-            Ok(outcome) => Ok(ToolResult::success(serde_json::to_string_pretty(
-                &outcome.value,
-            )?)),
+        match self.flows.resume(&flow_id, &run_id, approve, reject).await {
+            Ok(value) => Ok(ToolResult::success(serde_json::to_string_pretty(&value)?)),
             Err(e) => Ok(ToolResult::error(format!("Could not resume run: {e}"))),
         }
     }
@@ -103,12 +100,12 @@ impl Tool for ResumeFlowRunTool {
 /// 2. **`external_effect() == true`** — parks for approval on any surface
 ///    that has a gate, same as `resume_flow_run`.
 pub struct CancelFlowRunTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl CancelFlowRunTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -157,12 +154,12 @@ impl Tool for CancelFlowRunTool {
 
         // SECURITY (T-M3 fix): verify the run actually belongs to the
         // caller-named flow before cancelling anything — mirrors
-        // `resume_flow_run` (`ops::flows_resume`)'s existing `run_record.flow_id
+        // `resume_flow_run` (the host's resume)'s existing `run_record.flow_id
         // != flow_id` guard. Without this, any run_id (guessed, enumerated, or
         // named by a prompt-injected turn that never called list_flow_runs)
         // could cancel a run scoped to a completely different flow.
-        let run = match ops::flows_get_run(&self.config, &run_id).await {
-            Ok(outcome) => outcome.value,
+        let run = match self.flows.get_run(&run_id).await {
+            Ok(run) => run,
             Err(e) => return Ok(ToolResult::error(format!("Could not cancel run: {e}"))),
         };
         if run.flow_id != flow_id {
@@ -180,10 +177,8 @@ impl Tool for CancelFlowRunTool {
         }
 
         tracing::debug!(target: "flows", %flow_id, %run_id, "[flows] cancel_flow_run: cancelling run");
-        match ops::flows_cancel_run(&self.config, &run_id).await {
-            Ok(outcome) => Ok(ToolResult::success(serde_json::to_string_pretty(
-                &outcome.value,
-            )?)),
+        match self.flows.cancel_run(&run_id).await {
+            Ok(value) => Ok(ToolResult::success(serde_json::to_string_pretty(&value)?)),
             Err(e) => Ok(ToolResult::error(format!("Could not cancel run: {e}"))),
         }
     }

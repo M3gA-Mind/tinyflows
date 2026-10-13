@@ -5,8 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::config::Config;
-use crate::flows::ops;
+use super::ports::FlowStore;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,12 +16,12 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// snapshots captured on each update. Lets the agent see what changed and pick
 /// a revision to roll back to (the user drives the actual rollback RPC).
 pub struct GetFlowHistoryTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl GetFlowHistoryTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -70,9 +69,9 @@ impl Tool for GetFlowHistoryTool {
             .map(|n| n as usize)
             .unwrap_or(20);
         tracing::debug!(target: "flows", %flow_id, limit, "[flows] get_flow_history: listing revisions (read-only)");
-        match ops::flows_get_history(&self.config, &flow_id, limit) {
-            Ok(outcome) => Ok(ToolResult::success(serde_json::to_string_pretty(
-                &json!({ "revisions": outcome.value }),
+        match self.flows.history(&flow_id, limit).await {
+            Ok(revisions) => Ok(ToolResult::success(serde_json::to_string_pretty(
+                &json!({ "revisions": revisions }),
             )?)),
             Err(e) => Ok(ToolResult::error(format!(
                 "Could not load history for flow '{flow_id}': {e}"
@@ -86,12 +85,12 @@ impl Tool for GetFlowHistoryTool {
 /// instead of needing a run_id handed to it externally — the missing first step
 /// of the self-debug loop (audit F4).
 pub struct ListFlowRunsTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl ListFlowRunsTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -139,9 +138,9 @@ impl Tool for ListFlowRunsTool {
             .map(|n| n as usize)
             .unwrap_or(20);
         tracing::debug!(target: "flows", %flow_id, limit, "[flows] list_flow_runs: listing runs (read-only)");
-        match ops::flows_list_runs(&self.config, &flow_id, limit).await {
-            Ok(outcome) => Ok(ToolResult::success(serde_json::to_string_pretty(
-                &json!({ "runs": outcome.value }),
+        match self.flows.list_runs(&flow_id, limit).await {
+            Ok(runs) => Ok(ToolResult::success(serde_json::to_string_pretty(
+                &json!({ "runs": runs }),
             )?)),
             Err(e) => Ok(ToolResult::error(format!(
                 "Could not list runs for flow '{flow_id}': {e}"
@@ -158,12 +157,12 @@ impl Tool for ListFlowRunsTool {
 /// last_status) so the builder can reference, clone, or avoid duplicating an
 /// existing automation.
 pub struct ListFlowsTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl ListFlowsTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -194,10 +193,9 @@ impl Tool for ListFlowsTool {
 
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!(target: "flows", "[flows] list_flows: listing saved flows (read-only)");
-        match ops::flows_list(&self.config).await {
-            Ok(outcome) => {
-                let flows: Vec<Value> = outcome
-                    .value
+        match self.flows.list().await {
+            Ok(listed) => {
+                let flows: Vec<Value> = listed
                     .iter()
                     .map(|f| {
                         json!({
@@ -225,12 +223,12 @@ impl Tool for ListFlowsTool {
 /// `get_flow`: read-only fetch of a saved flow's full [`WorkflowGraph`] by id,
 /// so the builder can clone or extend an existing automation.
 pub struct GetFlowTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl GetFlowTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -272,9 +270,8 @@ impl Tool for GetFlowTool {
             _ => return Ok(ToolResult::error("Missing 'id' parameter".to_string())),
         };
         tracing::debug!(target: "flows", flow_id = %id, "[flows] get_flow: fetching saved flow (read-only)");
-        match ops::flows_get(&self.config, &id).await {
-            Ok(outcome) => {
-                let f = outcome.value;
+        match self.flows.get(&id).await {
+            Ok(f) => {
                 let graph = serde_json::to_value(&f.graph)?;
                 Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
                     "id": f.id,
@@ -297,12 +294,12 @@ impl Tool for GetFlowTool {
 /// `get_flow_run`: read-only fetch of a single flow run's step records, so the
 /// builder can diagnose a failure and propose a repair.
 pub struct GetFlowRunTool {
-    config: Arc<Config>,
+    flows: Arc<dyn FlowStore>,
 }
 
 impl GetFlowRunTool {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub fn new(flows: Arc<dyn FlowStore>) -> Self {
+        Self { flows }
     }
 }
 
@@ -343,10 +340,8 @@ impl Tool for GetFlowRunTool {
             _ => return Ok(ToolResult::error("Missing 'run_id' parameter".to_string())),
         };
         tracing::debug!(target: "flows", %run_id, "[flows] get_flow_run: fetching run record (read-only)");
-        match ops::flows_get_run(&self.config, &run_id).await {
-            Ok(outcome) => Ok(ToolResult::success(serde_json::to_string_pretty(
-                &outcome.value,
-            )?)),
+        match self.flows.get_run(&run_id).await {
+            Ok(run) => Ok(ToolResult::success(serde_json::to_string_pretty(&run)?)),
             Err(e) => Ok(ToolResult::error(format!(
                 "Failed to get flow run '{run_id}': {e}"
             ))),

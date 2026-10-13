@@ -1,8 +1,11 @@
 //! Read-only DSL/registry tools: agent definitions, node kinds, and node-kind contracts (F2).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::ports::{AgentDirectory, NodeKindSource};
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,19 +19,15 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 /// analogue of `search_tool_catalog` for `tool_call` slugs — so it never
 /// hallucinates an agent kind. Returns `{ id, name, description, model, tools,
 /// tags }` for every enabled registered agent.
-pub struct ListAgentDefinitionsTool;
-
-impl ListAgentDefinitionsTool {
-    /// Builds the tool (no configuration — reads the process-global registry).
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+pub struct ListAgentDefinitionsTool {
+    agents: Arc<dyn AgentDirectory>,
 }
 
-impl Default for ListAgentDefinitionsTool {
-    fn default() -> Self {
-        Self::new()
+impl ListAgentDefinitionsTool {
+    /// Builds the tool over the host's agent registry.
+    #[must_use]
+    pub fn new(agents: Arc<dyn AgentDirectory>) -> Self {
+        Self { agents }
     }
 }
 
@@ -65,7 +64,7 @@ impl Tool for ListAgentDefinitionsTool {
 
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!(target: "flows", "[flows] list_agent_definitions: listing registered definitions (read-only)");
-        match crate::agent::registry::list_agents(false).await {
+        match self.agents.list().await {
             Ok(agents) => {
                 let definitions: Vec<Value> = agents
                     .iter()
@@ -75,7 +74,7 @@ impl Tool for ListAgentDefinitionsTool {
                             "name": a.name,
                             "description": a.description,
                             "model": a.model,
-                            "tools": a.tool_allowlist,
+                            "tools": a.tools,
                             "tags": a.tags,
                         })
                     })
@@ -98,19 +97,15 @@ impl Tool for ListAgentDefinitionsTool {
 /// `list_node_kinds`: enumerate the 14 tinyflows node kinds with a one-line
 /// summary each. The DSL counterpart of `search_tool_catalog` for Composio
 /// actions — a cheap first call to orient before fetching a full contract.
-pub struct ListNodeKindsTool;
-
-impl ListNodeKindsTool {
-    /// Builds the tool (no configuration — the contracts are static).
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+pub struct ListNodeKindsTool {
+    kinds: Arc<dyn NodeKindSource>,
 }
 
-impl Default for ListNodeKindsTool {
-    fn default() -> Self {
-        Self::new()
+impl ListNodeKindsTool {
+    /// Builds the tool over the host's node-kind catalog.
+    #[must_use]
+    pub fn new(kinds: Arc<dyn NodeKindSource>) -> Self {
+        Self { kinds }
     }
 }
 
@@ -142,7 +137,9 @@ impl Tool for ListNodeKindsTool {
 
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {
         tracing::debug!(target: "flows", "[flows] list_node_kinds: enumerating node kinds (read-only)");
-        let kinds: Vec<Value> = crate::flows::all_node_kind_contracts()
+        let kinds: Vec<Value> = self
+            .kinds
+            .all()
             .iter()
             .map(|c| {
                 let required: Vec<&str> = c
@@ -175,19 +172,15 @@ impl Tool for ListNodeKindsTool {
 /// kind — config fields (name/required/type/description/enum), ports, a valid
 /// example node, and the authoring gotchas. Mirrors `get_tool_contract` for
 /// Composio actions but for the DSL itself.
-pub struct GetNodeKindContractTool;
-
-impl GetNodeKindContractTool {
-    /// Builds the tool (no configuration — the contracts are static).
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+pub struct GetNodeKindContractTool {
+    kinds: Arc<dyn NodeKindSource>,
 }
 
-impl Default for GetNodeKindContractTool {
-    fn default() -> Self {
-        Self::new()
+impl GetNodeKindContractTool {
+    /// Builds the tool over the host's node-kind catalog.
+    #[must_use]
+    pub fn new(kinds: Arc<dyn NodeKindSource>) -> Self {
+        Self { kinds }
     }
 }
 
@@ -238,7 +231,7 @@ impl Tool for GetNodeKindContractTool {
             _ => return Ok(ToolResult::error("Missing 'kind' parameter".to_string())),
         };
         tracing::debug!(target: "flows", %kind, "[flows] get_node_kind_contract: fetching contract (read-only)");
-        match crate::flows::node_kind_contract(&kind) {
+        match self.kinds.get(&kind) {
             Some(contract) => Ok(ToolResult::success(serde_json::to_string_pretty(
                 &contract,
             )?)),
