@@ -1,5 +1,4 @@
-//! `flows_drafts`: authoring drafts, one document per draft (the SQLite
-//! backend keeps one JSON file each).
+//! `flows_drafts`: authoring drafts, one document per draft.
 //!
 //! The whole [`FlowDraft`] is stored as a JSON string beside `updated_ns`,
 //! which orders the listing. `update_draft` is a compare-and-swap on the

@@ -88,7 +88,7 @@ impl FlowCatalogDocuments {
     }
 
     /// Duplicates `source` into a fresh, **disabled** flow named `new_name`,
-    /// with no run history. See `tinyflows_sqlite::flows::insert_duplicate_flow`.
+    /// with no run history.
     pub async fn insert_duplicate_flow(&self, source: &Flow, new_name: String) -> Result<Flow> {
         let now = Utc::now().to_rfc3339();
         let flow = Flow {
@@ -144,7 +144,7 @@ impl FlowCatalogDocuments {
     }
 
     /// All flows, oldest first, and the number skipped as undecodable
-    /// (logged, never fatal — see `tinyflows_sqlite::flows::list_flows`).
+    /// (logged, never fatal).
     pub async fn list_flows(&self) -> Result<(Vec<Flow>, usize)> {
         self.list_where(Filter::All).await
     }

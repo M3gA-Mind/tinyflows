@@ -1,10 +1,11 @@
 //! The flow catalog and authoring drafts on a [`DocumentStore`].
 //!
-//! [`FlowCatalogDocuments`] is the document-port counterpart of
-//! `tinyflows-sqlite`'s `flows` and `drafts` modules: one `async fn` per public
-//! function there, with the same name, the same arguments minus the leading
-//! catalog directory, and the same results — down to [`FlowUpdateError`] for a
-//! guarded graph update. A host keeps one code path and picks the backend.
+//! [`FlowCatalogDocuments`] is the catalog a host keeps its saved flows in: one
+//! `async fn` per operation (create, update with revision capture, runs and
+//! their steps, state, suggestions, drafts), reporting [`FlowUpdateError`] for a
+//! guarded graph update. The backend is whatever document handle the host
+//! passes in. It replaces the `flows.db` and draft-file catalog of the retired
+//! `tinyflows-sqlite`, whose data `tinyflows-import` brings across.
 //!
 //! # Layout
 //!

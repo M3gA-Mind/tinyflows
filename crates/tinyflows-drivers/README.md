@@ -1,16 +1,24 @@
 # tinyflows-drivers
 
-`tinyflows` run state and graph checkpoints on
+`tinyflows` storage on
 [tinystoragedrivers](https://github.com/tinyhumansai/tinystoragedrivers)
-document ports. A host that has opened a storage backend (SQLite on a desktop,
-MongoDB in the cloud, memory in tests) gets the engine's durable pieces on it,
-scoped per tenant by the document handle it passes in.
+document ports, and nothing else: this crate depends on `tinystoragedrivers-core`
+only, so no SQLite, MongoDB or file code lives in tinyflows. A host that has
+opened a storage backend (SQLite on a desktop, MongoDB in the cloud, memory in
+tests) gets the engine's durable pieces on it, scoped per tenant by the
+document handle it passes in.
+
+It is a crate of its own rather than a feature of `tinyflows` because the
+storage crates are git dependencies and the published `tinyflows` package
+cannot carry one, even an optional one.
 
 | Type | Implements | Layout |
 | --- | --- | --- |
 | `DriverStateStore` | `tinyflows::caps::StateStore` | one document per key in `flows_state` |
 | `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `flows_graph_checkpoints`, `_threads`, `_writes` |
-| `schedule::CronDocuments` | the cron job store of `tinyflows_sqlite::schedule` | `cron_jobs`, `cron_runs`, `cron_counters` |
+| `schedule::CronDocuments` | the cron job and run store | `cron_jobs`, `cron_runs`, `cron_counters` |
+| `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows_*` |
+| `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `wf_*` |
 
 ```rust
 use std::sync::Arc;
@@ -36,10 +44,10 @@ engine nor its expression stack.
 
 ## The flow catalog (`catalog`)
 
-`FlowCatalogDocuments` is the document-port counterpart of
-`tinyflows-sqlite`'s `flows` and `drafts`: one `async fn` per public function
-there, same name, same arguments minus the catalog directory, same results
-(`update_flow_graph` reports the shared `tinyflows_catalog::store::FlowUpdateError`).
+`FlowCatalogDocuments` is the catalog and the authoring drafts: one `async fn`
+per operation (`update_flow_graph` reports the shared
+`tinyflows_catalog::store::FlowUpdateError`). It replaces the retired
+`tinyflows-sqlite` `flows.db` and draft files.
 
 ```rust
 use std::sync::Arc;
@@ -97,9 +105,8 @@ unchanged: un-namespaced, for a host that gives each run its own collection.
 
 ## Cron store
 
-`CronDocuments` has the same operations as `tinyflows_sqlite::schedule` (same
-names and arguments minus the options struct, same results and error
-messages), as `async` methods:
+`CronDocuments` is the cron job and run-history store (it replaces the retired
+`tinyflows-sqlite` `jobs.db`), as `async` methods:
 
 ```rust
 use tinyflows_drivers::schedule::CronDocuments;

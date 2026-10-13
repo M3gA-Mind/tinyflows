@@ -1,11 +1,10 @@
 //! Cron jobs and their run history on a `tinystoragedrivers` [`DocumentStore`].
 //!
-//! The document-port twin of `tinyflows_sqlite::schedule`: the same functions,
-//! as `async` methods on [`CronDocuments`] instead of free functions over a
-//! [`CronStoreOptions`](https://docs.rs/tinyflows-sqlite), with the same
-//! arguments, results and error messages. A host that opened a storage backend
-//! (SQLite on a desktop, MongoDB in the cloud, memory in tests) hands it a
-//! document handle, usually one already bound to a tenant scope.
+//! The cron store as `async` methods on [`CronDocuments`]. A host that opened a
+//! storage backend (SQLite on a desktop, MongoDB in the cloud, memory in tests)
+//! hands it a document handle, usually one already bound to a tenant scope. It
+//! replaces the `jobs.db` store of the retired `tinyflows-sqlite`, whose data
+//! `tinyflows-import` brings across.
 //!
 //! # Layout
 //!
