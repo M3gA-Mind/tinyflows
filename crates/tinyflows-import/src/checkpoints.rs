@@ -148,7 +148,7 @@ pub async fn import_file_checkpoints(
                 report.invalid("writes", format!("{name}: not a thread file name"));
                 continue;
             };
-            for line in lines(&path, name, "writes", &mut report)? {
+            for line in lines(&path, name, "writes")? {
                 match serde_json::from_str::<WriteRecord>(&line) {
                     Ok(record) => writes.push((
                         CheckpointConfig {
@@ -162,7 +162,7 @@ pub async fn import_file_checkpoints(
                 }
             }
         } else if name.ends_with(".jsonl") {
-            for line in lines(&path, name, "checkpoints", &mut report)? {
+            for line in lines(&path, name, "checkpoints")? {
                 match serde_json::from_str::<Checkpoint<Value>>(&line) {
                     Ok(checkpoint) => records.push(checkpoint),
                     Err(error) => report.invalid("checkpoints", format!("{name}: {error}")),
@@ -189,10 +189,10 @@ struct WriteRecord {
     write: PendingWrite,
 }
 
-/// The non-blank lines of `path`. A final line with no terminating newline
-/// that is not a complete record is a torn append and is dropped by the
-/// caller's decode failing on it; here it is only flagged by being last.
-fn lines(path: &Path, name: &str, kind: &'static str, report: &mut ImportReport) -> Result<Vec<String>> {
+/// The non-blank lines of `path`, without a torn final one: a last line with no
+/// terminating newline that is not a complete JSON value is what a crash
+/// mid-append leaves, and the old reader forgave exactly that.
+fn lines(path: &Path, name: &str, kind: &'static str) -> Result<Vec<String>> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let complete = text.is_empty() || text.ends_with('\n');
     let mut out: Vec<String> = text
@@ -206,7 +206,6 @@ fn lines(path: &Path, name: &str, kind: &'static str, report: &mut ImportReport)
     {
         tracing::warn!(target: "tinyflows_import", file = name, kind, "[import] ignoring a torn trailing line");
         out.pop();
-        let _ = report;
     }
     Ok(out)
 }

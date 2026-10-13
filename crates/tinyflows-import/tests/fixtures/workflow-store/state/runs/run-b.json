@@ -1,0 +1,8 @@
+{
+  "id": "run-b",
+  "workflowId": "sweep",
+  "status": "running",
+  "startedAt": 200,
+  "steps": [],
+  "pendingApprovals": []
+}

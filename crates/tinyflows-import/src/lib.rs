@@ -49,6 +49,9 @@ mod report;
 mod state;
 mod workflow_store;
 
+#[cfg(test)]
+mod test_support;
+
 pub use catalog::import_flow_catalog;
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 pub use cron::import_cron;

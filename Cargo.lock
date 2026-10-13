@@ -2863,6 +2863,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyflows-import"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "tinyflows",
+ "tinyflows-catalog",
+ "tinyflows-drivers",
+ "tinyflows-schedule",
+ "tinystoragedrivers-core",
+ "tinystoragedrivers-sqlite",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tinyflows-module"
 version = "0.1.0"
 dependencies = [
