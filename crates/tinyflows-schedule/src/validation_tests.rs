@@ -58,3 +58,15 @@ fn origin_requires_conversation_and_announce_can_reply_to_its_asker() {
     };
     assert!(validate_delivery(&announce, Some(&origin), Some(&["bob".into()])).is_ok());
 }
+
+#[test]
+fn default_delivery_targets_origin_only_when_one_exists() {
+    let origin = JobOrigin::Web {
+        thread_id: "t".into(),
+        agent_id: None,
+    };
+    let with = default_delivery(Some(&origin));
+    assert_eq!(with.mode, delivery_mode::ORIGIN);
+    assert!(with.best_effort && with.channel.is_none() && with.to.is_none());
+    assert_eq!(default_delivery(None).mode, delivery_mode::PROACTIVE);
+}
