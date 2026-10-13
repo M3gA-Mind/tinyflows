@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
 description = "An adaptive loop over the tinyflows engine: select or author a workflow, run it, judge it, learn."
+# Names `tinystoragedrivers-core` by git tag, which crates.io cannot resolve
+# (docs/storage-crate-split.md); never published.
+publish = false
 
 [dependencies]
 tinyflows = { path = "../tinyflows", features = ["store"] }
