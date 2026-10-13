@@ -97,4 +97,10 @@ impl GraphValidation {
     }
 }
 
+pub mod catalog;
+pub mod runs;
 pub mod schedule;
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;
