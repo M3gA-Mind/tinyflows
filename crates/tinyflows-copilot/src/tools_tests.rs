@@ -814,3 +814,76 @@ async fn suggestions_missing_a_field_are_rejected_by_name() {
     let empty = tool.execute(json!({ "suggestions": [] })).await.unwrap();
     assert!(text(&empty).contains("Missing or empty 'suggestions'"));
 }
+
+// ── belt wording and docs drift ──────────────────────────────────────────────
+
+/// `list_agent_definitions`' own description used to discourage `agent_ref`
+/// with stale "follow-up"/"for now" wording (issue B37, Gap 1). The standing
+/// archetype tells the model an `agent_ref` step runs the selected specialist's
+/// full tool loop, and the tool description has to agree with it.
+#[test]
+fn list_agent_definitions_description_has_no_stale_followup_language() {
+    let description = ListAgentDefinitionsTool::new(host())
+        .description()
+        .to_string();
+    for banned in ["is a follow-up", "for now"] {
+        assert!(
+            !description.contains(banned),
+            "list_agent_definitions must not carry the stale phrasing `{banned}`"
+        );
+    }
+    assert!(
+        description.contains("tool loop"),
+        "list_agent_definitions must describe agent_ref as running the specialist's full tool loop"
+    );
+}
+
+/// Docs-drift guard (T-m2): the module doc table once listed 11 of ~22 tools.
+/// Derive the ground truth from the same sources (every `impl Tool for`) and
+/// fail in both directions: a tool missing from the table, or a table row naming
+/// a tool that no longer exists.
+#[test]
+fn module_doc_tool_table_matches_the_tools_defined_here() {
+    const SOURCE: &str = concat!(
+        include_str!("tools.rs"),
+        include_str!("tools/discovery.rs"),
+        include_str!("tools/draft_edit.rs"),
+        include_str!("tools/draft_revise.rs"),
+        include_str!("tools/draft_validate.rs"),
+        include_str!("tools/dry_run.rs"),
+        include_str!("tools/flow_reads.rs"),
+        include_str!("tools/kind_reads.rs"),
+        include_str!("tools/persistence.rs"),
+        include_str!("tools/run_control.rs"),
+    );
+    let module_doc: String = SOURCE
+        .lines()
+        .filter(|line| line.trim_start().starts_with("//!"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let registered: std::collections::BTreeSet<&str> = SOURCE
+        .split("impl Tool for ")
+        .skip(1)
+        .filter_map(|rest| rest.split(|c: char| !c.is_alphanumeric()).next())
+        .collect();
+    assert!(registered.len() >= 18, "found {} tools", registered.len());
+    for tool in &registered {
+        // `SuggestWorkflowsTool` is the discovery agent's, listed separately.
+        if *tool == "SuggestWorkflowsTool" {
+            continue;
+        }
+        assert!(
+            module_doc.contains(&format!("[`{tool}`]")),
+            "module doc table is missing `{tool}`"
+        );
+    }
+    for row in module_doc.split("[`").skip(1) {
+        let name = row.split("`]").next().unwrap_or_default();
+        if name.ends_with("Tool") {
+            assert!(
+                registered.contains(name),
+                "module doc table references `{name}`, but no `impl Tool for {name}` exists"
+            );
+        }
+    }
+}

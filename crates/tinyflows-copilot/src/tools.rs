@@ -1,9 +1,8 @@
 //! The authoring tool belt for a `workflow-builder` agent.
 //!
 //! These tools give the `workflow-builder` agent its full authoring surface for
-//! tinyflows [`WorkflowGraph`]s in chat — 22 tools spanning propose-only
-//! validation, in-place draft mutation, live reads, one bounded real Composio
-//! call, run control, and persistence:
+//! tinyflows [`WorkflowGraph`]s in chat — tools spanning propose-only
+//! validation, in-place draft mutation, reads, run control, and persistence:
 //!
 //! | Tool                             | Permission | Effect                                                        |
 //! | --------------------------------- | ---------- | ---------------------------------------------------------------- |
@@ -24,6 +23,7 @@
 //! | [`GetNodeKindContractTool`]       | `None`     | read: one node kind's config/port/example/gotcha contract         |
 //! | [`DryRunWorkflowTool`]            | `None`     | run a *draft* against MOCK capabilities — not tier-gated (F7)     |
 //! | [`SaveWorkflowTool`]              | `Write`    | persist a graph onto an EXISTING flow                              |
+//! | [`SuggestWorkflowsTool`]          | `None`     | the discovery agent's terminal sink: record workflow pitches      |
 //!
 //! **Human-in-the-loop invariant.** Enabling a flow is not a tool this agent
 //! has, by design, no matter which tool above it reaches for:
