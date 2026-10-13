@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Storage moves entirely onto the `tinystoragedrivers` ports
+
+tinyflows no longer ships any storage backend of its own. Every durable piece is
+a store on the `tinystoragedrivers` document ports, in `tinyflows-drivers`
+(which depends on `tinystoragedrivers-core` only; the host picks the backend).
+`tinystoragedrivers` is now pinned at `v0.7.0`.
+
+#### Removed (breaking)
+
+- **`tinyflows-sqlite`**, the whole crate: `flows.db` (catalog), `jobs.db`
+  (cron), `checkpoints.db` (the SQLite checkpointer) and the JSON draft files.
+  Their replacements are `tinyflows-drivers`' `catalog::FlowCatalogDocuments`
+  (drafts are the `flows_drafts` collection), `schedule::CronDocuments` and
+  `DriverCheckpointer`.
+- **`tinyflows::store::FileWorkflowStore`** with `LoadReport`, `workflow_dirs`,
+  `workspace_state_dir_under`, `read_workflow(_with)`, `safe_component`,
+  `workspace_scope` and `write_atomic`. `tinyflows::store` keeps the
+  `WorkflowStore` contract, the record types, `HostPolicy`, `parse_workflow`,
+  `validate_graph`, authoring, and now exports `prune_notes`,
+  `mint_revision_id` and `MAX_REVISIONS`. `tinyflows-drivers`'
+  `store::DriverWorkflowStore` implements the trait over documents, including
+  the notes journal and proposals. A new `WorkflowError::Storage` carries
+  backend failures. The `store` feature no longer depends on `fs2`.
+- **`tinyflows::graph::FileCheckpointer`** (and its re-exports). Use
+  `tinyflows_drivers::DriverCheckpointer`, or `InMemoryCheckpointer`.
+- **`tinyflows::caps::host::FileStateStore`.** Use `DriverStateStore` or
+  `FlowStateDocuments`. The `host-caps` feature no longer depends on `sha2`.
+- **`tinyflows-adaptive`'s SQLite and MongoDB backends** (`SqliteLedger`,
+  `MongoLedger`, `SqliteVault`, `MongoVault`, the `sqlite` and `mongo`
+  features, the `rusqlite` and `mongodb` dependencies). `default` is now empty;
+  `storage-drivers` (`DriverLedger`, `DriverVault`, `Storage::from_documents`)
+  is the durable path, over whichever backend the host opened. `Storage::open`
+  takes `memory` only, and a setting that names a SQLite path or a `mongodb://`
+  URI is refused at parse time with the way forward.
+- **The module-owned `sqlite` schedule store backend** in `tinyflows-bus` /
+  `tinyflows-module`. `StoreBackend` is the document port only, and the
+  schedule `CONTRACT_VERSION` is 2.
+
+#### Added
+
+- **`tinyflows-drivers`:** `store::DriverWorkflowStore` (feature `store`), and
+  write-if-absent, id-preserving `import_*` methods on `FlowCatalogDocuments`
+  (flows, revisions, runs, state, suggestions, drafts), `CronDocuments` (jobs,
+  runs) and `DriverWorkflowStore` (workflows, revisions, runs, notes,
+  proposals).
+- **`tinyflows-import` (new, unpublished crate):** reads the retired stores and
+  writes them through those methods. `import_flow_catalog` (`flows.db` and
+  `drafts/`), `import_cron` (`jobs.db`), `import_sqlite_checkpoints`
+  (`checkpoints.db`), `import_file_checkpoints` (the JSONL files),
+  `import_file_state` (the hashed state files, for the keys named) and
+  `import_workflow_store` (definitions, runs, journal, proposals and revisions,
+  with `FileStoreLayout` deriving the old directory layout). SQLite files are
+  copied to a scratch directory and read through the SQLite driver's native
+  handle, so the originals are never opened, modified or given a `-wal`; nothing
+  already in the target is replaced; a flow-schedule cron job is filed under the
+  id the document store derives from its flow. Tested against fixtures written
+  by the retired writers.
+
+
 ### Added
 
 - **`tinyflows-adaptive` on a `tinystoragedrivers` document port
