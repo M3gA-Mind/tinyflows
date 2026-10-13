@@ -11,20 +11,16 @@
 //!
 //! ```text
 //! "memory"                          → forgets on restart; tests, first look
-//! "adaptive.db"  or  "sqlite:…"     → one SQLite file holding BOTH halves
-//! "mongodb://host/db"               → one Mongo database holding both
 //! ```
 //!
-//! A host that already opened a `tinystoragedrivers` backend skips the
-//! setting: [`Storage::from_documents`] (feature `storage-drivers`) puts both
-//! halves on its document handle.
+//! Anything durable is the host's storage backend: the crate opens no database
+//! of its own. A host that has opened a `tinystoragedrivers` backend (SQLite,
+//! MongoDB, files, memory) puts both halves on its document handle with
+//! [`Storage::from_documents`] (feature `storage-drivers`).
 //!
-//! A URI for a backend this build does not carry fails **at parse time**, with
-//! the feature named — a config error at boot, not a missing symbol at the
-//! first write.
-
-#[cfg(feature = "sqlite")]
-use std::path::PathBuf;
+//! A setting that names a database (a SQLite path, a `mongodb://` URI) fails
+//! **at parse time**, saying so — a config error at boot, not a service that
+//! runs perfectly and learns nothing.
 
 use async_trait::async_trait;
 use tinyflows::store::types::{WorkflowError, WorkflowRecord};
@@ -60,17 +56,6 @@ pub enum Config {
     /// In memory; forgets on restart. Never picked implicitly — the value has
     /// to literally say `memory`.
     Memory,
-    /// One SQLite file, holding the ledger and the vault side by side.
-    #[cfg(feature = "sqlite")]
-    Sqlite(PathBuf),
-    /// One MongoDB database, holding both.
-    #[cfg(feature = "mongo")]
-    Mongo {
-        /// The connection string, passed to the driver untouched.
-        uri: String,
-        /// The database name, taken from the URI's path or defaulted.
-        database: String,
-    },
 }
 
 impl Config {
