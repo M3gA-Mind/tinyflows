@@ -47,8 +47,10 @@ pub use self::http::{
 };
 pub use self::mocks::{SchemaAwareMockAgentRunner, SchemaAwareMockLlm, sample_for_schema};
 pub use self::script::{
-    DEFAULT_SHELL, INPUT_ENV, Interpreter, ScriptCompletion, ScriptLanguage, ScriptOutput,
-    ScriptRequest, ScriptSource, USER_SHELL, run_script, run_script_capture,
+    DEFAULT_SHELL, DirectSpawner, INPUT_ENV, Interpreter, ScriptCompletion, ScriptLanguage,
+    ScriptOutput, ScriptRequest, ScriptSource, ScriptSpawner, SpawnOutput, SpawnSpec, USER_SHELL,
+    clear_script_spawner, install_script_spawner, require_script_spawner, run_script,
+    run_script_capture,
 };
 pub use self::script_policy::{ScriptPolicy, is_valid_env_name, read_env};
 pub use self::shell::ProcessShellRunner;
