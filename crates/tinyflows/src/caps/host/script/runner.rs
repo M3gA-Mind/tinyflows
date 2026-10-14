@@ -58,8 +58,6 @@ pub async fn run_script(request: ScriptRequest<'_>) -> Result<ScriptOutput> {
 /// on disk, or the script outlives `request.timeout` — that is, when there is no
 /// exit status to report at all.
 pub async fn run_script_capture(request: ScriptRequest<'_>) -> Result<ScriptCompletion> {
-    use tokio::io::AsyncWriteExt;
-
     let ScriptRequest {
         language,
         interpreter,
@@ -115,67 +113,37 @@ pub async fn run_script_capture(request: ScriptRequest<'_>) -> Result<ScriptComp
     std::fs::write(&input_path, &body)
         .map_err(|err| EngineError::Capability(format!("script: {err}")))?;
 
-    let mut command = tokio::process::Command::new(program);
-    command
-        .args(leading_args)
-        .arg(&script)
-        .arg(&input_path)
-        .env(INPUT_ENV, &input_path)
-        // Layered after `INPUT_ENV` so a workflow's own declaration wins over
-        // the inherited value of the same name — that is what declaring one is
-        // for. A host that wants the path under a second name of its own (an
-        // older, product-specific spelling its authored workflows already use)
-        // puts it here.
-        .envs(env)
-        .current_dir(cwd.unwrap_or_else(|| dir.path()))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        // Tokio does not kill a child when its future is dropped, so a timeout
-        // would otherwise leave an infinite script running forever with nothing
-        // holding a handle to it.
-        .kill_on_drop(true);
-
-    let mut child = command.spawn().map_err(|err| {
-        EngineError::Capability(format!(
-            "script: cannot run `{program}` ({err}). Is it installed and on PATH?"
-        ))
-    })?;
-
-    // Writing stdin and draining stdout/stderr happen concurrently, not one
-    // after the other: a script that prints before it finishes reading stdin
-    // fills its stdout pipe while this side is still blocked in `write_all` on
-    // stdin, and neither side would ever unblock the other — a real deadlock,
-    // not just a slow path, for any input near the OS pipe buffer size. The
-    // writer runs on its own task so `wait_with_output` starts reading
-    // immediately; if the child exits without reading all of stdin, the pipe
-    // simply closes underneath the writer, which surfaces as a write error we
-    // ignore (the exit status and stderr are the story in that case, not this).
-    let mut stdin = child.stdin.take();
-    let writer = tokio::spawn(async move {
-        if let Some(mut stdin) = stdin.take() {
-            let _ = stdin.write_all(&body).await;
-            let _ = stdin.shutdown().await;
-        }
-    });
-    let output = tokio::time::timeout(timeout, async {
-        let output = child.wait_with_output().await;
-        // Joined so a slow writer is still bounded by `timeout` above, not left
-        // running past the point this function returns.
-        let _ = writer.await;
-        output
-    })
-    .await
-    .map_err(|_| {
-        EngineError::Capability(format!("script: timed out after {}s", timeout.as_secs()))
-    })?
-    .map_err(|err| EngineError::Capability(format!("script: {program}: {err}")))?;
+    // Resolved before anything runs so a fail-closed host refuses here.
+    let spawner = spawner::current_spawner()?;
+    let mut args: Vec<String> = leading_args.to_vec();
+    args.push(script.to_string_lossy().into_owned());
+    args.push(input_path.to_string_lossy().into_owned());
+    // Layered after `INPUT_ENV` so a workflow's own declaration wins over the
+    // inherited value of the same name.
+    let mut spawn_env = BTreeMap::new();
+    spawn_env.insert(
+        INPUT_ENV.to_string(),
+        input_path.to_string_lossy().into_owned(),
+    );
+    spawn_env.extend(env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    tracing::debug!(program, "script: spawning");
+    let output = spawner
+        .spawn(spawner::SpawnSpec {
+            program: program.to_string(),
+            args,
+            env: spawn_env,
+            cwd: cwd.map_or_else(|| dir.path().to_path_buf(), Path::to_path_buf),
+            staging_dir: dir.path().to_path_buf(),
+            stdin: body,
+            timeout,
+        })
+        .await?;
 
     Ok(ScriptCompletion {
         // `-1` for a signal: `ExitStatus::code()` is `None` when a process was
         // terminated rather than exiting, and a caller comparing against zero
         // must not read that as success.
-        exit_code: output.status.code().unwrap_or(-1),
+        exit_code: output.exit_code,
         stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
     })

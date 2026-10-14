@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Script spawner seam (`host-caps`)
+
+`caps::host::script` now launches every `code`/`shell` script through a
+`ScriptSpawner`. `install_script_spawner` lets a host route scripts through its
+jail; `require_script_spawner(true)` makes a run with no spawner fail closed.
+The default `DirectSpawner` keeps the previous unjailed behaviour.
+
 ### Storage moves entirely onto the `tinystoragedrivers` ports
 
 tinyflows no longer ships any storage backend of its own. Every durable piece is
