@@ -12,7 +12,7 @@ use tinyflows::caps::host::*;
 use tinyflows::error::Result;
 
 /// The spawner state is process-global, so these cases run one at a time.
-static SERIAL: Mutex<()> = Mutex::new(());
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Recording(Mutex<Vec<SpawnSpec>>);
 
@@ -40,7 +40,7 @@ fn request<'a>(input: &'a Value, env: &'a BTreeMap<String, String>) -> ScriptReq
 
 #[tokio::test]
 async fn an_installed_spawner_receives_the_staged_script() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = SERIAL.lock().await;
     let recording = Arc::new(Recording(Mutex::new(Vec::new())));
     install_script_spawner(recording.clone());
     let env = BTreeMap::from([("A".to_string(), "b".to_string())]);
@@ -60,7 +60,7 @@ async fn an_installed_spawner_receives_the_staged_script() {
 
 #[tokio::test]
 async fn a_required_spawner_fails_closed_when_none_is_installed() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = SERIAL.lock().await;
     clear_script_spawner();
     require_script_spawner(true);
     let env = BTreeMap::new();
@@ -75,7 +75,7 @@ async fn a_required_spawner_fails_closed_when_none_is_installed() {
 #[cfg(unix)]
 #[tokio::test]
 async fn without_a_spawner_scripts_still_run_directly() {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = SERIAL.lock().await;
     clear_script_spawner();
     require_script_spawner(false);
     let env = BTreeMap::new();
