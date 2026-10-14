@@ -167,7 +167,3 @@ pub(super) fn current_spawner() -> Result<Arc<dyn ScriptSpawner>> {
         (None, false) => Ok(Arc::new(DirectSpawner)),
     }
 }
-
-#[cfg(test)]
-#[path = "spawner_tests.rs"]
-mod tests;

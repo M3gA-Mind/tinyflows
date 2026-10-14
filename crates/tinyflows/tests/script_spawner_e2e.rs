@@ -1,6 +1,15 @@
-use super::*;
-use serde_json::json;
-use std::sync::Mutex;
+//! The script spawner seam: a host jail receives every script launch, and a
+//! required spawner fails closed. Own test binary because the seam is process-global.
+#![cfg(feature = "host-caps")]
+
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use serde_json::{Value, json};
+use tinyflows::caps::host::*;
+use tinyflows::error::Result;
 
 /// The spawner state is process-global, so these cases run one at a time.
 static SERIAL: Mutex<()> = Mutex::new(());
