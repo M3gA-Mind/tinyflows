@@ -15,7 +15,7 @@ use tinyflows::store::ProposalDecisionGuard;
 use tinyflows::store::types::WorkflowError;
 use tinystoragedrivers_core::{Key, Leases};
 
-use super::{DriverWorkflowStore, Inner, storage};
+use super::{DriverWorkflowStore, Inner, doc_id, storage};
 
 /// How long a claimed lease is good for. A decision that outlives it loses its
 /// exclusion, which is what lets a crashed holder's lease be taken over.
@@ -50,6 +50,9 @@ impl Inner {
         workflow_id: &str,
     ) -> Result<Held, WorkflowError> {
         self.ensure().await?;
+        // Refuses an unusable id (empty, control characters) like every other
+        // operation on a workflow.
+        doc_id(workflow_id)?;
         let key = lease_key(workflow_id);
         let holder = Key::ulid().as_str().to_owned();
         let ttl_ms = i64::try_from(LOCK_LEASE.as_millis()).unwrap_or(i64::MAX);
@@ -79,7 +82,12 @@ impl Inner {
     /// Releases `held`, if the lease is still ours.
     pub(super) async fn release_decision_lease(&self, workflow_id: &str, held: &Held) {
         let released = Leases::new(&self.docs)
-            .release(LEASE_OWNER, &lease_key(workflow_id), &held.holder, held.epoch)
+            .release(
+                LEASE_OWNER,
+                &lease_key(workflow_id),
+                &held.holder,
+                held.epoch,
+            )
             .await;
         if let Err(error) = released {
             tracing::warn!(target: "workflows", workflow_id, %error, "[workflows] failed to release a decision lease; it expires on its own");

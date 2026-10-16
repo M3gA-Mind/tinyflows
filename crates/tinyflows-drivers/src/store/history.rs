@@ -41,9 +41,15 @@ impl Inner {
         let superseded_at = now_ms();
         let id = mint_revision_id(superseded_at);
         let doc = to_doc(record, superseded_at)?;
-        put_doc(self.docs.as_ref(), REVISIONS, &id, doc, Precondition::Absent)
-            .await
-            .map_err(storage)?;
+        put_doc(
+            self.docs.as_ref(),
+            REVISIONS,
+            &id,
+            doc,
+            Precondition::Absent,
+        )
+        .await
+        .map_err(storage)?;
         Ok(id)
     }
 

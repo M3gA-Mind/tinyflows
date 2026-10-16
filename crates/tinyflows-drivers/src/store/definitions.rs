@@ -103,7 +103,14 @@ impl Inner {
             let precondition = stored
                 .as_ref()
                 .map_or(Precondition::Absent, Versioned::unchanged);
-            match put_doc(self.docs.as_ref(), DEFINITIONS, &id, doc.clone(), precondition).await
+            match put_doc(
+                self.docs.as_ref(),
+                DEFINITIONS,
+                &id,
+                doc.clone(),
+                precondition,
+            )
+            .await
             {
                 Ok(_) => {
                     if let Some(revision) = revision {
@@ -144,7 +151,14 @@ impl Inner {
                 return Ok(false);
             }
             let revision = self.capture(&current).await?;
-            match put_doc(self.docs.as_ref(), DEFINITIONS, &id, doc.clone(), stored.unchanged()).await
+            match put_doc(
+                self.docs.as_ref(),
+                DEFINITIONS,
+                &id,
+                doc.clone(),
+                stored.unchanged(),
+            )
+            .await
             {
                 Ok(_) => {
                     self.commit_capture(&record.id, &revision).await;

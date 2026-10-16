@@ -184,9 +184,15 @@ async fn a_v1_run_becomes_snake_case_with_ms_times() {
     assert_eq!(stored.doc["workflow_id"], "sweep");
     assert_eq!(stored.doc["started_ms"], 1_700_000_000_123_u64);
     assert_eq!(stored.doc["finished_ms"], 1_700_000_000_456_u64);
-    assert_eq!(stored.doc["executor"]["process_started_ms"], 1_700_000_000_000_u64);
+    assert_eq!(
+        stored.doc["executor"]["process_started_ms"],
+        1_700_000_000_000_u64
+    );
     assert_eq!(stored.doc["steps"][0]["node_id"], "a");
-    assert_eq!(stored.doc["steps"][0]["output"][0]["keepMe"], 1, "free-form output is verbatim");
+    assert_eq!(
+        stored.doc["steps"][0]["output"][0]["keepMe"], 1,
+        "free-form output is verbatim"
+    );
     assert_eq!(stored.doc["settled"], true);
     assert_eq!(stored.meta.created_ms, 1_700_000_000_123_i64);
     let store = DriverWorkflowStore::new(docs(&storage));
@@ -317,8 +323,14 @@ async fn migrating_twice_changes_nothing() {
     )
     .await;
     migrate(&storage).await;
-    let first = docs(&storage).get("flows.workflows", "sweep").await.unwrap();
+    let first = docs(&storage)
+        .get("flows.workflows", "sweep")
+        .await
+        .unwrap();
     migrate(&storage).await;
-    let second = docs(&storage).get("flows.workflows", "sweep").await.unwrap();
+    let second = docs(&storage)
+        .get("flows.workflows", "sweep")
+        .await
+        .unwrap();
     assert_eq!(first.unwrap().doc, second.unwrap().doc);
 }

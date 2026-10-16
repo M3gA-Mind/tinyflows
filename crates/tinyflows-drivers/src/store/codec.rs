@@ -137,7 +137,10 @@ fn object(value: Value, what: &str) -> Result<Map<String, Value>, WorkflowError>
     }
 }
 
-fn serialize<T: serde::Serialize>(record: &T, what: &str) -> Result<Map<String, Value>, WorkflowError> {
+fn serialize<T: serde::Serialize>(
+    record: &T,
+    what: &str,
+) -> Result<Map<String, Value>, WorkflowError> {
     let value = serde_json::to_value(record).map_err(|error| malformed(what, error))?;
     object(value, what)
 }
@@ -179,7 +182,10 @@ pub(super) fn revision_body(
 
 /// The workflow a revision body holds.
 pub(super) fn revision_record(body: &Value) -> Result<WorkflowRecord, String> {
-    let mut fields = body.as_object().cloned().ok_or("revision is not an object")?;
+    let mut fields = body
+        .as_object()
+        .cloned()
+        .ok_or("revision is not an object")?;
     fields.remove("superseded_ms");
     let id = fields
         .remove("workflow_id")

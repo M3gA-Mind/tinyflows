@@ -23,7 +23,9 @@ use super::definitions::{is_race, to_doc as definition_doc};
 use super::history::to_doc as revision_doc;
 use super::proposals::to_doc as proposal_doc;
 use super::runs::to_doc as run_doc;
-use super::{DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, put_doc, storage};
+use super::{
+    DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, put_doc, storage,
+};
 
 /// Writes `doc` at `collection/id` only if absent; `Ok(false)` when taken.
 async fn put_if_absent(

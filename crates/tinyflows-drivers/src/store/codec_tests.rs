@@ -95,7 +95,10 @@ fn a_run_is_stored_as_snake_case_with_millisecond_times() {
     }
     assert_eq!(body["started_ms"], 1_700_000_000_123_u64);
     assert_eq!(body["finished_ms"], 1_700_000_000_456_u64);
-    assert_eq!(body["executor"]["process_started_ms"], 1_700_000_000_000_u64);
+    assert_eq!(
+        body["executor"]["process_started_ms"],
+        1_700_000_000_000_u64
+    );
     assert_eq!(body["steps"][0]["transcript"][0]["at_ms"], 5);
     assert_eq!(body["settled"], true);
     assert!(body.get("started_at").is_none() && body.get("startedAt").is_none());

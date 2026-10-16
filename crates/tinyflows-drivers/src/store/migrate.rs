@@ -30,12 +30,32 @@ pub(crate) fn extend_schema(mut schema: Schema) -> Schema {
         schema = schema.collection_with(SCHEMA_VERSION, spec, ScopeClass::Tenant);
     }
     schema
-        .step(step("workflows_v2", DEFINITIONS, "wf_definitions", definition))
-        .step(step("workflow_revisions_v2", REVISIONS, "wf_revisions", revision))
+        .step(step(
+            "workflows_v2",
+            DEFINITIONS,
+            "wf_definitions",
+            definition,
+        ))
+        .step(step(
+            "workflow_revisions_v2",
+            REVISIONS,
+            "wf_revisions",
+            revision,
+        ))
         .step(step("workflow_runs_v2", RUNS, "wf_runs", run))
         .step(step("workflow_notes_v2", NOTES, "wf_notes", journal))
-        .step(step("workflow_proposals_v2", PROPOSALS, "wf_proposals", proposal))
-        .step(step("workflow_quarantine_v2", QUARANTINE, "wf_quarantine", quarantine))
+        .step(step(
+            "workflow_proposals_v2",
+            PROPOSALS,
+            "wf_proposals",
+            proposal,
+        ))
+        .step(step(
+            "workflow_quarantine_v2",
+            QUARANTINE,
+            "wf_quarantine",
+            quarantine,
+        ))
 }
 
 type Convert = fn(&SourceRecord) -> Option<TargetRecord>;
