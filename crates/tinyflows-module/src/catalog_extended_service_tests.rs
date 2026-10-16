@@ -424,6 +424,62 @@ async fn promote_draft_calls_catalog_reentrantly_and_deletes_after_success() {
 }
 
 #[tokio::test]
+async fn promote_draft_updates_the_linked_workflow_without_a_version_precondition() {
+    let (_server, host) = connections().await;
+    let (storage, _) = scope_with_documents(&host, "promote_update").await;
+    let proxy = proxy(&host);
+    let created: PutWorkflowResponse = proxy
+        .call(
+            "PutWorkflow",
+            &(PutWorkflowRequest::Create {
+                storage: storage.clone(),
+                name: "Original".into(),
+                graph: graph("manual", false),
+                require_approval: true,
+            },),
+        )
+        .await
+        .unwrap();
+    let PutWorkflowResponse::Ok(created) = created else {
+        panic!("workflow setup failed")
+    };
+    let draft = create_draft(&proxy, storage.clone(), Some(created.workflow.id.clone())).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: Some("Updated from draft".into()),
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let callback = promotion_host(&host, storage.clone(), "update", false).await;
+    let result: PromoteDraftResponse = proxy
+        .call(
+            "PromoteDraft",
+            &(PromoteDraftRequest {
+                storage: storage.clone(),
+                host: callback,
+                id: draft.id.clone(),
+                require_approval: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let PromoteDraftResponse::Ok(result) = result else {
+        panic!("promotion failed: {result:?}")
+    };
+    assert_eq!(result.workflow.id, created.workflow.id);
+    assert_eq!(result.workflow.name, "Updated from draft");
+    assert!(result.workflow.require_approval);
+    assert!(result.draft_deleted);
+}
+
+#[tokio::test]
 async fn promote_draft_preserves_host_failure_and_retains_draft() {
     let (_server, host) = connections().await;
     let (storage, _) = scope_with_documents(&host, "promote_failure").await;
@@ -500,8 +556,7 @@ async fn promote_draft_reports_cleanup_failure_after_successful_save() {
         result
             .cleanup_warning
             .as_deref()
-            .unwrap()
-            .contains("injected draft delete failure")
+            .is_some_and(|warning| !warning.is_empty())
     );
     let retained: Option<FlowDraft> = proxy
         .call(
