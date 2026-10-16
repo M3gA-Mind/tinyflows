@@ -53,14 +53,28 @@ fn manifest() -> TbSlice {
                     tinyflows_bus::schedule::METHODS,
                 ),
             ],
-            requires: vec![Dependency {
-                interface: InterfaceVersion::consumed(
-                    InterfaceName::new(tinyflows_bus::HOST_INTERFACE).expect("static interface"),
-                    version.clone(),
-                ),
-                optional: true,
-                reason: String::new(),
-            }],
+            requires: vec![
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: String::new(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::catalog::STORAGE_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason:
+                        "Catalog requests require a host callback bound to the acting agent scope"
+                            .into(),
+                },
+            ],
             environment: vec![],
             capabilities: vec![],
             lazy_init: false,

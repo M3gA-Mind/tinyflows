@@ -249,11 +249,21 @@ async fn catalog_bus_serves_create_update_conflict_history_and_agent_scopes() {
         .unwrap();
     assert_eq!(fetched, Some(revisions[0].clone()));
 
+    let fetched_workflow: Option<Workflow> = proxy
+        .call("GetWorkflow", &(alice.clone(), &id))
+        .await
+        .unwrap();
+    assert_eq!(
+        fetched_workflow.as_ref().map(|flow| flow.name.as_str()),
+        Some("Updated flow")
+    );
+
     let alice_list: ListWorkflowsResult = proxy
         .call("ListWorkflows", &(alice.clone(),))
         .await
         .unwrap();
     assert_eq!(alice_list.workflows[0].name, "Updated flow");
+    assert_eq!(alice_list.skipped_rows, 0);
     assert_eq!(alice_list.workflows[0].revision, 2);
     assert_eq!(
         alice_list.workflows[0].trigger_kind.as_deref(),
