@@ -23,14 +23,14 @@
 //! `tinyflows-import` crate.
 
 use anyhow::{Context, Result};
-use serde_json::json;
 use tinyflows_schedule::{CronJob, CronRun, JobType};
-use tinystoragedrivers_core::{ErrorKind, Filter, Precondition, Query};
+use tinystoragedrivers_core::{Counters, ErrorKind, Filter, Precondition, Query, WriteOptions};
 
-use super::codec::{INCARNATION, nanos, run_id, run_to_doc};
+use super::codec::{INCARNATION, run_id, run_to_doc};
 use super::jobs::{flow_job_id, new_job_doc, runs_of};
-use super::runs::RUN_COUNTER;
-use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, storage_error};
+use super::{
+    CAS_ATTEMPTS, CronDocuments, JOBS, OWNER, RUN_COUNTER, RUNS, SCHEMA_VERSION, storage_error,
+};
 
 /// What [`CronDocuments::import_job`] did with a job (the bus wire record).
 pub use tinyflows_schedule::ImportedJob;
@@ -62,14 +62,19 @@ impl CronDocuments {
                 tracing::debug!(target: "cron", job_id = %id, "[cron] import: job already present");
                 return Ok(ImportedJob { id, written: false });
             }
-            match self.commit_job(&id, None, Some(doc.clone()), vec![]).await {
-                Ok(_) => {
+            // Written with the job's own creation time, which the atomic batch
+            // cannot carry; an importer is the one writer allowed to set it.
+            match self
+                .insert_with_created(&id, doc.clone(), job.created_at.timestamp_millis())
+                .await
+            {
+                Ok(()) => {
                     tracing::debug!(target: "cron", job_id = %id, source_id = %job.id, "[cron] import: job");
                     return Ok(ImportedJob { id, written: true });
                 }
                 // Lost a race to another writer: look again, and either find
                 // the job there now or try the write once more.
-                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) if super::admission::conflict(&error) || is_taken(&error) => {}
                 Err(error) => return Err(error).context("Failed to import cron job"),
             }
         }
@@ -87,10 +92,9 @@ impl CronDocuments {
     /// When the job is not in the store or the backend fails.
     pub async fn import_run(&self, run: &CronRun) -> Result<bool> {
         self.ensure().await?;
-        let job = self.job_doc(&run.job_id).await?;
-        let started_ns = nanos(run.started_at);
+        let job = self.job_doc(&run.job_id).await?.doc;
         let same = runs_of(&run.job_id, &job)
-            .and(Filter::eq("started_ns", started_ns))
+            .and(Filter::eq("started_ms", run.started_at.timestamp_millis()))
             .and(Filter::eq("status", run.status.as_str()));
         let known = self
             .docs
@@ -120,7 +124,13 @@ impl CronDocuments {
             );
             match self
                 .docs
-                .put(RUNS, &run_id(seq), doc, Precondition::Absent)
+                .put_with(
+                    RUNS,
+                    &run_id(seq),
+                    doc,
+                    Precondition::Absent,
+                    WriteOptions::new().schema(SCHEMA_VERSION),
+                )
                 .await
             {
                 Ok(_) => break,
@@ -141,39 +151,21 @@ impl CronDocuments {
 
     /// Raises the run counter to at least `floor`, never lowering it.
     async fn raise_run_counter(&self, floor: i64) -> Result<()> {
-        for _ in 0..CAS_ATTEMPTS {
-            let stored = self
-                .docs
-                .get(COUNTERS, RUN_COUNTER)
-                .await
-                .map_err(storage_error)?;
-            let (next, precondition) = match &stored {
-                None => (None, Precondition::Absent),
-                Some(stored) => (
-                    stored.doc.get("next").and_then(serde_json::Value::as_i64),
-                    stored.unchanged(),
-                ),
-            };
-            if next.is_some_and(|next| next >= floor) {
-                return Ok(());
-            }
-            match self
-                .docs
-                .put(
-                    COUNTERS,
-                    RUN_COUNTER,
-                    json!({ "next": floor }),
-                    precondition,
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(error) if error.kind() == ErrorKind::Conflict => {}
-                Err(error) => return Err(storage_error(error)),
-            }
-        }
-        anyhow::bail!("cron store: the run counter kept changing under {CAS_ATTEMPTS} attempts")
+        // The counter holds the last number handed out; `floor` is the next.
+        let last = u64::try_from(floor.saturating_sub(1)).unwrap_or_default();
+        Counters::new(&self.docs)
+            .set_at_least(OWNER, RUN_COUNTER, last)
+            .await
+            .map_err(storage_error)?;
+        Ok(())
     }
+}
+
+/// Whether `error` is the storage refusing to write an id that is taken.
+fn is_taken(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<tinystoragedrivers_core::StorageError>()
+        .is_some_and(|error| matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists))
 }
 
 #[cfg(test)]

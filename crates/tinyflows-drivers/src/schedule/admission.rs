@@ -11,7 +11,7 @@ use tinystoragedrivers_core::{
 /// The id of the ledger document in `cron.admission`.
 pub(super) const LEDGER: &str = "ledger";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Member {
     job_id: String,
@@ -174,6 +174,58 @@ impl CronDocuments {
             }
         }
         bail!("cron store: admission initialization kept changing")
+    }
+
+    /// Writes a new job with an explicit creation time (an importer keeps the
+    /// original) and enrols it in the admission ledger. The job is written
+    /// first and enrolled second, so a job over the cap is taken back.
+    ///
+    /// # Errors
+    /// The cap would be exceeded, or the backend fails.
+    pub(super) async fn insert_with_created(
+        &self,
+        id: &str,
+        doc: Value,
+        created_ms: i64,
+    ) -> Result<()> {
+        let mut options = tinystoragedrivers_core::WriteOptions::new().schema(super::SCHEMA_VERSION);
+        if created_ms > 0 {
+            options = options.created_ms(created_ms);
+        }
+        let member = member(id, &doc)?;
+        self.docs
+            .put_with(JOBS, id, doc, Precondition::Absent, options)
+            .await
+            .map_err(storage_error)?;
+        if !self.docs.capabilities().contains(Capability::Transactions) {
+            return self.require_unlimited_backend().await;
+        }
+        let enrolled = self.enrol(member).await;
+        if enrolled.is_err() {
+            let _ = self.docs.delete(JOBS, id, Precondition::None).await;
+        }
+        enrolled
+    }
+
+    async fn enrol(&self, member: Member) -> Result<()> {
+        for _ in 0..CAS_ATTEMPTS {
+            let ledger = self.admission().await?;
+            let mut state: Admission = decode(ledger.doc.clone())?;
+            state.jobs.insert(member.job_id.clone(), member.clone());
+            state.check()?;
+            let op = WriteOp::Put {
+                collection: ADMISSION.into(),
+                id: LEDGER.into(),
+                doc: encode(state)?,
+                precondition: ledger.unchanged(),
+            };
+            match self.docs.atomic_batch(vec![op]).await {
+                Ok(_) => return Ok(()),
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
+                Err(error) => return Err(storage_error(error)),
+            }
+        }
+        bail!("cron store: admission enrolment kept changing")
     }
 
     /// A nontransactional backend must never bypass persisted policy.
