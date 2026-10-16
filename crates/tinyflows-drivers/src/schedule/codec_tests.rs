@@ -49,7 +49,14 @@ fn job() -> CronJob {
 #[test]
 fn absent_optionals_are_left_out_not_null() {
     let doc = job_to_doc(&job()).unwrap();
-    for field in ["prompt", "name", "model", "agent_id", "origin", "last_run_ms"] {
+    for field in [
+        "prompt",
+        "name",
+        "model",
+        "agent_id",
+        "origin",
+        "last_run_ms",
+    ] {
         assert!(doc.get(field).is_none(), "{field}");
     }
     assert!(doc["schedule"].is_object() && doc["delivery"].is_object());
@@ -125,7 +132,10 @@ fn a_one_shot_schedule_stores_its_instant_as_milliseconds() {
     let mut value = job();
     value.schedule = Schedule::At { at };
     let doc = job_to_doc(&value).unwrap();
-    assert_eq!(doc["schedule"], json!({"kind": "at", "at_ms": at.timestamp_millis()}));
+    assert_eq!(
+        doc["schedule"],
+        json!({"kind": "at", "at_ms": at.timestamp_millis()})
+    );
     assert!(matches!(
         doc_to_job(&stored(doc)).unwrap().schedule,
         Schedule::At { at: read } if read == at

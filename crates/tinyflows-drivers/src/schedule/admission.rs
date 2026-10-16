@@ -105,7 +105,9 @@ impl CronDocuments {
             let mut ops = Vec::new();
             for row in rows {
                 doc_to_job(&row)?;
-                state.jobs.insert(row.id.clone(), member(&row.id, &row.doc)?);
+                state
+                    .jobs
+                    .insert(row.id.clone(), member(&row.id, &row.doc)?);
                 ops.push(WriteOp::Put {
                     collection: JOBS.into(),
                     id: row.id.clone(),
@@ -153,7 +155,9 @@ impl CronDocuments {
             let mut ops = Vec::new();
             for row in rows {
                 doc_to_job(&row)?;
-                state.jobs.insert(row.id.clone(), member(&row.id, &row.doc)?);
+                state
+                    .jobs
+                    .insert(row.id.clone(), member(&row.id, &row.doc)?);
                 ops.push(WriteOp::Put {
                     collection: JOBS.into(),
                     id: row.id.clone(),
@@ -188,7 +192,8 @@ impl CronDocuments {
         doc: Value,
         created_ms: i64,
     ) -> Result<()> {
-        let mut options = tinystoragedrivers_core::WriteOptions::new().schema(super::SCHEMA_VERSION);
+        let mut options =
+            tinystoragedrivers_core::WriteOptions::new().schema(super::SCHEMA_VERSION);
         if created_ms > 0 {
             options = options.created_ms(created_ms);
         }

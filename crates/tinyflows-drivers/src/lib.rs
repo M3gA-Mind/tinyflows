@@ -42,12 +42,12 @@ pub mod catalog;
 mod checkpoint;
 #[cfg(feature = "engine")]
 mod checkpoint_layout;
+#[cfg(any(feature = "catalog", feature = "schedule"))]
+mod ids;
 #[cfg(feature = "schedule")]
 pub mod schedule;
 #[cfg(feature = "engine")]
 mod state_store;
-#[cfg(any(feature = "catalog", feature = "schedule"))]
-mod ids;
 pub mod storage;
 #[cfg(feature = "store")]
 pub mod store;

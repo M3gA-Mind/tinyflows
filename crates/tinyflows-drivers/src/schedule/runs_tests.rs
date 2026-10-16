@@ -407,7 +407,10 @@ async fn runs_started_within_a_millisecond_order_by_run_number() {
         .unwrap();
     let runs = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].status, "earlier", "pruning keeps the newest run number");
+    assert_eq!(
+        runs[0].status, "earlier",
+        "pruning keeps the newest run number"
+    );
 }
 
 #[tokio::test]

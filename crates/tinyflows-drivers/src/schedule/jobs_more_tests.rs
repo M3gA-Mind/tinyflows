@@ -45,6 +45,8 @@ async fn due_jobs_order_by_time_then_id() {
         base - Duration::nanoseconds(i64::from(base.timestamp_subsec_nanos() % 1_000_000));
     set_due_at(&store, &first.id, ms_floor + Duration::microseconds(2)).await;
     set_due_at(&store, &second.id, ms_floor + Duration::microseconds(1)).await;
+    set_due_at(&store, &legacy.id, ms_floor - Duration::seconds(1)).await;
+
     let due: Vec<String> = store
         .due_jobs(Utc::now())
         .await

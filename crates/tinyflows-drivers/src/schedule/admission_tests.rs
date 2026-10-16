@@ -274,10 +274,7 @@ async fn admission_wire_form_lists_members_with_their_job_ids() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        stored.doc,
-        serde_json::json!({"limit": 2, "members": []})
-    );
+    assert_eq!(stored.doc, serde_json::json!({"limit": 2, "members": []}));
     a.add_flow_schedule_job("dot.$key", daily()).await.unwrap();
     let stored = a
         .docs

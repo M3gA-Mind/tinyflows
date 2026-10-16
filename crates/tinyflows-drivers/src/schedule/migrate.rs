@@ -24,8 +24,8 @@ use tinystoragedrivers_core::{
     SourceRecord, Step, TargetRecord,
 };
 
-use super::{ADMISSION, CronDocuments, JOBS, OWNER, RUN_COUNTER, RUNS, SCHEMA_VERSION};
 use super::admission::LEDGER;
+use super::{ADMISSION, CronDocuments, JOBS, OWNER, RUN_COUNTER, RUNS, SCHEMA_VERSION};
 
 /// Where the step files the v1 run counter until it is imported.
 const STAGED_COUNTER: &str = "runs_counter";
@@ -119,9 +119,17 @@ fn job(source: &SourceRecord) -> Option<TargetRecord> {
     let next_run = body
         .get("next_run_ms")
         .and_then(Value::as_i64)
-        .or_else(|| body.get("next_run").and_then(Value::as_str).and_then(instant_ms))?;
+        .or_else(|| {
+            body.get("next_run")
+                .and_then(Value::as_str)
+                .and_then(instant_ms)
+        })?;
     out.insert("next_run_ms".into(), next_run.into());
-    if let Some(last) = body.get("last_run").and_then(Value::as_str).and_then(instant_ms) {
+    if let Some(last) = body
+        .get("last_run")
+        .and_then(Value::as_str)
+        .and_then(instant_ms)
+    {
         out.insert("last_run_ms".into(), last.into());
     }
     let created = body
@@ -131,13 +139,25 @@ fn job(source: &SourceRecord) -> Option<TargetRecord> {
         .or_else(|| body.get("created_ms").and_then(Value::as_i64))
         .unwrap_or(source.meta.created_ms);
     let record = TargetRecord::new(JOBS, source.id.clone(), Value::Object(out));
-    Some(if created > 0 { record.created_ms(created) } else { record })
+    Some(if created > 0 {
+        record.created_ms(created)
+    } else {
+        record
+    })
 }
 
 fn run(source: &SourceRecord) -> Option<TargetRecord> {
     let body = &source.body;
     let mut out = Map::new();
-    for field in ["seq", "job_id", "status", "duration_ms", "incarnation", "output", "delivery_status"] {
+    for field in [
+        "seq",
+        "job_id",
+        "status",
+        "duration_ms",
+        "incarnation",
+        "output",
+        "delivery_status",
+    ] {
         if let Some(value) = body.get(field) {
             out.insert(field.to_owned(), value.clone());
         }
@@ -150,7 +170,10 @@ fn run(source: &SourceRecord) -> Option<TargetRecord> {
     };
     let started = ms("started_at", "started_ns")?;
     out.insert("started_ms".into(), started.into());
-    out.insert("finished_ms".into(), ms("finished_at", "finished_ns")?.into());
+    out.insert(
+        "finished_ms".into(),
+        ms("finished_at", "finished_ns")?.into(),
+    );
     Some(TargetRecord::new(RUNS, source.id.clone(), Value::Object(out)).created_ms(started))
 }
 
@@ -205,7 +228,8 @@ pub async fn import_legacy_cron_counters(storage: &ScopedStorage) -> Result<bool
     }
     tinystoragedrivers_core::primitives::ensure(storage).await?;
     let docs = storage.documents();
-    docs.ensure_collection(&CronDocuments::collections().remove(2)).await?;
+    docs.ensure_collection(&CronDocuments::collections().remove(2))
+        .await?;
     let mut carried = false;
     if let Some(staged) = docs.get(ADMISSION, STAGED_COUNTER).await? {
         // v1 stored the next number to hand out; the counter holds the last one.
@@ -213,7 +237,8 @@ pub async fn import_legacy_cron_counters(storage: &ScopedStorage) -> Result<bool
         Counters::new(docs)
             .set_at_least(OWNER, RUN_COUNTER, next.saturating_sub(1))
             .await?;
-        docs.delete(ADMISSION, STAGED_COUNTER, Precondition::None).await?;
+        docs.delete(ADMISSION, STAGED_COUNTER, Precondition::None)
+            .await?;
         carried = true;
     }
     migrations.mark_done(OWNER, COUNTERS_STEP).await?;

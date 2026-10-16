@@ -58,8 +58,8 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
 pub(crate) use crate::ids::new_id;
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 use tinystoragedrivers_core::{
     CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned, primitives,
@@ -153,7 +153,10 @@ impl CronDocuments {
     /// Declares [`Self::collections`] and the `tsd` primitives it uses
     /// (idempotent). Every method calls it.
     pub async fn ensure(&self) -> Result<()> {
-        for spec in Self::collections().into_iter().chain(primitives::collection_specs()) {
+        for spec in Self::collections()
+            .into_iter()
+            .chain(primitives::collection_specs())
+        {
             self.docs
                 .ensure_collection(&spec)
                 .await

@@ -133,7 +133,9 @@ impl CronDocuments {
             .current(OWNER, &key)
             .await
             .map_err(storage_error)?;
-        Ok(held.is_some_and(|held| held.holder == claim.lease.token && held.epoch == claim.lease.epoch))
+        Ok(held.is_some_and(|held| {
+            held.holder == claim.lease.token && held.epoch == claim.lease.epoch
+        }))
     }
 
     /// Ends the live lease of the occurrence `job_doc` is due at, whoever
@@ -214,8 +216,8 @@ impl CronDocuments {
             // The job changes only when it has to: to mint its incarnation or
             // to drop the receipt of the previous completion. Otherwise the
             // lease must still be of the job as read.
-            let needs_write =
-                super::codec::incarnation(&stored.doc).is_none() || stored.doc.get(COMPLETED).is_some();
+            let needs_write = super::codec::incarnation(&stored.doc).is_none()
+                || stored.doc.get(COMPLETED).is_some();
             let committed = if needs_write {
                 let mut doc = stored.doc.clone();
                 doc[INCARNATION] = Value::String(incarnation.clone());
