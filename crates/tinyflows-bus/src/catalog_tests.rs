@@ -262,7 +262,7 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
 
 #[test]
 fn served_catalog_version_and_member_list_match_the_new_surface() {
-    assert_eq!(CONTRACT_VERSION, 2);
+    assert_eq!(CONTRACT_VERSION, 3);
     assert_eq!(
         METHODS,
         [
@@ -273,6 +273,19 @@ fn served_catalog_version_and_member_list_match_the_new_surface() {
             "SetEnabled",
             "ListRevisions",
             "GetRevision",
+            "CreateDraft",
+            "GetDraft",
+            "UpdateDraft",
+            "ListDrafts",
+            "DeleteDraft",
+            "PromoteDraft",
+            "UpsertSuggestions",
+            "ListSuggestions",
+            "SetSuggestionStatus",
+            "GetRun",
+            "ListRuns",
+            "ListAllRuns",
+            "PruneRuns",
         ]
     );
     assert_eq!(

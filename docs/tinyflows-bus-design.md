@@ -17,7 +17,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | Authoring | served, v1 | `ValidateGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, graph ops gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
-| Catalog | served, v2 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision` |
+| Catalog | served, v3 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
 boundary as JSON; the host never links the engine. Adding a surface does not
@@ -131,6 +131,19 @@ skipped corrupt-row count; revisions are served by id and history order. The
 CatalogStorage port advertises only ensure, get, put, delete, query and
 delete-where: the current catalog driver does not use transaction batches or
 collection counts.
+
+Catalog v3 also serves the existing draft, suggestion, and run-read behavior
+through that same scope-bound document port. Draft graphs remain raw JSON and
+draft patches preserve the difference between an unchanged `flow_id`, clearing
+it with `null`, and assigning an id. Draft promotion is generic orchestration:
+the module loads the draft and selects create or update, calls a distinct
+scope-bound `DraftPromotionHost.SavePromotedDraft` callback for the normal host
+save path, then best-effort deletes the draft. The callback carries typed
+workflow data and opaque host outcome metadata; a structured failure retains
+its code, message, and details and leaves the draft in place. The module does
+not own host validation, trigger binding, approval policy or event side effects.
+Suggestion and run DTOs are mirrored in the serde-only bus crate so clients do
+not need implementation-library dependencies.
 
 ## Slice plan
 

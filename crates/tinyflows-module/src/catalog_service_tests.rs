@@ -10,19 +10,24 @@ use tinystoragedrivers_core::{
     CollectionSpec, DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend,
 };
 
-struct HostDocuments(Arc<dyn DocumentStore>);
+pub(super) struct HostDocuments {
+    pub(super) documents: Arc<dyn DocumentStore>,
+    pub(super) fail_draft_deletes: bool,
+}
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl HostDocuments {
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
-            self.0.ensure_collection(&decode(&request["spec"])?).await,
+            self.documents
+                .ensure_collection(&decode(&request["spec"])?)
+                .await,
         ))
     }
 
     async fn doc_get(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
-            self.0
+            self.documents
                 .get(text(&request, "collection"), text(&request, "id"))
                 .await,
         ))
@@ -30,7 +35,7 @@ impl HostDocuments {
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
         let result = self
-            .0
+            .documents
             .put(
                 text(&request, "collection"),
                 text(&request, "id"),
@@ -42,20 +47,25 @@ impl HostDocuments {
     }
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
-        let result = self
-            .0
-            .delete(
-                text(&request, "collection"),
-                text(&request, "id"),
-                decode(&request["precondition"])?,
-            )
-            .await;
+        let result = if self.fail_draft_deletes && text(&request, "collection") == "flows_drafts" {
+            Err(tinystoragedrivers_core::StorageError::unavailable(
+                "injected draft delete failure",
+            ))
+        } else {
+            self.documents
+                .delete(
+                    text(&request, "collection"),
+                    text(&request, "id"),
+                    decode(&request["precondition"])?,
+                )
+                .await
+        };
         Ok(reply(result))
     }
 
     async fn doc_query(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
-            self.0
+            self.documents
                 .query(text(&request, "collection"), &decode(&request["query"])?)
                 .await,
         ))
@@ -63,7 +73,7 @@ impl HostDocuments {
 
     async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
-            self.0
+            self.documents
                 .delete_where(text(&request, "collection"), &decode(&request["filter"])?)
                 .await,
         ))
@@ -87,7 +97,7 @@ fn reply(value: tinystoragedrivers_core::Result<impl Serialize>) -> Value {
     }
 }
 
-fn graph(trigger_kind: &str, effect: bool) -> Value {
+pub(super) fn graph(trigger_kind: &str, effect: bool) -> Value {
     let mut nodes = vec![
         json!({"id":"trigger","name":"Trigger","kind":"trigger","config":{"trigger_kind":trigger_kind}}),
         json!({"id":"agent","name":"Agent","kind":"agent","config":{"prompt":"Do the work"}}),
@@ -103,7 +113,7 @@ fn graph(trigger_kind: &str, effect: bool) -> Value {
     json!({"nodes":nodes,"edges":edges})
 }
 
-async fn connections() -> (Connection, Connection) {
+pub(super) async fn connections() -> (Connection, Connection) {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let server = Connection::connect(bus.connect().await.unwrap())
@@ -117,11 +127,11 @@ async fn connections() -> (Connection, Connection) {
     (server, host)
 }
 
-async fn scope(host: &Connection, name: &str) -> CatalogStorage {
+pub(super) async fn scope(host: &Connection, name: &str) -> CatalogStorage {
     scope_with_documents(host, name).await.0
 }
 
-async fn scope_with_documents(
+pub(super) async fn scope_with_documents(
     host: &Connection,
     name: &str,
 ) -> (CatalogStorage, Arc<dyn DocumentStore>) {
@@ -129,9 +139,15 @@ async fn scope_with_documents(
     let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
     let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{name}");
-    host.serve_at(path.parse().unwrap(), HostDocuments(docs.clone()))
-        .await
-        .unwrap();
+    host.serve_at(
+        path.parse().unwrap(),
+        HostDocuments {
+            documents: docs.clone(),
+            fail_draft_deletes: false,
+        },
+    )
+    .await
+    .unwrap();
     (
         CatalogStorage {
             callback: CallbackAddress {
@@ -143,7 +159,35 @@ async fn scope_with_documents(
     )
 }
 
-fn put_proxy(host: &Connection) -> tinybus::Result<tinybus::Proxy> {
+pub(super) async fn scope_with_draft_delete_failure(
+    host: &Connection,
+    name: &str,
+) -> (CatalogStorage, Arc<dyn DocumentStore>) {
+    let scope = Scope::new(name).unwrap();
+    let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
+    let docs = scoped.documents().clone();
+    let path = format!("/test/catalog/{name}");
+    host.serve_at(
+        path.parse().unwrap(),
+        HostDocuments {
+            documents: docs.clone(),
+            fail_draft_deletes: true,
+        },
+    )
+    .await
+    .unwrap();
+    (
+        CatalogStorage {
+            callback: CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
+        },
+        docs,
+    )
+}
+
+pub(super) fn put_proxy(host: &Connection) -> tinybus::Result<tinybus::Proxy> {
     host.proxy(
         tinyflows_bus::BUS_NAME,
         catalog::OBJECT_PATH,

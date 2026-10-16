@@ -4,6 +4,7 @@
 //! host to one acting agent, and the module performs catalog operations over
 //! that scoped document port.
 
+mod extended_types;
 mod storage_types;
 mod types;
 
@@ -15,6 +16,7 @@ pub use storage_types::{
     DocQueryRequest,
 };
 
+pub use extended_types::*;
 pub use types::{
     CallbackAddress, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, GetRevisionRequest,
     ListRevisionsRequest, ListWorkflowsResult, PutWorkflowRequest, PutWorkflowResponse,
@@ -25,9 +27,9 @@ pub use types::{
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Catalog";
 /// Catalog object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Catalog";
-/// Version of the served catalog contract. Version 2 serves scoped document
-/// storage, create/update/duplicate, enablement, and revision history.
-pub const CONTRACT_VERSION: u32 = 2;
+/// Version of the served catalog contract. Version 3 adds drafts, suggestions,
+/// run reads, and host-mediated draft promotion.
+pub const CONTRACT_VERSION: u32 = 3;
 /// Exact members served by the catalog module.
 pub const METHODS: &[&str] = &[
     members::LIST_WORKFLOWS,
@@ -37,10 +39,32 @@ pub const METHODS: &[&str] = &[
     members::SET_ENABLED,
     members::LIST_REVISIONS,
     members::GET_REVISION,
+    members::CREATE_DRAFT,
+    members::GET_DRAFT,
+    members::UPDATE_DRAFT,
+    members::LIST_DRAFTS,
+    members::DELETE_DRAFT,
+    members::PROMOTE_DRAFT,
+    members::UPSERT_SUGGESTIONS,
+    members::LIST_SUGGESTIONS,
+    members::SET_SUGGESTION_STATUS,
+    members::GET_RUN,
+    members::LIST_RUNS,
+    members::LIST_ALL_RUNS,
+    members::PRUNE_RUNS,
 ];
 
 /// Callback interface implemented by the scope-owning host.
 pub const STORAGE_INTERFACE: &str = "ai.tinyhumans.tinyflows.CatalogStorage";
+/// Scope-bound host callback used only for draft promotion saves.
+pub const DRAFT_PROMOTION_HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.DraftPromotionHost";
+/// Stable members of the draft-promotion host callback.
+pub mod draft_promotion_host {
+    /// `(SavePromotedDraftRequest) -> SavePromotedDraftResponse`.
+    pub const SAVE_PROMOTED_DRAFT: &str = "SavePromotedDraft";
+    /// Methods accepted by the module when it calls the promotion host.
+    pub const METHODS: &[&str] = &[SAVE_PROMOTED_DRAFT];
+}
 
 /// Stable member names, in [`METHODS`] order.
 pub mod members {
@@ -58,6 +82,32 @@ pub mod members {
     pub const LIST_REVISIONS: &str = "ListRevisions";
     /// `(GetRevisionRequest) -> Option<WorkflowRevision>`.
     pub const GET_REVISION: &str = "GetRevision";
+    /// `(CreateDraftRequest) -> FlowDraft`.
+    pub const CREATE_DRAFT: &str = "CreateDraft";
+    /// `(DraftIdRequest) -> Option<FlowDraft>`.
+    pub const GET_DRAFT: &str = "GetDraft";
+    /// `(UpdateDraftRequest) -> FlowDraft`.
+    pub const UPDATE_DRAFT: &str = "UpdateDraft";
+    /// `(CatalogStorage) -> FlowDraft[]`.
+    pub const LIST_DRAFTS: &str = "ListDrafts";
+    /// `(DraftIdRequest) -> bool`.
+    pub const DELETE_DRAFT: &str = "DeleteDraft";
+    /// `(PromoteDraftRequest) -> PromoteDraftResponse`.
+    pub const PROMOTE_DRAFT: &str = "PromoteDraft";
+    /// `(UpsertSuggestionsRequest) -> usize`.
+    pub const UPSERT_SUGGESTIONS: &str = "UpsertSuggestions";
+    /// `(ListSuggestionsRequest) -> FlowSuggestion[]`.
+    pub const LIST_SUGGESTIONS: &str = "ListSuggestions";
+    /// `(SetSuggestionStatusRequest) -> bool`.
+    pub const SET_SUGGESTION_STATUS: &str = "SetSuggestionStatus";
+    /// `(RunIdRequest) -> Option<FlowRun>`.
+    pub const GET_RUN: &str = "GetRun";
+    /// `(ListRunsRequest) -> FlowRun[]`.
+    pub const LIST_RUNS: &str = "ListRuns";
+    /// `(ListAllRunsRequest) -> FlowRun[]`.
+    pub const LIST_ALL_RUNS: &str = "ListAllRuns";
+    /// `(PruneRunsRequest) -> usize`.
+    pub const PRUNE_RUNS: &str = "PruneRuns";
 }
 
 /// Callback members accepted by the generic document adapter.
@@ -89,3 +139,7 @@ pub const STORAGE_METHODS: &[&str] = &[
 #[cfg(test)]
 #[path = "catalog_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "catalog/extended_types_tests.rs"]
+mod extended_tests;
