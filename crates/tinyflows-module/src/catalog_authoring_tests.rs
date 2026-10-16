@@ -183,6 +183,11 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
             skip: false,
         }),
         Some(ManifestClass {
+            name: "Write".into(),
+            blocked: false,
+            skip: false,
+        }),
+        Some(ManifestClass {
             name: "Read".into(),
             blocked: false,
             skip: true,
@@ -204,6 +209,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
         {"id":"http","name":"HTTP","kind":"http_request","config":{"url":"https://example.com"}},
         {"id":"code","name":"Code","kind":"code"},
         {"id":"connector","name":"Connector","kind":"tool_call","config":{"slug":"composio:GMAIL_SEND"}},
+        {"id":"connector_duplicate","name":"Connector duplicate","kind":"tool_call","config":{"slug":"composio:GMAIL_SEND"}},
         {"id":"native","name":"Native","kind":"tool_call","config":{"slug":"oh:web_search"}},
         {"id":"dynamic","name":"Dynamic","kind":"tool_call","config":{"slug":"=item.tool"}},
         {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"agent-1"}}
@@ -227,7 +233,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
         )
         .await?;
     let candidates = seen.lock().unwrap().clone();
-    assert_eq!(candidates.len(), 6);
+    assert_eq!(candidates.len(), 7);
     assert!(matches!(candidates[0], ManifestCandidate::Http { .. }));
     assert!(matches!(
         candidates[3],
@@ -237,6 +243,11 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
     assert_eq!(entries[0]["node_id"], "http");
     assert_eq!(entries[1]["node_id"], "code");
     assert_eq!(entries[2]["node_id"], "connector");
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry["node_id"] == "connector_duplicate")
+    );
     assert_eq!(entries[3]["kind"], "dynamic");
     assert_eq!(entries[4]["kind"], "agent");
     assert!(
