@@ -85,7 +85,7 @@ impl CatalogService {
             .and_then(|config| config.get("trigger_kind"))
             .and_then(Value::as_str)
             .map(str::to_string);
-        let revision = store.revision_count(&flow.id).await?.saturating_add(1);
+        let revision = store.latest_revision_number(&flow.id).await?.unwrap_or(1);
         Ok(WorkflowSummary {
             id: flow.id,
             name: flow.name,

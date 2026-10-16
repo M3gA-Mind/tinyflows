@@ -12,12 +12,6 @@ struct HostDocuments(Arc<dyn DocumentStore>);
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl HostDocuments {
-    async fn doc_capabilities(&self, _request: Value) -> tinybus::Result<Value> {
-        Ok(
-            json!({"value":{"transactions":self.0.capabilities().contains(tinystoragedrivers_core::Capability::Transactions)}}),
-        )
-    }
-
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.0.ensure_collection(&decode(&request["spec"])?).await,
@@ -65,24 +59,12 @@ impl HostDocuments {
         ))
     }
 
-    async fn doc_count(&self, request: Value) -> tinybus::Result<Value> {
-        Ok(reply(
-            self.0
-                .count(text(&request, "collection"), &decode(&request["filter"])?)
-                .await,
-        ))
-    }
-
     async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.0
                 .delete_where(text(&request, "collection"), &decode(&request["filter"])?)
                 .await,
         ))
-    }
-
-    async fn doc_atomic_batch(&self, _request: Value) -> tinybus::Result<Value> {
-        Err(tinybus::Error::failed("transactions are unavailable"))
     }
 }
 

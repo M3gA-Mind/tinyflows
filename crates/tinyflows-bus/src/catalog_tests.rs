@@ -39,8 +39,6 @@ fn workflow() -> Workflow {
 fn every_catalog_contract_type_round_trips_on_the_wire() {
     let workflow = workflow();
     let storage = storage();
-    wire_round_trip(DocCapabilitiesRequest {});
-    wire_round_trip(DocCapabilities { transactions: true });
     wire_round_trip(DocEnsureRequest {
         spec: json!({"name":"flows_definitions"}),
     });
@@ -63,16 +61,9 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
         collection: "flows_definitions".into(),
         query: json!({"filter":{"kind":"all"}}),
     });
-    wire_round_trip(DocCountRequest {
-        collection: "flows_revisions".into(),
-        filter: json!({"flow_id":"flow-1"}),
-    });
     wire_round_trip(DocDeleteWhereRequest {
         collection: "flows_runs".into(),
         filter: json!({"flow_id":"flow-1"}),
-    });
-    wire_round_trip(DocAtomicBatchRequest {
-        ops: vec![json!({"op":"put"})],
     });
     wire_round_trip(CatalogStorageFailure {
         kind: "conflict".into(),
@@ -193,6 +184,17 @@ fn served_catalog_version_and_member_list_match_the_new_surface() {
             "SetEnabled",
             "ListRevisions",
             "GetRevision",
+        ]
+    );
+    assert_eq!(
+        STORAGE_METHODS,
+        [
+            "DocEnsure",
+            "DocGet",
+            "DocPut",
+            "DocDelete",
+            "DocQuery",
+            "DocDeleteWhere",
         ]
     );
 }

@@ -107,7 +107,7 @@ async fn a_recreated_flow_does_not_inherit_the_old_runs() {
 }
 
 #[tokio::test]
-async fn a_recreated_flow_revision_count_excludes_late_old_incarnation_snapshots() {
+async fn a_recreated_flow_revision_number_excludes_late_old_incarnation_snapshots() {
     let store = catalog();
     let old = store
         .create_flow("old".into(), trigger_graph(), false, true)
@@ -144,7 +144,10 @@ async fn a_recreated_flow_revision_count_excludes_late_old_incarnation_snapshots
     recreated.id = old.id.clone();
     store.upsert_flow(&recreated).await.unwrap();
 
-    assert_eq!(store.revision_count(&old.id).await.unwrap(), 0);
+    assert_eq!(
+        store.latest_revision_number(&old.id).await.unwrap(),
+        Some(1)
+    );
     assert!(store.list_revisions(&old.id, 10).await.unwrap().is_empty());
     assert!(
         docs.get(crate::catalog::REVISIONS, "late-old-revision")

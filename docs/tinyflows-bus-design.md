@@ -118,9 +118,15 @@ collections. `PutWorkflow` distinguishes create, update and duplicate; update
 uses the previously observed `updated_at` as its optional expected version and
 returns a structured conflict with the current workflow. Create enforces the
 generic automatic-trigger and outbound-approval safeguards and reports whether
-it born-disabled the workflow or forced approval. List rows include status,
-trigger kind, node count, update time and skipped corrupt-row count; revisions
-are served by id and history order.
+it born-disabled the workflow or forced approval. New and duplicated workflows
+start at revision 1; only a committed graph update advances the number. Existing
+documents without the sequence bootstrap from their visible retained history
+on the next update, then keep a durable counter that does not reset when old
+snapshots are pruned. List rows include the latest revision, status, trigger
+kind, node count, update time and skipped corrupt-row count; revisions are
+served by id and history order. The CatalogStorage port advertises only ensure,
+get, put, delete, query and delete-where: the current catalog driver does not
+use transaction batches or collection counts.
 
 ## Slice plan
 

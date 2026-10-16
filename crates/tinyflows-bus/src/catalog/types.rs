@@ -49,7 +49,7 @@ pub struct WorkflowSummary {
     pub id: String,
     /// Display name.
     pub name: String,
-    /// Current revision number (the initial saved definition is revision 1).
+    /// Latest committed workflow revision number. A new or duplicated flow starts at one.
     pub revision: u64,
     /// Whether triggers may run this workflow.
     pub enabled: bool,

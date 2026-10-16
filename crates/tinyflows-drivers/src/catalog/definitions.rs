@@ -31,7 +31,18 @@ pub(super) fn to_doc(flow: &Flow, existing: Option<&Value>) -> Result<Value> {
         "updated_at": flow.updated_at,
         "require_approval": flow.require_approval,
     });
-    // The revision bookkeeping is the store's, not the caller's: keep it.
+    // A definition starts at revision 1. Existing counters belong to the
+    // store, not the caller; retain a legacy missing counter until the next
+    // successful graph update can bootstrap it from visible history.
+    if let Some(revision) = existing
+        .and_then(|doc| doc.get("revision"))
+        .and_then(Value::as_u64)
+    {
+        doc["revision"] = json!(revision);
+    } else if existing.is_none() {
+        doc["revision"] = json!(1);
+    }
+    // The last captured revision id is likewise store bookkeeping.
     set_optional(
         &mut doc,
         "last_revision_id",

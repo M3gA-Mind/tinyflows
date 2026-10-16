@@ -46,13 +46,13 @@ async fn an_update_captures_the_prior_graph_and_keeps_created_at() {
 }
 
 #[tokio::test]
-async fn revision_count_tracks_prior_snapshots_without_counting_the_current_definition() {
+async fn retained_history_count_tracks_visible_prior_snapshots() {
     let store = catalog();
     let flow = store
         .create_flow("v1".into(), trigger_graph(), false, true)
         .await
         .unwrap();
-    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 0);
+    assert_eq!(store.retained_history_count(&flow.id).await.unwrap(), 0);
     store
         .update_flow_graph(
             &flow.id,
@@ -65,7 +65,152 @@ async fn revision_count_tracks_prior_snapshots_without_counting_the_current_defi
         )
         .await
         .unwrap();
-    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 1);
+    assert_eq!(store.retained_history_count(&flow.id).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn committed_revision_number_advances_only_after_a_graph_update() {
+    let store = catalog();
+    let flow = store
+        .create_flow("v1".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
+    store.set_enabled(&flow.id, false).await.unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
+    let after_enable = store.get_flow(&flow.id).await.unwrap().unwrap();
+
+    store
+        .update_flow_graph(
+            &flow.id,
+            "v2".into(),
+            trigger_graph(),
+            false,
+            None,
+            false,
+            Some(&after_enable.updated_at),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        store
+            .update_flow_graph(
+                &flow.id,
+                "stale".into(),
+                trigger_graph(),
+                false,
+                None,
+                false,
+                Some(&flow.updated_at),
+            )
+            .await
+            .unwrap_err()
+            .to_string(),
+        "flow changed since it was loaded"
+    );
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
+}
+
+#[tokio::test]
+async fn a_legacy_definition_bootstraps_its_sequence_from_visible_history() {
+    let store = catalog();
+    let flow = store
+        .create_flow("v1".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    let updated = store
+        .update_flow_graph(
+            &flow.id,
+            "v2".into(),
+            trigger_graph(),
+            false,
+            None,
+            false,
+            Some(&flow.updated_at),
+        )
+        .await
+        .unwrap();
+    let docs = store.docs().await.unwrap();
+    let stored = docs.get(DEFINITIONS, &flow.id).await.unwrap().unwrap();
+    let mut legacy = stored.doc.clone();
+    legacy.as_object_mut().unwrap().remove("revision");
+    docs.put(DEFINITIONS, &flow.id, legacy, stored.unchanged())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
+    store
+        .update_flow_graph(
+            &flow.id,
+            "v3".into(),
+            trigger_graph(),
+            false,
+            None,
+            false,
+            Some(&updated.updated_at),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(3)
+    );
+}
+
+#[tokio::test]
+async fn latest_revision_number_keeps_increasing_after_history_is_pruned() {
+    let store = catalog();
+    let flow = store
+        .create_flow("v1".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    for index in 0..(MAX_REVISIONS_PER_FLOW + 5) {
+        let current = store.get_flow(&flow.id).await.unwrap().unwrap();
+        store
+            .update_flow_graph(
+                &flow.id,
+                format!("v{}", index + 2),
+                trigger_graph(),
+                false,
+                None,
+                false,
+                Some(&current.updated_at),
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some((MAX_REVISIONS_PER_FLOW + 6) as u64)
+    );
+    assert_eq!(
+        store.retained_history_count(&flow.id).await.unwrap(),
+        MAX_REVISIONS_PER_FLOW as u64
+    );
+    assert_eq!(
+        store
+            .list_revisions(&flow.id, usize::MAX)
+            .await
+            .unwrap()
+            .len(),
+        MAX_REVISIONS_PER_FLOW
+    );
 }
 
 #[tokio::test]
@@ -91,6 +236,10 @@ async fn a_stale_expected_version_is_a_conflict_carrying_the_current_flow() {
         FlowUpdateError::Conflict(current) => assert_eq!(current.name, "v1"),
         other => panic!("expected a conflict, got {other}"),
     }
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
     assert!(matches!(
         store
             .update_flow_graph(
@@ -342,7 +491,10 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
     )
     .await
     .unwrap();
-    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 0);
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
     assert!(store.list_revisions(&flow.id, 10).await.unwrap().is_empty());
     assert!(
         store
@@ -366,7 +518,10 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
         .unwrap();
     let listed = store.list_revisions(&flow.id, 10).await.unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!(store.revision_count(&flow.id).await.unwrap(), listed.len() as u64);
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
     assert_eq!(listed[0].name, "v1");
     assert!(
         docs.get(REVISIONS, "orphan").await.unwrap().is_none(),

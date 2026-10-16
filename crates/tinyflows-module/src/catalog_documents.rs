@@ -5,14 +5,13 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
-    CallbackAddress, CatalogStorageFailure, CatalogStorageReply, DocAtomicBatchRequest,
-    DocCapabilities, DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest,
+    CallbackAddress, CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest,
     DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
     STORAGE_INTERFACE, storage,
 };
 use tinystoragedrivers_core::{
-    Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteResult,
+    Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query, Result, Sort,
+    StorageError, Version, Versioned, WriteOp, WriteResult,
 };
 
 pub(super) struct Documents {
@@ -52,18 +51,11 @@ impl Documents {
             &address.object_path,
             STORAGE_INTERFACE,
         )?;
-        let mut documents = Self {
+        Ok(Self {
             connection,
             address,
             capabilities: Capabilities::none(),
-        };
-        let report: DocCapabilities = documents
-            .request(storage::CAPABILITIES, DocCapabilitiesRequest {})
-            .await?;
-        if report.transactions {
-            documents.capabilities = documents.capabilities.with(Capability::Transactions);
-        }
-        Ok(documents)
+        })
     }
 
     fn validate_collection(collection: &str) -> Result<()> {
@@ -127,23 +119,10 @@ impl DocumentStore for Documents {
     }
 
     async fn atomic_batch(&self, ops: Vec<WriteOp>) -> Result<Vec<WriteResult>> {
-        self.capabilities.require(Capability::Transactions)?;
-        for operation in &ops {
-            let collection = match operation {
-                WriteOp::Put { collection, .. } | WriteOp::Delete { collection, .. } => collection,
-            };
-            Self::validate_collection(collection)?;
-        }
-        self.request(
-            storage::ATOMIC_BATCH,
-            DocAtomicBatchRequest {
-                ops: ops
-                    .iter()
-                    .map(serde_json::to_value)
-                    .collect::<std::result::Result<_, _>>()?,
-            },
-        )
-        .await
+        let _ = ops;
+        Err(StorageError::backend(
+            "atomic batches are outside the workflow catalog port",
+        ))
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<()> {
@@ -211,14 +190,10 @@ impl DocumentStore for Documents {
     }
 
     async fn count(&self, collection: &str, filter: &Filter) -> Result<u64> {
-        self.call(
-            storage::COUNT,
-            DocCountRequest {
-                collection: collection.into(),
-                filter: serde_json::to_value(filter)?,
-            },
-        )
-        .await
+        let _ = (collection, filter);
+        Err(StorageError::backend(
+            "count is outside the workflow catalog port",
+        ))
     }
 
     async fn delete_where(&self, collection: &str, filter: &Filter) -> Result<u64> {

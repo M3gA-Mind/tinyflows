@@ -73,6 +73,22 @@ impl FlowCatalogDocuments {
             return Err(FlowUpdateError::Conflict(Box::new(current)));
         }
 
+        // New definitions carry a store-owned sequence. For pre-sequence
+        // records, seed it from the currently visible retained history; the
+        // first successful graph update persists that baseline plus one.
+        // Failed validation or a lost CAS never advances the sequence.
+        let current_revision = match stored.doc.get("revision").and_then(Value::as_u64) {
+            Some(revision) => revision.max(1),
+            None => self
+                .retained_history_count(id)
+                .await
+                .map_err(FlowUpdateError::Store)?
+                .saturating_add(1),
+        };
+        let next_revision = current_revision.checked_add(1).ok_or_else(|| {
+            FlowUpdateError::Store(anyhow::anyhow!("workflow revision number overflow"))
+        })?;
+
         // R-m2: whether it was automatic comes from the row just read, which
         // is the one the swap below is keyed on.
         let now_auto = tinyflows_catalog::graph_policy::trigger_is_automatic(&graph);
@@ -194,6 +210,7 @@ impl FlowCatalogDocuments {
             next["require_approval"] = json!(require_approval);
             next["enabled"] = json!(new_enabled);
             next["last_revision_id"] = json!(revision_id);
+            next["revision"] = json!(next_revision);
             Some(next)
         })
         .await;
@@ -346,15 +363,31 @@ impl FlowCatalogDocuments {
         Ok(revisions)
     }
 
-    /// Counts the visible prior snapshots for `flow_id`; the current
-    /// definition is revision one even before it has any history. Reuse the
-    /// bounded history reader so orphaned incarnations and pending updates do
-    /// not inflate the summary count.
-    pub async fn revision_count(&self, flow_id: &str) -> Result<u64> {
+    /// Counts visible prior snapshots for `flow_id`, bounded by the per-flow
+    /// retention cap. This is used to bootstrap a legacy sequence, not as the
+    /// latest revision number after a sequence has been persisted.
+    pub async fn retained_history_count(&self, flow_id: &str) -> Result<u64> {
         Ok(self
             .list_revisions(flow_id, MAX_REVISIONS_PER_FLOW)
             .await?
             .len() as u64)
+    }
+
+    /// Returns the latest committed graph revision, bootstrapping legacy
+    /// definitions from their currently visible retained history.
+    pub async fn latest_revision_number(&self, flow_id: &str) -> Result<Option<u64>> {
+        let docs = self.docs().await?;
+        let Some(stored) = docs.get(DEFINITIONS, flow_id).await? else {
+            return Ok(None);
+        };
+        let revision = match stored.doc.get("revision").and_then(Value::as_u64) {
+            Some(revision) => revision.max(1),
+            None => self
+                .retained_history_count(flow_id)
+                .await?
+                .saturating_add(1),
+        };
+        Ok(Some(revision))
     }
 
     /// One revision of `flow_id` by id, or `None`.

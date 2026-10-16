@@ -3,17 +3,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Request body for the storage capability handshake.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DocCapabilitiesRequest {}
-
-/// Capabilities reported by the scoped host document store.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DocCapabilities {
-    /// Whether the host supports atomic document batches.
-    pub transactions: bool,
-}
-
 /// Request body for `DocEnsure`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DocEnsureRequest {
@@ -63,15 +52,6 @@ pub struct DocQueryRequest {
     pub query: Value,
 }
 
-/// Request body for `DocCount`.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DocCountRequest {
-    /// Allowlisted catalog collection.
-    pub collection: String,
-    /// Filter in the storage driver's JSON shape.
-    pub filter: Value,
-}
-
 /// Request body for `DocDeleteWhere`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DocDeleteWhereRequest {
@@ -79,13 +59,6 @@ pub struct DocDeleteWhereRequest {
     pub collection: String,
     /// Filter in the storage driver's JSON shape.
     pub filter: Value,
-}
-
-/// Request body for `DocAtomicBatch`.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DocAtomicBatchRequest {
-    /// Ordered put/delete operations in the storage driver's JSON shape.
-    pub ops: Vec<Value>,
 }
 
 /// Error returned by a storage callback; `kind` is a stable storage error tag.

@@ -8,8 +8,7 @@ mod storage_types;
 mod types;
 
 pub use storage_types::{
-    CatalogStorageFailure, CatalogStorageReply, DocAtomicBatchRequest, DocCapabilities,
-    DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest, DocDeleteWhereRequest,
+    CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest, DocDeleteWhereRequest,
     DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
 };
 
@@ -70,15 +69,19 @@ pub mod storage {
     pub const QUERY: &str = "DocQuery";
     /// `(DocEnsureRequest) -> {value: null}`.
     pub const ENSURE: &str = "DocEnsure";
-    /// `(DocCountRequest) -> {value: u64}`.
-    pub const COUNT: &str = "DocCount";
     /// `(DocDeleteWhereRequest) -> {value: u64}`.
     pub const DELETE_WHERE: &str = "DocDeleteWhere";
-    /// `(DocAtomicBatchRequest) -> {value: driver WriteResult[]}`.
-    pub const ATOMIC_BATCH: &str = "DocAtomicBatch";
-    /// `(DocCapabilitiesRequest) -> {value: DocCapabilities}`.
-    pub const CAPABILITIES: &str = "DocCapabilities";
 }
+
+/// Exact storage callback member set used by the served catalog.
+pub const STORAGE_METHODS: &[&str] = &[
+    storage::ENSURE,
+    storage::GET,
+    storage::PUT,
+    storage::DELETE,
+    storage::QUERY,
+    storage::DELETE_WHERE,
+];
 
 #[cfg(test)]
 #[path = "catalog_tests.rs"]
