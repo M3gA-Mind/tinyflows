@@ -78,7 +78,8 @@ async fn every_callback_trait_uses_the_exact_host_object_and_preserves_typed_inp
     assert!(outcome.is_finished());
     assert_eq!(outcome.text.as_deref(), Some("finished"));
     assert_eq!(outcome.transcript.len(), 1);
-    assert_eq!(outcome.transcript[0].kind, "tool_call");
+    assert_eq!(outcome.transcript[0].kind, "agent_final");
+    assert_eq!(outcome.transcript[0].text, "authoritative terminal transcript");
 
     assert_eq!(AgentRunner::resolve_agent(&port, "known").await.unwrap().unwrap().id, "known");
     assert!(AgentRunner::resolve_agent(&port, "missing").await.unwrap().is_none());

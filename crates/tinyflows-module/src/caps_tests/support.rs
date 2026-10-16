@@ -105,7 +105,11 @@ impl FakeHost {
                     json: json!({"ok": true}),
                     raw: json!({"ok": true}),
                     usage: None,
-                    transcript: vec![],
+                    transcript: vec![runs::TranscriptEntry {
+                        at_ms: 11,
+                        kind: "agent_final".into(),
+                        text: "authoritative terminal transcript".into(),
+                    }],
                 }),
             })
         }

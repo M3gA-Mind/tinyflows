@@ -356,6 +356,7 @@ pub struct ResolveToolsRequest {
     /// Allowed tool grants.
     pub grants: Vec<ToolGrant>,
     /// Trusted connection reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_ref: Option<String>,
 }
 

@@ -396,7 +396,17 @@ impl AgentRunner for CapsHostPorts {
             match (events.done, events.outcome) {
                 (true, Some(outcome)) => {
                     let mut outcome: AgentRunOutcome = convert(outcome)?;
-                    outcome.transcript = transcript;
+                    if outcome.transcript.is_empty() {
+                        outcome.transcript = transcript;
+                    } else {
+                        outcome.transcript = outcome
+                            .transcript
+                            .into_iter()
+                            .map(|entry| {
+                                TranscriptEntry::bounded(entry.at_ms, entry.kind, entry.text)
+                            })
+                            .collect();
+                    }
                     return Ok(outcome);
                 }
                 (false, None) if !had_events => {
