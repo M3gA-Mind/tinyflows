@@ -17,12 +17,21 @@ use tinyflows::{
     error::{EngineError, Result},
 };
 use tinyflows::{model::AgentDefinition, transcript::TranscriptEntry};
-use tinyflows_bus::runs::{self, caps as members, AgentEventsRequest, CapsHost};
+use tinyflows_bus::{
+    catalog::CatalogStorage,
+    runs::{self, caps as members, AgentEventsRequest, CapsHost},
+};
+use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
+use tinystoragedrivers_core::DocumentStore;
 
 /// Maximum time a host operation or agent event stream may take.
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 /// Delay between empty, nonterminal agent event polls.
 const EMPTY_POLL_DELAY: Duration = Duration::from_millis(25);
+/// Reject oversized pages so one callback cannot exhaust the module's memory.
+const MAX_AGENT_EVENTS_PAGE: usize = 256;
+/// Keep the folded transcript bounded even for a very long agent loop.
+const MAX_AGENT_TRANSCRIPT_EVENTS: usize = 10_000;
 
 /// Engine adapters fixed to one host-created callback address and run context.
 pub(super) struct CapsHostPorts {
@@ -30,20 +39,36 @@ pub(super) struct CapsHostPorts {
     address: runs::CallbackAddress,
 }
 
+/// Trusted values supplied by run management, separate from graph and trigger
+/// JSON. `storage` is already bound to the acting owner scope.
+pub(super) struct RunScope {
+    pub flow_id: String,
+    pub storage: CatalogStorage,
+}
+
 impl CapsHostPorts {
     /// Builds one run's engine bundle. The host callback address must already
     /// be bound to that run's flow, run id, approval policy and owner scope.
-    pub(super) fn capabilities(
+    pub(super) async fn capabilities(
         connection: Connection,
         host: CapsHost,
-        state: Arc<dyn StateStore>,
-        resolver: Arc<dyn WorkflowResolver>,
-    ) -> caps::Capabilities {
+        scope: RunScope,
+    ) -> Result<caps::Capabilities> {
+        let documents = super::catalog_documents::Documents::new(
+            connection.clone(),
+            scope.storage.callback,
+        )
+        .await
+        .map_err(capability_error)?;
+        let catalog = FlowCatalogDocuments::new(Arc::new(documents) as Arc<dyn DocumentStore>);
+        let state: Arc<dyn StateStore> =
+            Arc::new(FlowStateDocuments::new(catalog.clone(), scope.flow_id));
+        let resolver: Arc<dyn WorkflowResolver> = Arc::new(CatalogResolver { catalog });
         let ports = Arc::new(Self {
             connection,
             address: host.callback,
         });
-        caps::Capabilities {
+        Ok(caps::Capabilities {
             llm: ports.clone(),
             tools: ports.clone(),
             http: ports.clone(),
@@ -55,7 +80,7 @@ impl CapsHostPorts {
             memory: Some(ports.clone()),
             tasks: Some(Arc::new(TokioTaskRunner::new())),
             approvals: Some(ports),
-        }
+        })
     }
 
     async fn call<A, R>(&self, member: &str, args: &A) -> Result<R>
@@ -81,6 +106,47 @@ impl CapsHostPorts {
         R: DeserializeOwned,
     {
         self.call(member, &(request,)).await
+    }
+
+    async fn call_one_timeout<A, R>(
+        &self,
+        member: &str,
+        request: &A,
+        timeout: Duration,
+    ) -> Result<R>
+    where
+        A: Serialize + Sync,
+        R: DeserializeOwned,
+    {
+        let proxy = self
+            .connection
+            .proxy(
+                &self.address.destination,
+                &self.address.object_path,
+                runs::CAPS_INTERFACE,
+            )
+            .map_err(capability_error)?
+            .with_timeout(timeout);
+        proxy
+            .call(member, &(request,))
+            .await
+            .map_err(capability_error)
+    }
+}
+
+struct CatalogResolver {
+    catalog: FlowCatalogDocuments,
+}
+
+#[async_trait]
+impl WorkflowResolver for CatalogResolver {
+    async fn resolve(&self, id: &str) -> Result<tinyflows::model::WorkflowGraph> {
+        self.catalog
+            .get_flow(id)
+            .await
+            .map_err(capability_error)?
+            .map(|flow| flow.graph)
+            .ok_or_else(|| capability_error(format!("missing workflow {id}")))
     }
 }
 
@@ -245,14 +311,15 @@ impl AgentRunner for CapsHostPorts {
             output_schema: None,
             config: request,
         };
-        let outcome = self.run(convert(request)?).await?;
+        let outcome = AgentRunner::run(self, convert(request)?).await?;
         Ok(outcome.raw)
     }
 
     async fn run(&self, request: AgentRunRequest) -> Result<AgentRunOutcome> {
         let wire_request: runs::AgentRunRequest = convert(request)?;
-        let handle: runs::AgentRunHandle =
-            self.call_one(members::AGENT_RUN, &wire_request).await?;
+        let handle: runs::AgentRunHandle = self
+            .call_one_timeout(members::AGENT_RUN, &wire_request, CALLBACK_TIMEOUT)
+            .await?;
         if handle.handle.is_empty() {
             return Err(capability_error("agent callback returned an empty handle"));
         }
@@ -265,20 +332,31 @@ impl AgentRunner for CapsHostPorts {
                 return Err(capability_error("agent event stream exceeded its deadline"));
             }
             let events: runs::AgentEventsResponse = self
-                .call_one(
+                .call_one_timeout(
                     members::AGENT_EVENTS,
                     &AgentEventsRequest {
                         handle: handle.handle.clone(),
                         cursor,
                     },
+                    CALLBACK_TIMEOUT.saturating_sub(started.elapsed()),
                 )
                 .await?;
+            if events.events.len() > MAX_AGENT_EVENTS_PAGE {
+                return Err(capability_error("agent callback returned an oversized event page"));
+            }
+            if transcript.len().saturating_add(events.events.len()) > MAX_AGENT_TRANSCRIPT_EVENTS {
+                return Err(capability_error("agent callback exceeded the transcript event limit"));
+            }
             let had_events = !events.events.is_empty();
             for event in events.events {
-                if event.seq <= cursor {
-                    return Err(capability_error(
-                        "agent event cursor did not advance monotonically",
-                    ));
+                let Some(expected) = cursor.checked_add(1) else {
+                    return Err(capability_error("agent event cursor overflowed"));
+                };
+                if event.seq != expected {
+                    return Err(capability_error(format!(
+                        "agent event sequence expected {expected}, received {}",
+                        event.seq
+                    )));
                 }
                 cursor = event.seq;
                 transcript.push(TranscriptEntry::bounded(
@@ -359,8 +437,10 @@ impl AgentRunner for CapsHostPorts {
         };
         let check: Result<runs::WorkdirCheck> =
             self.call_one(members::RESOLVE_WORKDIR, &request).await;
-        match check.and_then(convert) {
-            Ok(check) => check,
+        match check {
+            Ok(runs::WorkdirCheck::Unmanaged) => WorkdirCheck::Unmanaged,
+            Ok(runs::WorkdirCheck::Resolved(path)) => WorkdirCheck::Resolved(path),
+            Ok(runs::WorkdirCheck::Refused(reason)) => WorkdirCheck::Refused(reason),
             Err(error) => WorkdirCheck::Refused(error.to_string()),
         }
     }
