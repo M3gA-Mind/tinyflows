@@ -1,3 +1,5 @@
+#[path = "support/authoring_contract_calls.rs"]
+mod authoring_contract_calls;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
 #[path = "support/document_callbacks.rs"]
@@ -8,7 +10,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
-use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
+use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS, OBJECT_PATH, methods};
 
 struct HostCallback;
 
@@ -33,6 +35,8 @@ impl HostCallback {
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
@@ -382,51 +386,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(failures, ["artifact callback refused account"]);
 
-    let report: GraphValidation = proxy
-        .call(
-            methods::VALIDATE_GRAPH,
-            (tinyflows_bus::ValidateGraphRequest {
-                graph: json!({
-                    "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
-                    "edges": []
-                }),
-                host: None,
-            },),
-        )
-        .await
-        .unwrap();
-    assert!(report.is_valid(), "{:?}", report.errors);
-    let graph = report.graph.unwrap();
-    assert!(graph["schema_version"].as_u64().unwrap() > 0);
-
-    let contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> = catalog_proxy
-        .call(tinyflows_bus::catalog::members::NODE_KINDS, ())
-        .await
-        .unwrap();
-    assert_eq!(contracts.len(), 22);
-    let applied: tinyflows_bus::catalog::ApplyGraphOpsResult = catalog_proxy
-        .call(
-            tinyflows_bus::catalog::members::APPLY_GRAPH_OPS,
-            (tinyflows_bus::catalog::ApplyGraphOpsRequest {
-                graph: graph.clone(),
-                ops: vec![json!({"op":"set_node_name","id":"start","name":"Edited"})],
-            },),
-        )
-        .await
-        .unwrap();
-    assert_eq!(applied.graph.unwrap()["nodes"][0]["name"], "Edited");
-    let imported: tinyflows_bus::ImportGraphResult = proxy
-        .call(
-            methods::IMPORT_GRAPH,
-            (tinyflows_bus::ImportGraphRequest {
-                graph,
-                format: Some("native".into()),
-            },),
-        )
-        .await
-        .unwrap();
-    assert!(imported.errors.is_empty(), "{:?}", imported.errors);
-    assert!(imported.graph.is_some());
+    let graph = authoring_contract_calls::verify_surface(&proxy, &catalog_proxy).await;
+    let manifest = authoring_contract_calls::approval_manifest(&connection, &catalog_proxy).await;
+    assert_eq!(manifest.len(), 1);
+    assert_eq!(manifest[0]["node_id"], "code");
     let failures: Vec<String> = proxy
         .call(methods::BINDING_FAILURES, (graph,))
         .await
