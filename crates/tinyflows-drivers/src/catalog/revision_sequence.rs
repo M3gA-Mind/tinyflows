@@ -3,7 +3,6 @@
 use anyhow::Result;
 
 use super::{DEFINITIONS, FlowCatalogDocuments, MAX_REVISIONS_PER_FLOW};
-use tinystoragedrivers_core::DocumentStoreExt;
 
 impl FlowCatalogDocuments {
     /// Counts visible prior snapshots for `flow_id`, bounded by the per-flow
