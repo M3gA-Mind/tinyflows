@@ -205,7 +205,7 @@ async fn latest_revision_number_keeps_increasing_after_history_is_pruned() {
     );
     assert_eq!(
         store
-            .list_revisions(&flow.id, usize::MAX)
+            .list_revisions(&flow.id, MAX_REVISIONS_PER_FLOW)
             .await
             .unwrap()
             .len(),
