@@ -336,7 +336,10 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
         .call(catalog::members::APPROVAL_MANIFEST, (request.clone(),))
         .await;
     let cardinality_error = cardinality.unwrap_err().to_string();
-    assert!(cardinality_error.contains("0 classifications for 1 candidates"), "{cardinality_error}");
+    assert!(
+        cardinality_error.contains("0 classifications for 1 candidates"),
+        "{cardinality_error}"
+    );
     assert_eq!(cardinality_seen.lock().unwrap().len(), 1);
 
     let missing_required_class: tinybus::Result<Vec<Value>> = proxy
@@ -353,7 +356,10 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
         )
         .await;
     let malformed_error = missing_required_class.unwrap_err().to_string();
-    assert!(malformed_error.contains("malformed classification at candidate 0"), "{malformed_error}");
+    assert!(
+        malformed_error.contains("malformed classification at candidate 0"),
+        "{malformed_error}"
+    );
     assert_eq!(malformed_seen.lock().unwrap().len(), 1);
     let unavailable = ApprovalManifestRequest {
         host: catalog::CallbackAddress {
