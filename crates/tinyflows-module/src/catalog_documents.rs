@@ -1,13 +1,14 @@
 //! Scoped, allowlisted bridge from the catalog driver to the host document port.
 
 use async_trait::async_trait;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
-    CallbackAddress, CatalogStorageReply, DocAtomicBatchRequest, DocCapabilities,
-    DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest, DocDeleteWhereRequest,
-    DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest, STORAGE_INTERFACE, storage,
+    CallbackAddress, CatalogStorageFailure, CatalogStorageReply, DocAtomicBatchRequest,
+    DocCapabilities, DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest,
+    DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
+    STORAGE_INTERFACE, storage,
 };
 use tinystoragedrivers_core::{
     Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
@@ -26,23 +27,18 @@ impl std::fmt::Debug for Documents {
     }
 }
 
-impl CatalogStorageReply {
-    fn into_error(self) -> StorageError {
-        let Self::Error { error } = self else {
-            unreachable!("only error replies convert to a storage error")
-        };
-        match error.kind.as_str() {
-            "conflict" => StorageError::conflict(error.message),
-            "already_exists" => StorageError::already_exists(error.message),
-            "not_found" => StorageError::not_found(error.message),
-            "invalid_input" => StorageError::invalid_input(error.message),
-            "serialization" => StorageError::new(
-                tinystoragedrivers_core::ErrorKind::Serialization,
-                error.message,
-            ),
-            "unavailable" => StorageError::unavailable(error.message),
-            _ => StorageError::backend(error.message),
-        }
+fn storage_error(error: CatalogStorageFailure) -> StorageError {
+    match error.kind.as_str() {
+        "conflict" => StorageError::conflict(error.message),
+        "already_exists" => StorageError::already_exists(error.message),
+        "not_found" => StorageError::not_found(error.message),
+        "invalid_input" => StorageError::invalid_input(error.message),
+        "serialization" => StorageError::new(
+            tinystoragedrivers_core::ErrorKind::Serialization,
+            error.message,
+        ),
+        "unavailable" => StorageError::unavailable(error.message),
+        _ => StorageError::backend(error.message),
     }
 }
 
@@ -118,7 +114,7 @@ impl Documents {
             .await
             .map_err(|error| StorageError::unavailable(error.to_string()))?;
         match reply {
-            CatalogStorageReply::Error { .. } => Err(reply.into_error()),
+            CatalogStorageReply::Error { error } => Err(storage_error(error)),
             CatalogStorageReply::Value { value } => Ok(serde_json::from_value(value)?),
         }
     }
@@ -138,8 +134,16 @@ impl DocumentStore for Documents {
             };
             Self::validate_collection(collection)?;
         }
-        self.request(storage::ATOMIC_BATCH, DocAtomicBatchRequest { ops })
-            .await
+        self.request(
+            storage::ATOMIC_BATCH,
+            DocAtomicBatchRequest {
+                ops: ops
+                    .iter()
+                    .map(serde_json::to_value)
+                    .collect::<std::result::Result<_, _>>()?,
+            },
+        )
+        .await
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<()> {
