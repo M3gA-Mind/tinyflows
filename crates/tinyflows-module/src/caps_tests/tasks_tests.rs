@@ -22,16 +22,38 @@ async fn spawned_tool_and_http_tasks_return_host_results() {
     let capabilities = CapsHostPorts::capabilities(
         module,
         support::caps_host("/caps/alice"),
-        RunScope { flow_id: "flow-1".into(), storage },
-    ).await.unwrap();
+        RunScope {
+            flow_id: "flow-1".into(),
+            storage,
+        },
+    )
+    .await
+    .unwrap();
     let runner = capabilities.tasks.as_ref().unwrap();
 
-    let tool = runner.start(TaskSpec::Tool { slug: "child.tool".into(), args: json!({"x":1}) }).await.unwrap();
-    assert_eq!(await_task(runner.as_ref(), &tool).await,
-        TaskState::Done(json!({"owner":"alice","slug":"child.tool","args":{"x":1},"conn":null})));
-    let http = runner.start(TaskSpec::Http { request: json!({"url":"https://example.test"}) }).await.unwrap();
-    assert_eq!(await_task(runner.as_ref(), &http).await,
-        TaskState::Done(json!({"owner":"alice","request":{"url":"https://example.test"},"conn":null})));
+    let tool = runner
+        .start(TaskSpec::Tool {
+            slug: "child.tool".into(),
+            args: json!({"x":1}),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        await_task(runner.as_ref(), &tool).await,
+        TaskState::Done(json!({"owner":"alice","slug":"child.tool","args":{"x":1},"conn":null}))
+    );
+    let http = runner
+        .start(TaskSpec::Http {
+            request: json!({"url":"https://example.test"}),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        await_task(runner.as_ref(), &http).await,
+        TaskState::Done(
+            json!({"owner":"alice","request":{"url":"https://example.test"},"conn":null})
+        )
+    );
 }
 
 #[tokio::test]
@@ -43,8 +65,13 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
     let capabilities = CapsHostPorts::capabilities(
         module,
         support::caps_host("/caps/alice"),
-        RunScope { flow_id: "flow-1".into(), storage },
-    ).await.unwrap();
+        RunScope {
+            flow_id: "flow-1".into(),
+            storage,
+        },
+    )
+    .await
+    .unwrap();
     let child = json!({
         "nodes": [
             {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
@@ -57,14 +84,29 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
         ]
     });
     let runner = capabilities.tasks.as_ref().unwrap();
-    let ticket = runner.start(TaskSpec::Workflow { graph: child, input: json!({}) }).await.unwrap();
+    let ticket = runner
+        .start(TaskSpec::Workflow {
+            graph: child,
+            input: json!({}),
+        })
+        .await
+        .unwrap();
     let TaskState::Done(result) = await_task(runner.as_ref(), &ticket).await else {
         panic!("child workflow should return a real result")
     };
     let encoded = result.to_string();
-    assert!(encoded.contains("nested.tool"), "nested task result missing: {result}");
-    assert!(encoded.contains("alice"), "nested host callback missing: {result}");
-    assert!(!encoded.contains("\"spec\":\"workflow\""), "runner echoed the TaskSpec: {result}");
+    assert!(
+        encoded.contains("nested.tool"),
+        "nested task result missing: {result}"
+    );
+    assert!(
+        encoded.contains("alice"),
+        "nested host callback missing: {result}"
+    );
+    assert!(
+        !encoded.contains("\"spec\":\"workflow\""),
+        "runner echoed the TaskSpec: {result}"
+    );
 }
 
 #[tokio::test]
@@ -76,10 +118,21 @@ async fn task_runner_cancellation_settles_an_in_flight_callback_ticket() {
     let capabilities = CapsHostPorts::capabilities(
         module,
         support::caps_host("/caps/alice"),
-        RunScope { flow_id: "flow-1".into(), storage },
-    ).await.unwrap();
+        RunScope {
+            flow_id: "flow-1".into(),
+            storage,
+        },
+    )
+    .await
+    .unwrap();
     let runner = capabilities.tasks.as_ref().unwrap();
-    let ticket = runner.start(TaskSpec::Tool { slug: "blocked".into(), args: json!({}) }).await.unwrap();
+    let ticket = runner
+        .start(TaskSpec::Tool {
+            slug: "blocked".into(),
+            args: json!({}),
+        })
+        .await
+        .unwrap();
     gate.started.notified().await;
     runner.cancel(&ticket).await.unwrap();
     gate.release.notify_one();

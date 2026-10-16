@@ -1,4 +1,4 @@
-# tinyflows-bus design (openhuman#8055, tinyflows#3)
+# tinyflows-bus design (openhuman#8055, tinyflows#3, tinyflows#4)
 
 Goal: the OpenHuman host reaches workflow behaviour only through the
 `tinyflows-bus` contract served by the compiled `tinyflows-module`. The host
@@ -17,6 +17,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
+| CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
@@ -71,9 +72,11 @@ dynamic and agent rows have no host classification.
 
 ## Host callbacks for caps traits
 
-Every `tinyflows::caps` trait method is one member on the host callback
-interface `CapsHost`, bound per request to the acting identity (the module
-never sees credentials; `conn` stays an opaque host reference):
+Every host-owned `tinyflows::caps` method is served by the `CapsHost`
+interface, whose exact callback address the trusted host binds to the flow,
+run, approval requirement, and owner scope before run execution. The module
+uses that address verbatim; graph and trigger JSON cannot select or replace it.
+The module never sees credentials, and `conn` stays an opaque host reference:
 
 | Trait | Members |
 | --- | --- |
@@ -82,18 +85,38 @@ never sees credentials; `conn` stays an opaque host reference):
 | `HttpClient` | `HttpRequest(request, conn)` |
 | `CodeRunner` / `ShellRunner` | `CodeRun`, `ShellRun` |
 | `MemoryProvider` | `MemoryRecall/Flavour/People/Remember/Forget` |
-| `WorkflowResolver` | `ResolveWorkflow` (shared with authoring host) |
-| `StateStore` | `StateLoad`, `StateStore` |
+| Module-owned state and catalogue reads | document port (`flows_kv`, saved workflow catalog) |
 | `ApprovalProvider` | `ApprovalDecide`, `ApprovalCancel` |
-| `TaskRunner` | `TaskStart`, `TaskPoll`, `TaskCancel` (already poll based) |
+| Module-owned tasks | Tokio task runner with the run's capability bundle |
 | `AgentRunner` | `AgentRun`, `AgentEvents` |
 
-Streaming: only `AgentRunner` streams (progress, partial output). A callback
-cannot stream over a synchronous bus, so `AgentRun` starts the turn and
-returns a handle; the module reads `AgentEvents(handle, cursor)` the same way
-the host reads `PollRun`. Calls are blocking from the module's executor
-thread. A callback failure surfaces as the node's error; approval callbacks
-fail closed (an error is a rejection, never an approval).
+The module constructs `StateStore` over the run's owner-scoped document
+callback, with the trusted namespace `flow:<flow_id>`, and resolves saved
+workflow ids through that same scoped catalog. The run manager supplies the
+flow id separately from the graph and trigger. Spawn tasks execute inside the
+module: tool and HTTP tasks call the same run capability bundle, and child
+workflow tasks retain the module task runner through a weak reference to avoid
+a runner/capabilities ownership cycle. Task start, poll, and cancel never
+bounce through the host.
+
+Only `AgentRunner` streams progress. `AgentRun` returns an opaque handle, then
+`AgentEvents(handle, cursor)` reads typed events and a typed terminal outcome.
+Cursors start at zero and pages are contiguous, one-based sequence numbers;
+replay, gaps, pages above 256 entries, and transcripts above 10,000 entries
+fail as capability errors. Empty nonterminal pages are paced by the module, and
+an empty terminal page is allowed. A terminal page has exactly one outcome;
+the host's settled transcript is authoritative, with bounded progress entries
+used only when that transcript is empty. Agent absence (`None`) and empty tool
+grants stay ordinary absence. Workdir refusal remains explicit. Transport or
+malformed-response errors are capability failures, never a pending result.
+
+Approval callbacks use the existing create-or-fetch `request_id` contract:
+`Pending` parks the node for engine resume, and a later call with the same id
+reads the same request. Callback failures fail closed. `CodeRun` forwards the
+existing source string and JSON input unchanged, including source using the
+legacy function-body `return` convention; the module does not wrap it as
+stdin/stdout script input. `ShellRun` uses the closed `sh`/`bash` interpreter
+and typed inline/path request.
 
 ## Schedule contract v3: typed records and pure members
 

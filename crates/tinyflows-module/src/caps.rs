@@ -8,19 +8,18 @@ use serde_json::Value;
 use tinybus::Connection;
 use tinyflows::{
     caps::{
-        self, AgentRunOutcome, AgentRunRequest, AgentRunner, ApprovalDecision,
-        ApprovalOutcome, ApprovalProvider, ApprovalRequest,
-        CodeLanguage, CodeRunner, ContextBlock, HttpClient, LlmProvider, MemoryProvider,
-        ShellInterpreter, ShellOutcome, ShellRequest, ShellScript, ShellRunner, StateStore,
-        TaskRunner, ToolDescriptor, ToolInvoker, TokioTaskRunner, WorkdirCheck,
-        WorkflowResolver,
+        self, AgentRunOutcome, AgentRunRequest, AgentRunner, ApprovalDecision, ApprovalOutcome,
+        ApprovalProvider, ApprovalRequest, CodeLanguage, CodeRunner, ContextBlock, HttpClient,
+        LlmProvider, MemoryProvider, ShellInterpreter, ShellOutcome, ShellRequest, ShellRunner,
+        ShellScript, StateStore, TaskRunner, TokioTaskRunner, ToolDescriptor, ToolInvoker,
+        WorkdirCheck, WorkflowResolver,
     },
     error::{EngineError, Result},
 };
 use tinyflows::{model::AgentDefinition, transcript::TranscriptEntry};
 use tinyflows_bus::{
     catalog::CatalogStorage,
-    runs::{self, caps as members, AgentEventsRequest, CapsHost},
+    runs::{self, AgentEventsRequest, CapsHost, caps as members},
 };
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tinystoragedrivers_core::DocumentStore;
@@ -60,12 +59,10 @@ impl CapsHostPorts {
         host: CapsHost,
         scope: RunScope,
     ) -> Result<caps::Capabilities> {
-        let documents = super::catalog_documents::Documents::new(
-            connection.clone(),
-            scope.storage.callback,
-        )
-        .await
-        .map_err(capability_error)?;
+        let documents =
+            super::catalog_documents::Documents::new(connection.clone(), scope.storage.callback)
+                .await
+                .map_err(capability_error)?;
         let catalog = FlowCatalogDocuments::new(Arc::new(documents) as Arc<dyn DocumentStore>);
         let state: Arc<dyn StateStore> = Arc::new(FlowStateDocuments::new(
             catalog.clone(),
@@ -248,11 +245,8 @@ impl ShellRunner for CapsHostPorts {
 #[async_trait]
 impl MemoryProvider for CapsHostPorts {
     async fn recall(&self, scope: &str, query: &str, opts: Value) -> Result<Value> {
-        self.call(
-            members::MEMORY_RECALL,
-            &(scope, query, opts),
-        )
-        .await
+        self.call(members::MEMORY_RECALL, &(scope, query, opts))
+            .await
     }
 
     async fn flavour(&self, slug: &str) -> Result<Value> {
@@ -264,7 +258,8 @@ impl MemoryProvider for CapsHostPorts {
     }
 
     async fn remember(&self, scope: &str, key: &str, value: Value) -> Result<()> {
-        self.call(members::MEMORY_REMEMBER, &(scope, key, value)).await
+        self.call(members::MEMORY_REMEMBER, &(scope, key, value))
+            .await
     }
 
     async fn forget(&self, scope: &str, key: &str) -> Result<()> {
@@ -318,7 +313,12 @@ impl ApprovalProvider for CapsHostPorts {
 
 #[async_trait]
 impl AgentRunner for CapsHostPorts {
-    async fn run_agent(&self, agent_ref: &str, request: Value, conn: Option<&str>) -> Result<Value> {
+    async fn run_agent(
+        &self,
+        agent_ref: &str,
+        request: Value,
+        conn: Option<&str>,
+    ) -> Result<Value> {
         let request = runs::AgentRunRequest {
             agent: runs::AgentDefinition {
                 id: agent_ref.to_owned(),
@@ -366,10 +366,16 @@ impl AgentRunner for CapsHostPorts {
                 )
                 .await?;
             if events.events.len() > runs::MAX_AGENT_EVENTS_PAGE {
-                return Err(capability_error("agent callback returned an oversized event page"));
+                return Err(capability_error(
+                    "agent callback returned an oversized event page",
+                ));
             }
-            if transcript.len().saturating_add(events.events.len()) > runs::MAX_AGENT_TRANSCRIPT_EVENTS {
-                return Err(capability_error("agent callback exceeded the transcript event limit"));
+            if transcript.len().saturating_add(events.events.len())
+                > runs::MAX_AGENT_TRANSCRIPT_EVENTS
+            {
+                return Err(capability_error(
+                    "agent callback exceeded the transcript event limit",
+                ));
             }
             let had_events = !events.events.is_empty();
             for event in events.events {

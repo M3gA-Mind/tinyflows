@@ -35,7 +35,10 @@ pub struct ToolGrant {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContextSourceKind {
     /// Literal or expression-resolved text.
-    Text { #[serde(default)] text: Value },
+    Text {
+        #[serde(default)]
+        text: Value,
+    },
     /// Input items.
     Items,
     /// Memory recall through the existing memory capability.

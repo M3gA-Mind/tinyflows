@@ -7,8 +7,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-mod caps_types;
 mod caps_agent_types;
+mod caps_types;
 
 pub use caps_agent_types::*;
 pub use caps_types::*;

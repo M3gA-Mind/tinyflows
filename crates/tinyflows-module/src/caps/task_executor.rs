@@ -33,7 +33,10 @@ impl TaskRunnerLink {
 
 impl CapabilityTaskExecutor {
     pub(super) fn new(capabilities: Capabilities, task_runner: Arc<TaskRunnerLink>) -> Self {
-        Self { capabilities, task_runner }
+        Self {
+            capabilities,
+            task_runner,
+        }
     }
 }
 
@@ -47,7 +50,9 @@ impl TaskExecutor for CapabilityTaskExecutor {
             TaskSpec::Http { request } => self.capabilities.http.request(request, None).await,
             TaskSpec::Workflow { graph, input } => {
                 let graph: tinyflows::model::WorkflowGraph = serde_json::from_value(graph)
-                    .map_err(|error| EngineError::Capability(format!("invalid child workflow: {error}")))?;
+                    .map_err(|error| {
+                        EngineError::Capability(format!("invalid child workflow: {error}"))
+                    })?;
                 let compiled = tinyflows::compiler::compile(&graph).map_err(capability_error)?;
                 let mut capabilities = self.capabilities.clone();
                 capabilities.tasks = Some(self.task_runner.upgrade().ok_or_else(|| {

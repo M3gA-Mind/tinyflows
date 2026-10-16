@@ -123,14 +123,20 @@ async fn an_executor_runs_the_task_and_poll_returns_its_real_result() {
 async fn executor_errors_settle_as_failures_instead_of_leaving_running_tasks() {
     let runner = TokioTaskRunner::with_executor(Arc::new(FailedExecutor));
     let ticket = runner.start(spec()).await.unwrap();
-    assert_eq!(settled(&runner, &ticket).await, TaskState::Failed("host action refused".into()));
+    assert_eq!(
+        settled(&runner, &ticket).await,
+        TaskState::Failed("host action refused".into())
+    );
 }
 
 #[tokio::test]
 async fn executor_panics_settle_as_a_redacted_capability_failure() {
     let runner = TokioTaskRunner::with_executor(Arc::new(PanickingExecutor));
     let ticket = runner.start(spec()).await.unwrap();
-    assert_eq!(settled(&runner, &ticket).await, TaskState::Failed("task executor panicked".into()));
+    assert_eq!(
+        settled(&runner, &ticket).await,
+        TaskState::Failed("task executor panicked".into())
+    );
 }
 
 #[tokio::test]
