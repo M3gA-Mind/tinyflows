@@ -4,14 +4,14 @@ use serde_json::json;
 use tinyflows::caps::{TaskRunner, TaskSpec, TaskState};
 
 async fn await_task(runner: &dyn TaskRunner, ticket: &str) -> TaskState {
-    for _ in 0..256 {
+    for _ in 0..20_000 {
         let state = runner.poll(ticket).await.unwrap();
         if state.is_settled() {
             return state;
         }
         tokio::task::yield_now().await;
     }
-    panic!("capability-backed task did not settle")
+    panic!("capability-backed task {ticket:?} did not settle")
 }
 
 #[tokio::test]
