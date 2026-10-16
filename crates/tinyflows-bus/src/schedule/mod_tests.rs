@@ -75,7 +75,10 @@ fn every_advertised_store_operation_round_trips_through_the_typed_form() {
 #[test]
 fn too_frequent_wire_shape_and_display() {
     let fixed = TooFrequent::FixedInterval(chrono::Duration::seconds(90));
-    assert_eq!(serde_json::to_string(&fixed).unwrap(), r#"{"fixed_interval":90000}"#);
+    assert_eq!(
+        serde_json::to_string(&fixed).unwrap(),
+        r#"{"fixed_interval":90000}"#
+    );
     assert_eq!(fixed.to_string(), "fires every 1 minute 30 seconds");
     let pair: TooFrequent = serde_json::from_str(
         r#"{"consecutive_runs":{"first":"2026-01-01T00:56:00Z","second":"2026-01-01T01:00:00Z"}}"#,
@@ -83,7 +86,10 @@ fn too_frequent_wire_shape_and_display() {
     .unwrap();
     assert_eq!(pair.gap(), chrono::Duration::minutes(4));
     assert!(pair.to_string().ends_with("4 minutes apart"));
-    assert_eq!(serde_json::from_str::<TooFrequent>(&serde_json::to_string(&fixed).unwrap()).unwrap(), fixed);
+    assert_eq!(
+        serde_json::from_str::<TooFrequent>(&serde_json::to_string(&fixed).unwrap()).unwrap(),
+        fixed
+    );
     assert_eq!(MIN_AGENT_JOB_INTERVAL, chrono::Duration::minutes(5));
 }
 
@@ -115,9 +121,8 @@ fn agent_job_spec_defaults_and_request_types_deserialize() {
     )
     .unwrap();
     assert!(!validate.agent);
-    let origin: CheckOriginRequest = serde_json::from_value(
-        json!({"session_target":"current","delivery":{"mode":"origin"}}),
-    )
-    .unwrap();
+    let origin: CheckOriginRequest =
+        serde_json::from_value(json!({"session_target":"current","delivery":{"mode":"origin"}}))
+            .unwrap();
     assert!(origin.origin.is_none());
 }

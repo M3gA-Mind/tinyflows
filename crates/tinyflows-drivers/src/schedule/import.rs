@@ -32,16 +32,8 @@ use super::jobs::{flow_job_id, new_job_doc, runs_of};
 use super::runs::RUN_COUNTER;
 use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, storage_error};
 
-/// What [`CronDocuments::import_job`] did with a job.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedJob {
-    /// The id the job has in this store. It differs from the imported job's own
-    /// id for a flow-schedule job; its runs are imported under this id.
-    pub id: String,
-    /// Whether this call wrote the job. `false` when the store already held a
-    /// job under [`Self::id`], which is left exactly as it was.
-    pub written: bool,
-}
+/// What [`CronDocuments::import_job`] did with a job (the bus wire record).
+pub use tinyflows_schedule::ImportedJob;
 
 impl CronDocuments {
     /// Imports `job`, keeping its schedule, delivery, origin, policy, claim

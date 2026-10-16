@@ -10,7 +10,9 @@
 
 use crate::{CronJob, CronJobPatch, JobType};
 
-pub use tinyflows_bus::schedule::{AgentJobSpec, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER};
+pub use tinyflows_bus::schedule::{
+    AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER,
+};
 
 /// Refuses a patch no store may apply to `job`.
 ///

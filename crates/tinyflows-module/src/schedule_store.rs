@@ -1,80 +1,14 @@
 //! Module-owned persistence dispatch. Hosts pass configuration and JSON only.
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tinybus::Connection;
-use tinyflows_bus::schedule::{StoreBackend, StoreConfig, StoreRequest};
+use tinyflows_bus::schedule::{
+    StoreBackend, StoreConfig, StoreOperation as Operation, StoreRequest,
+};
 use tinyflows_drivers::schedule::CronDocuments;
-use tinyflows_schedule::{AgentJobSpec, CronJob, CronJobPatch, DeliveryStatus, Schedule};
-
-#[derive(Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-enum Operation {
-    Add {
-        expression: String,
-        command: String,
-    },
-    AddShell {
-        name: Option<String>,
-        schedule: Schedule,
-        command: String,
-    },
-    AddAgent {
-        spec: AgentJobSpec,
-    },
-    AddFlow {
-        flow_id: String,
-        schedule: Schedule,
-    },
-    FindFlow {
-        flow_id: String,
-    },
-    List,
-    Get {
-        job_id: String,
-    },
-    Remove {
-        job_id: String,
-    },
-    Clear,
-    Dedup,
-    Due {
-        now: DateTime<Utc>,
-    },
-    Update {
-        job_id: String,
-        patch: CronJobPatch,
-    },
-    RecordLastRun {
-        job_id: String,
-        finished_at: DateTime<Utc>,
-        success: bool,
-        output: String,
-    },
-    Reschedule {
-        job: CronJob,
-        success: bool,
-        output: String,
-    },
-    RecordRun {
-        job_id: String,
-        started_at: DateTime<Utc>,
-        finished_at: DateTime<Utc>,
-        status: String,
-        output: Option<String>,
-        duration_ms: i64,
-        delivery_status: Option<DeliveryStatus>,
-    },
-    DeleteQueuedRuns {
-        job_id: String,
-    },
-    ListRuns {
-        job_id: String,
-        limit: usize,
-    },
-}
+use tinyflows_schedule::CronJob;
 
 /// The module's schedule store: `CronDocuments` over the host's document port.
 pub(super) struct Store(CronDocuments);
@@ -155,6 +89,9 @@ impl Store {
             ),
             Operation::DeleteQueuedRuns { job_id } => dispatch!(delete_queued_runs, &job_id),
             Operation::ListRuns { job_id, limit } => dispatch!(list_runs, &job_id, limit),
+            Operation::SetMaxActiveJobs { limit } => dispatch!(set_max_active_jobs, limit),
+            Operation::ImportJob { job } => dispatch!(import_job, &job),
+            Operation::ImportRun { run } => dispatch!(import_run, &run),
         })
     }
 }
