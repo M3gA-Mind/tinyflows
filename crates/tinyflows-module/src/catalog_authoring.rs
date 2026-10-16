@@ -68,6 +68,7 @@ pub(super) async fn approval_manifest(
     let graph = tinyflows::migrate::deserialize_graph(request.graph).map_err(Error::failed)?;
     let candidates =
         tinyflows_catalog::approval_manifest::manifest_candidates(&graph, &request.native_prefix);
+    let wire_candidates = candidates.iter().map(wire_candidate).collect::<Vec<_>>();
     let callback = connection.proxy(
         &request.host.destination,
         &request.host.object_path,
@@ -77,7 +78,7 @@ pub(super) async fn approval_manifest(
         .call(
             catalog::CLASSIFY_MANIFEST_CANDIDATES,
             (ClassifyManifestCandidatesRequest {
-                candidates: candidates.clone(),
+                candidates: wire_candidates.clone(),
             },),
         )
         .await?;
@@ -88,7 +89,7 @@ pub(super) async fn approval_manifest(
             candidates.len()
         )));
     }
-    for (index, (candidate, class)) in candidates.iter().zip(&classes).enumerate() {
+    for (index, (candidate, class)) in wire_candidates.iter().zip(&classes).enumerate() {
         let requires_class = matches!(
             candidate,
             catalog::ManifestCandidate::Http { .. }
@@ -102,8 +103,54 @@ pub(super) async fn approval_manifest(
             )));
         }
     }
+    let classes = classes
+        .into_iter()
+        .map(|class| {
+            class.map(|class| tinyflows_catalog::approval_manifest::ManifestClass {
+                name: class.name,
+                blocked: class.blocked,
+                skip: class.skip,
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(tinyflows_catalog::approval_manifest::assemble_manifest(
         &candidates,
         &classes,
     ))
+}
+
+fn wire_candidate(
+    candidate: &tinyflows_catalog::approval_manifest::ManifestCandidate,
+) -> catalog::ManifestCandidate {
+    use tinyflows_catalog::approval_manifest::ManifestCandidate as Candidate;
+    match candidate {
+        Candidate::Http { node_id, url } => catalog::ManifestCandidate::Http {
+            node_id: node_id.clone(),
+            url: url.clone(),
+        },
+        Candidate::Code { node_id } => catalog::ManifestCandidate::Code {
+            node_id: node_id.clone(),
+        },
+        Candidate::DynamicTool { node_id } => catalog::ManifestCandidate::DynamicTool {
+            node_id: node_id.clone(),
+        },
+        Candidate::NativeTool {
+            node_id,
+            tool_name,
+            args,
+        } => catalog::ManifestCandidate::NativeTool {
+            node_id: node_id.clone(),
+            tool_name: tool_name.clone(),
+            args: args.clone(),
+        },
+        Candidate::ConnectorTool { node_id, slug } => {
+            catalog::ManifestCandidate::ConnectorTool {
+                node_id: node_id.clone(),
+                slug: slug.clone(),
+            }
+        }
+        Candidate::Agent { node_id } => catalog::ManifestCandidate::Agent {
+            node_id: node_id.clone(),
+        },
+    }
 }

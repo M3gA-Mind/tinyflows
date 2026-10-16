@@ -1,6 +1,12 @@
 //! Machine-readable authoring contracts for the node kinds — the queryable DSL
 //! schema.
 //!
+//! `tinyflows_bus::node_kinds` is the canonical host-facing contract. This
+//! engine-side copy remains as a source-compatible API because the bus crate is
+//! intentionally unpublished and cannot be a registry dependency of this
+//! crate. The module's exhaustive parity test keeps the two wire shapes and
+//! renderers aligned.
+//!
 //! A [`Node`](crate::model::Node)'s `config` is free-form
 //! [`serde_json::Value`](serde_json::Value): each executor reads the keys it
 //! needs at run time, so the per-kind config *shape* was, until now, documented

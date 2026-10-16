@@ -87,6 +87,48 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
 }
 
 #[tokio::test]
+async fn bus_node_contracts_are_exhaustively_in_parity_with_engine_compatibility_api() -> tinybus::Result<()> {
+    let (_server, client) = connections().await;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
+    let bus_contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> =
+        proxy.call(catalog::members::NODE_KINDS, ()).await?;
+    let engine_contracts = tinyflows::catalog::all_contracts();
+    assert_eq!(bus_contracts.len(), 22);
+    assert_eq!(bus_contracts.len(), engine_contracts.len());
+    for (bus, engine) in bus_contracts.iter().zip(&engine_contracts) {
+        assert_eq!(bus.kind, engine.kind);
+        assert_eq!(serde_json::to_value(bus).unwrap(), serde_json::to_value(engine).unwrap());
+        let note = format!("host overlay for {}", bus.kind);
+        let bus_overlay = bus.clone().with_note(note.clone());
+        let engine_overlay = engine.clone().with_note(note);
+        assert_eq!(
+            serde_json::to_value(&bus_overlay).unwrap(),
+            serde_json::to_value(&engine_overlay).unwrap()
+        );
+        assert_eq!(
+            tinyflows_bus::node_kinds::render_node_kinds_line(std::slice::from_ref(&bus_overlay)),
+            tinyflows::catalog::render_node_kinds_line(std::slice::from_ref(&engine_overlay))
+        );
+        assert_eq!(
+            tinyflows_bus::node_kinds::render_node_kinds_required(std::slice::from_ref(&bus_overlay)),
+            tinyflows::catalog::render_node_kinds_required(std::slice::from_ref(&engine_overlay))
+        );
+    }
+    let bus_line = tinyflows_bus::node_kinds::render_node_kinds_line(&bus_contracts);
+    let engine_line = tinyflows::catalog::render_node_kinds_line(&engine_contracts);
+    assert_eq!(bus_line, engine_line);
+    assert_eq!(
+        tinyflows_bus::node_kinds::render_node_kinds_required(&bus_contracts),
+        tinyflows::catalog::render_node_kinds_required(&engine_contracts)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure()
 -> tinybus::Result<()> {
     let (_server, client) = connections().await;
