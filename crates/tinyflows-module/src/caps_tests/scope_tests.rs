@@ -47,9 +47,9 @@ fn decode<T: DeserializeOwned>(value: &Value) -> tinybus::Result<T> {
 fn reply<T: Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
     match result {
         Ok(value) => json!({"value": serde_json::to_value(value).unwrap()}),
-        Err(error) => json!({"error":{"kind":error.kind().to_string().replace(' ', "_"),
-                kind: error.kind().to_string().replace(' ', "_"),
-                message: error.to_string(),
+        Err(error) => json!({"error":{
+                "kind": error.kind().to_string().replace(' ', "_"),
+                "message": error.to_string(),
         }}),
     }
 }
