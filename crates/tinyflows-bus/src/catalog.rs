@@ -4,6 +4,8 @@
 //! host to one acting agent, and the module performs catalog operations over
 //! that scoped document port.
 
+use serde::{Deserialize, Serialize};
+
 mod extended_types;
 mod storage_types;
 mod types;

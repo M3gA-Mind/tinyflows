@@ -368,12 +368,15 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
-    async fn node_kinds(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
-        CatalogService::node_kinds_impl(self).await
+    async fn node_kinds(&self) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
+        Ok(CatalogService::node_kinds_impl(self).await)
     }
 
-    async fn apply_graph_ops(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
-        CatalogService::apply_graph_ops_impl(self, request).await
+    async fn apply_graph_ops(
+        &self,
+        request: ApplyGraphOpsRequest,
+    ) -> tinybus::Result<ApplyGraphOpsResult> {
+        Ok(CatalogService::apply_graph_ops_impl(self, request).await)
     }
 
     async fn approval_manifest(
