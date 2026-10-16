@@ -260,11 +260,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(listed.as_array().unwrap().len(), 1);
     let id = flow["id"].as_str().unwrap();
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
     body["next_run_ms"] = json!(0);
-    body["next_run_ns"] = json!(0);
-    docs.put("cron_jobs", id, body, stored.unchanged())
+    docs.put("cron.jobs", id, body, stored.unchanged())
         .await
         .unwrap();
     let request = tinyflows_bus::schedule::StartScheduler {
@@ -302,7 +301,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     assert_eq!(
         stored.doc["claim_generation"], 1,
         "compiled scheduler must durably advance the claim generation"
