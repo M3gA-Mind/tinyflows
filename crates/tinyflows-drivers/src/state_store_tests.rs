@@ -51,7 +51,11 @@ async fn state_is_a_tsd_kv_entry_of_owner_flows() {
     let backing = docs(&MemoryStorage::new(), "local");
     let store = DriverStateStore::new(Arc::clone(&backing));
     store.store("a/b", json!({ "n": 1 })).await.unwrap();
-    let row = backing.get("tsd.kv", "flows/state/a%2Fb").await.unwrap().unwrap();
+    let row = backing
+        .get("tsd.kv", "flows/state/a%2Fb")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row.doc["owner"], "flows");
     assert_eq!(row.doc["ns"], "state");
     assert_eq!(row.doc["key"], "a/b");

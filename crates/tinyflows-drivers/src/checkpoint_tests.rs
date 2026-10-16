@@ -359,10 +359,7 @@ fn keys_are_unambiguous_and_namespaces_encode_injectively() {
         checkpoint_id_key("flows", "a/b", 1),
         checkpoint_id_key("flows", "a", 1)
     );
-    assert_ne!(
-        thread_id_key("flows", "a/b"),
-        thread_id_key("flows/a", "b")
-    );
+    assert_ne!(thread_id_key("flows", "a/b"), thread_id_key("flows/a", "b"));
     let ns = |parts: &[&str]| parts.iter().map(|p| (*p).to_string()).collect::<Vec<_>>();
     assert_ne!(subgraph_key(&ns(&["a", "b"])), subgraph_key(&ns(&["a/b"])));
     assert_ne!(subgraph_key(&ns(&["ab"])), subgraph_key(&ns(&["a", "b"])));
@@ -389,7 +386,11 @@ async fn documents_are_the_v2_graph_layout_under_the_flows_namespace() {
     assert_eq!(row.doc["checkpoint_id"], "c1");
     assert!(row.doc["checkpoint"].is_object());
     assert_eq!(row.meta.schema, 4);
-    let counter = docs.get("graph.threads", "flows/a%2Fb").await.unwrap().unwrap();
+    let counter = docs
+        .get("graph.threads", "flows/a%2Fb")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(counter.doc["next"], 1);
 }
 

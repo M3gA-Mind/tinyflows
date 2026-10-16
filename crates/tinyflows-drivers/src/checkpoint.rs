@@ -130,7 +130,10 @@ impl<State> DriverCheckpointer<State> {
         self.declared
             .get_or_try_init(|| async {
                 for spec in [checkpoints_spec(), threads_spec(), writes_spec()] {
-                    self.docs.ensure_collection(&spec).await.map_err(map_error)?;
+                    self.docs
+                        .ensure_collection(&spec)
+                        .await
+                        .map_err(map_error)?;
                 }
                 Ok::<(), GraphError>(())
             })
