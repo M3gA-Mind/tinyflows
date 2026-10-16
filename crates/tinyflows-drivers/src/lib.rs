@@ -23,9 +23,12 @@
 //!   run-history store.
 //!   It needs only `tinyflows-schedule`, not the engine.
 //!
-//! The default collections (`flows_state`, `flows_graph_*`) stay apart from
-//! TinyAgents' own checkpointer collections, so both can share one scoped
-//! backend.
+//! Everything stores on the uniform storage schema v2: [`storage_schema()`]
+//! (owner `flows`) and [`cron_storage_schema()`] (owner `cron`) declare the
+//! collections and carry the v1 -> v2 steps, and [`import_legacy_kv`] moves the
+//! retired key-value collections into `tsd.kv`. The graph checkpointer's
+//! `graph.*` collections are declared and migrated by `tinyagents-graph`
+//! (namespace `flows`), not here.
 //!
 //! The items above are behind Cargo features, so they are named rather than
 //! linked: a link would not resolve in a build without its feature.
@@ -38,7 +41,7 @@ pub mod catalog;
 #[cfg(feature = "engine")]
 mod checkpoint;
 #[cfg(feature = "engine")]
-mod checkpoint_keys;
+mod checkpoint_layout;
 #[cfg(feature = "schedule")]
 pub mod schedule;
 #[cfg(feature = "engine")]
@@ -47,6 +50,8 @@ mod state_store;
 pub mod store;
 
 #[cfg(feature = "engine")]
-pub use checkpoint::{DEFAULT_PREFIX, DriverCheckpointer};
+pub use checkpoint::DriverCheckpointer;
 #[cfg(feature = "engine")]
-pub use state_store::DriverStateStore;
+pub use checkpoint_layout::NAMESPACE;
+#[cfg(feature = "engine")]
+pub use state_store::{DriverStateStore, KV_OWNER};
