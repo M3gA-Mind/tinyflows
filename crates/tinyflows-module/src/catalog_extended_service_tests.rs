@@ -97,6 +97,7 @@ async fn promotion_host(
     fail: bool,
 ) -> CallbackAddress {
     let path = format!("/test/promotion/{name}");
+    host.request_name("test.Promotion").await.unwrap();
     host.serve_at(
         path.parse().unwrap(),
         PromotionHost {
