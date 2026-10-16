@@ -591,3 +591,7 @@ mod extended_tests;
 #[cfg(test)]
 #[path = "catalog_extended_operations_tests.rs"]
 mod operations_tests;
+
+#[cfg(test)]
+#[path = "catalog_authoring_tests.rs"]
+mod authoring_tests;
