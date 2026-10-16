@@ -351,6 +351,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     );
 
     let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
+    let catalog_proxy = connection
+        .proxy(
+            BUS_NAME,
+            tinyflows_bus::catalog::OBJECT_PATH,
+            tinyflows_bus::catalog::INTERFACE,
+        )
+        .unwrap();
     connection
         .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
         .await
@@ -378,16 +385,48 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let report: GraphValidation = proxy
         .call(
             methods::VALIDATE_GRAPH,
-            (json!({
-                "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
-                "edges": []
-            }),),
+            (tinyflows_bus::ValidateGraphRequest {
+                graph: json!({
+                    "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
+                    "edges": []
+                }),
+                host: None,
+            },),
         )
         .await
         .unwrap();
     assert!(report.is_valid(), "{:?}", report.errors);
     let graph = report.graph.unwrap();
     assert!(graph["schema_version"].as_u64().unwrap() > 0);
+
+    let contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> = catalog_proxy
+        .call(tinyflows_bus::catalog::members::NODE_KINDS, ())
+        .await
+        .unwrap();
+    assert_eq!(contracts.len(), 22);
+    let applied: tinyflows_bus::catalog::ApplyGraphOpsResult = catalog_proxy
+        .call(
+            tinyflows_bus::catalog::members::APPLY_GRAPH_OPS,
+            (tinyflows_bus::catalog::ApplyGraphOpsRequest {
+                graph: graph.clone(),
+                ops: vec![json!({"op":"set_node_name","id":"start","name":"Edited"})],
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied.graph.unwrap()["nodes"][0]["name"], "Edited");
+    let imported: tinyflows_bus::ImportGraphResult = proxy
+        .call(
+            methods::IMPORT_GRAPH,
+            (tinyflows_bus::ImportGraphRequest {
+                graph,
+                format: Some("native".into()),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(imported.errors.is_empty(), "{:?}", imported.errors);
+    assert!(imported.graph.is_some());
     let failures: Vec<String> = proxy
         .call(methods::BINDING_FAILURES, (graph,))
         .await
