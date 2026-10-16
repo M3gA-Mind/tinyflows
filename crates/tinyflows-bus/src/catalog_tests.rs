@@ -196,3 +196,96 @@ fn served_catalog_version_and_member_list_match_the_new_surface() {
         ]
     );
 }
+
+#[test]
+fn catalog_and_storage_member_json_shapes_are_pinned() {
+    let storage = storage();
+    assert_eq!(
+        serde_json::to_value(&storage).unwrap(),
+        json!({"callback":{"destination":"test.CatalogStorage","object_path":"/test/agent/alice/CatalogStorage"}})
+    );
+    assert_eq!(
+        serde_json::to_value(DocGetRequest {
+            collection: "flows_definitions".into(),
+            id: "flow-1".into(),
+        })
+        .unwrap(),
+        json!({"collection":"flows_definitions","id":"flow-1"})
+    );
+    assert_eq!(
+        serde_json::to_value(CatalogStorageReply::Value {
+            value: json!({"transactions":true}),
+        })
+        .unwrap(),
+        json!({"value":{"transactions":true}})
+    );
+    assert_eq!(
+        serde_json::to_value(CatalogStorageReply::Error {
+            error: CatalogStorageFailure {
+                kind: "conflict".into(),
+                message: "version changed".into(),
+            },
+        })
+        .unwrap(),
+        json!({"error":{"kind":"conflict","message":"version changed"}})
+    );
+    assert_eq!(
+        serde_json::to_value(PutWorkflowRequest::Update {
+            storage,
+            id: "flow-1".into(),
+            name: "Updated".into(),
+            graph: json!({"nodes":[],"edges":[]}),
+            require_approval: true,
+            expected_version: Some("2026-01-02T00:00:00Z".into()),
+            force_disarm_automatic: true,
+        })
+        .unwrap(),
+        json!({
+            "operation":"update",
+            "storage":{"callback":{"destination":"test.CatalogStorage","object_path":"/test/agent/alice/CatalogStorage"}},
+            "id":"flow-1",
+            "name":"Updated",
+            "graph":{"nodes":[],"edges":[]},
+            "require_approval":true,
+            "expected_version":"2026-01-02T00:00:00Z",
+            "force_disarm_automatic":true
+        })
+    );
+    let current = workflow();
+    assert_eq!(
+        serde_json::to_value(PutWorkflowResponse::Error(
+            FlowUpdateError::VersionConflict {
+                message: "changed".into(),
+                current: current.clone(),
+            },
+        ))
+        .unwrap(),
+        json!({
+            "status":"error",
+            "value":{
+                "code":"version_conflict",
+                "message":"changed",
+                "current":current
+            }
+        })
+    );
+    let summary = WorkflowSummary {
+        id: current.id,
+        name: current.name,
+        revision: 2,
+        enabled: false,
+        require_approval: true,
+        last_status: Some("completed".into()),
+        trigger_kind: Some("schedule".into()),
+        node_count: 4,
+        updated_at: current.updated_at,
+    };
+    assert_eq!(
+        serde_json::to_value(summary).unwrap(),
+        json!({
+            "id":"flow-1","name":"Example","revision":2,"enabled":false,
+            "require_approval":true,"last_status":"completed","trigger_kind":"schedule",
+            "node_count":4,"updated_at":"2026-01-02T00:00:00Z"
+        })
+    );
+}
