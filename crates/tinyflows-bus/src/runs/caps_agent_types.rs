@@ -59,6 +59,7 @@ pub enum ContextSourceKind {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ContextSource {
     /// Optional editor label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// Source declaration.
     #[serde(flatten)]
@@ -89,7 +90,6 @@ pub struct AgentDefinition {
     #[serde(default)]
     pub provider: Option<String>,
     /// Declared working directory.
-    #[serde(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Advisory agent-loop limits.
@@ -121,10 +121,10 @@ pub struct AgentModelSelection {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct AgentInput {
     /// Resolved task text.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub text: String,
     /// Input items in order.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub data: Vec<Value>,
 }
 
