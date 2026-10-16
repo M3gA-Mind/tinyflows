@@ -19,7 +19,7 @@ use crate::drivers::convert::{
 use crate::drivers::{CAS_ATTEMPTS, is_race, key as make_key};
 use crate::execute::StepRecord;
 use crate::ledger::{
-    Episode, EpisodeStatus, Ledger, LedgerError, LedgerRow, Lesson, LessonKind, Page, Result, Score,
+    Episode, Ledger, LedgerError, LedgerRow, Lesson, LessonKind, Page, Result, Score,
 };
 
 #[async_trait]

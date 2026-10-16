@@ -1,4 +1,6 @@
 use super::*;
+use serde_json::json;
+use tinystoragedrivers_core::DocumentStoreExt;
 use crate::workflows::conformance;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
@@ -29,8 +31,8 @@ async fn an_unparseable_record_is_an_error() {
     vault.put(&conformance::record("wf")).await.unwrap();
     docs.put(
         WORKFLOWS,
-        &key(&["", "wf"]),
-        json!({ "scope_key": "", "workflow_id": "wf", "record": 7 }),
+        &key(&["", "wf"]).unwrap(),
+        json!({ "scope_key": "", "workflow_id": "wf", "name": 7, "graph": "nope" }),
         Precondition::None,
     )
     .await
@@ -56,11 +58,15 @@ async fn storage_scopes_both_halves_together() {
 }
 
 #[tokio::test]
-async fn records_are_stored_as_strings() {
+async fn records_are_stored_as_bare_objects_keyed_by_scope() {
     let docs = memory_docs();
-    let vault = DriverVault::new(Arc::clone(&docs));
+    let vault = DriverVault::new(Arc::clone(&docs)).for_tenant("t");
     vault.put(&conformance::record("wf")).await.unwrap();
     let stored = docs.query_all(WORKFLOWS, &Query::all()).await.unwrap();
-    assert!(stored[0].doc["record"].is_string());
+    assert_eq!(stored[0].id, key(&["t", "wf"]).unwrap());
+    assert_eq!(stored[0].doc["scope_key"], "t");
+    assert_eq!(stored[0].doc["workflow_id"], "wf");
+    assert!(stored[0].doc["graph"].is_object() && stored[0].doc.get("record").is_none());
+    assert_eq!(stored[0].meta.schema, 2);
     assert_eq!(vault.load().await.unwrap()[0].id, "wf");
 }

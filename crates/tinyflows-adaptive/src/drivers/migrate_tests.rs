@@ -7,6 +7,7 @@ use tinystoragedrivers_core::{
 };
 
 use super::*;
+use crate::drivers::{DriverLedger, DriverVault};
 use crate::ledger::{Ledger, conformance};
 use crate::workflows::Vault;
 

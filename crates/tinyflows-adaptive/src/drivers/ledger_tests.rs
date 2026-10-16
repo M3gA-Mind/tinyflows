@@ -1,4 +1,6 @@
 use super::*;
+use tinystoragedrivers_core::Counters;
+use crate::drivers::key;
 use crate::execute::StepRecord;
 use crate::ledger::{Ledger, Score, conformance};
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
@@ -96,25 +98,14 @@ async fn an_unreadable_record_is_corrupt() {
     docs.put(
         ROWS,
         &id,
-        json!({ "episode": "ep", "scope_key": "", "seq": 1, "record": "nope" }),
-        Precondition::None,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(
-        store.rows("ep").await,
-        Err(LedgerError::Corrupt(_))
-    ));
-    docs.put(
-        ROWS,
-        &id,
-        json!({ "episode": "ep", "scope_key": "", "seq": 1 }),
+        json!({ "episode": "ep", "scope_key": "", "seq": 1, "attempt": "nope" }),
         Precondition::None,
     )
     .await
     .unwrap();
     let error = store.rows("ep").await.unwrap_err();
-    assert!(error.to_string().contains("no record"), "{error}");
+    assert!(matches!(error, LedgerError::Corrupt(_)), "{error}");
+    assert!(error.to_string().contains(&id), "{error}");
     assert!(format!("{store:?}").contains("DriverLedger"));
     assert!(matches!(
         backend(StorageError::unavailable("x")),
@@ -142,7 +133,12 @@ async fn steps_are_one_document_each_in_order() {
         12,
         "a step per document, never one oversized record"
     );
-    assert!(stored.iter().all(|doc| doc.doc["record"].is_string()));
+    assert!(stored.iter().all(|doc| doc.doc.get("record").is_none()));
+    let first = stored.iter().find(|doc| doc.doc["seq"] == 0).unwrap();
+    assert_eq!(first.id, key(&["", "ldg_1", "00000000"]).unwrap());
+    assert_eq!(first.doc["node_id"], "n00");
+    assert_eq!(first.doc["duration_ms"], 1);
+    assert_eq!(first.doc["output"]["file.name"], "n00", "output is verbatim");
     let back = store.steps("ldg_1").await.unwrap();
     assert_eq!(
         back.iter().map(|s| s.node_id.as_str()).collect::<Vec<_>>(),
@@ -160,4 +156,24 @@ async fn steps_are_one_document_each_in_order() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn rows_and_episodes_are_stored_flat_with_ms_times() {
+    let docs = memory_docs();
+    let store = DriverLedger::new(Arc::clone(&docs)).for_tenant("t");
+    let id = store
+        .append(&conformance::row("ep", 3, "sig"))
+        .await
+        .unwrap();
+    let row = docs.get(ROWS, &id).await.unwrap().unwrap();
+    assert_eq!(id, "ldg_00000001");
+    assert_eq!(row.doc["scope_key"], "t");
+    assert_eq!(row.doc["at_ms"], 1_767_225_603_000_i64);
+    assert_eq!(row.doc["approach_sig"], "sig");
+    assert_eq!(row.meta.schema, 2);
+    assert_eq!(store.rows("ep").await.unwrap()[0].at, "2026-01-01T00:00:03Z");
+
+    let counter = Counters::new(&docs).peek("flows", "adaptive_rows").await.unwrap();
+    assert_eq!(counter, 1, "the id sequence is a tsd counter");
 }
