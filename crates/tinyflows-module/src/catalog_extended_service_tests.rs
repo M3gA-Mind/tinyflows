@@ -196,7 +196,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     assert_eq!(listed.len(), 2);
     assert_eq!(
         proxy
-            .call::<_, _, bool>(
+            .call::<bool>(
                 "DeleteDraft",
                 &(DraftIdRequest {
                     storage: alice.clone(),
@@ -210,7 +210,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
 
     assert_eq!(
         proxy
-            .call::<_, _, usize>(
+            .call::<usize>(
                 "UpsertSuggestions",
                 &(UpsertSuggestionsRequest {
                     storage: alice.clone(),
@@ -235,7 +235,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     assert_eq!(listed_suggestions.len(), 1);
     assert_eq!(
         proxy
-            .call::<_, _, bool>(
+            .call::<bool>(
                 "SetSuggestionStatus",
                 &(SetSuggestionStatusRequest {
                     storage: alice.clone(),
@@ -249,7 +249,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     );
     assert!(
         proxy
-            .call::<_, _, bool>(
+            .call::<bool>(
                 "SetSuggestionStatus",
                 &(SetSuggestionStatusRequest {
                     storage: alice.clone(),
@@ -304,7 +304,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     assert_eq!(one.unwrap().id, "run-new");
     assert!(
         proxy
-            .call::<_, _, Option<FlowRun>>(
+            .call::<Option<FlowRun>>(
                 "GetRun",
                 &(RunIdRequest {
                     storage: bob.clone(),
@@ -340,7 +340,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     assert_eq!(all.len(), 2);
     assert_eq!(
         proxy
-            .call::<_, _, usize>(
+            .call::<usize>(
                 "PruneRuns",
                 &(PruneRunsRequest {
                     storage: alice.clone(),
