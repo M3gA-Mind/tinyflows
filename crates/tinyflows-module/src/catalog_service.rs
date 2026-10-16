@@ -4,10 +4,10 @@ use anyhow::Result;
 use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
-use tinyflows_bus::{
-    CatalogStorage, DeleteWorkflowResult, FlowUpdateError, ListRevisionsRequest,
+use tinyflows_bus::catalog::{
+    self, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, ListRevisionsRequest,
     ListWorkflowsResult, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult,
-    SetEnabledRequest, Workflow, WorkflowRevision, WorkflowSummary, catalog,
+    SetEnabledRequest, Workflow, WorkflowRevision, WorkflowSummary,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
