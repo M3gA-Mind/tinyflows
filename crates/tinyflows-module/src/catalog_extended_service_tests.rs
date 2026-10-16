@@ -373,6 +373,19 @@ async fn promote_draft_calls_catalog_reentrantly_and_deletes_after_success() {
     let (storage, _) = scope_with_documents(&host, "promote_success").await;
     let proxy = proxy(&host);
     let draft = create_draft(&proxy, storage.clone(), None).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: None,
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
     let callback = promotion_host(&host, storage.clone(), "success", false).await;
     let result: PromoteDraftResponse = proxy
         .call(
@@ -453,6 +466,19 @@ async fn promote_draft_reports_cleanup_failure_after_successful_save() {
     let (storage, _) = scope_with_draft_delete_failure(&host, "promote_delete_failure").await;
     let proxy = proxy(&host);
     let draft = create_draft(&proxy, storage.clone(), None).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: None,
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
     let callback = promotion_host(&host, storage.clone(), "delete_failure", false).await;
     let result: PromoteDraftResponse = proxy
         .call(
