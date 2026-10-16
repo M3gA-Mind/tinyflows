@@ -6,28 +6,20 @@
 
 use std::sync::Arc;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, DocumentStoreExt, Filter, IndexSpec, Precondition, Query,
-    StorageError, Versioned,
+    Counters, DocumentStore, DocumentStoreExt, Filter, Precondition, Query, StorageError,
+    Versioned, WriteOptions, primitives,
 };
 use tokio::sync::OnceCell;
 
-use super::{CAS_ATTEMPTS, is_race};
+use super::convert::{from_object, lesson_from, row_from};
+use super::{CAS_ATTEMPTS, COUNTER_OWNER, SCHEMA_VERSION, collections, is_race};
 
 mod trait_impl;
 use crate::ledger::{LedgerError, LedgerRow, Lesson, LessonKind, Result};
 
-pub(super) const COUNTERS: &str = "adaptive_counters";
-pub(super) const ROWS: &str = "adaptive_rows";
-pub(super) const LESSONS: &str = "adaptive_lessons";
-pub(super) const EVIDENCE: &str = "adaptive_evidence";
-pub(super) const SCORES: &str = "adaptive_scores";
-pub(super) const VARIANTS: &str = "adaptive_variants";
-pub(super) const EPISODES: &str = "adaptive_episodes";
-pub(super) const STEPS: &str = "adaptive_steps";
+pub(super) use super::{EPISODES, EVIDENCE, LESSONS, ROWS, SCORES, STEPS, VARIANTS};
 
 pub(super) fn backend(error: StorageError) -> LedgerError {
     LedgerError::Backend(error.to_string())
@@ -37,24 +29,15 @@ pub(super) fn corrupt(error: impl std::fmt::Display) -> LedgerError {
     LedgerError::Corrupt(error.to_string())
 }
 
-/// A record as stored: a JSON **string**, not a nested object. Records carry
-/// arbitrary JSON (a goal, a step's output), and a MongoDB-backed document
-/// port rejects object keys with a `.` or a leading `$`; the native Mongo
-/// backend stores its records as strings for the same reason.
-pub(super) fn encode(value: &impl Serialize) -> Result<Value> {
-    serde_json::to_string(value)
-        .map(Value::String)
-        .map_err(corrupt)
-}
-
-/// The `record` field of a stored document, decoded.
-pub(super) fn record<T: DeserializeOwned>(stored: &Versioned<Value>) -> Result<T> {
-    let raw = stored
-        .doc
-        .get("record")
-        .and_then(Value::as_str)
-        .ok_or_else(|| corrupt(format!("{} has no record", stored.id)))?;
-    serde_json::from_str(raw).map_err(|error| corrupt(format!("{}: {error}", stored.id)))
+/// The record a stored document holds, decoded by `rebuild` (which undoes the
+/// stored shape) and `T`'s own deserializer.
+pub(super) fn decode<T: serde::de::DeserializeOwned>(
+    stored: &Versioned<Value>,
+    rebuild: fn(&Value) -> std::result::Result<Map<String, Value>, String>,
+) -> Result<T> {
+    rebuild(&stored.doc)
+        .and_then(from_object)
+        .map_err(|error| corrupt(format!("{}: {error}", stored.id)))
 }
 
 pub(super) fn counter(doc: &Value, field: &str) -> u32 {
@@ -62,6 +45,24 @@ pub(super) fn counter(doc: &Value, field: &str) -> u32 {
         .and_then(Value::as_u64)
         .and_then(|n| u32::try_from(n).ok())
         .unwrap_or(0)
+}
+
+/// Writes `doc` at `id` declaring the stores' body version.
+pub(super) async fn put_doc(
+    docs: &dyn DocumentStore,
+    collection: &str,
+    id: &str,
+    doc: Value,
+    precondition: Precondition,
+) -> std::result::Result<tinystoragedrivers_core::Version, StorageError> {
+    docs.put_with(
+        collection,
+        id,
+        doc,
+        precondition,
+        WriteOptions::new().schema(SCHEMA_VERSION),
+    )
+    .await
 }
 
 /// A ledger stored in a driver document store.
@@ -113,25 +114,8 @@ impl DriverLedger {
     pub(super) async fn declared(&self) -> Result<()> {
         self.declared
             .get_or_try_init(|| async {
-                let specs = [
-                    CollectionSpec::new(COUNTERS),
-                    CollectionSpec::new(ROWS).index(IndexSpec::new(
-                        "by_episode",
-                        ["scope_key", "episode", "seq"],
-                    )),
-                    CollectionSpec::new(LESSONS)
-                        .index(IndexSpec::new("by_scope", ["scope_key", "seq"])),
-                    CollectionSpec::new(EVIDENCE).index(IndexSpec::new("by_lesson", ["lesson_id"])),
-                    CollectionSpec::new(SCORES),
-                    CollectionSpec::new(VARIANTS)
-                        .index(IndexSpec::new("by_parent", ["scope_key", "parent"])),
-                    CollectionSpec::new(EPISODES)
-                        .index(IndexSpec::new("by_scope", ["scope_key", "updated_at"])),
-                    CollectionSpec::new(STEPS)
-                        .index(IndexSpec::new("by_row", ["scope_key", "row_id", "seq"])),
-                ];
-                for spec in &specs {
-                    self.docs.ensure_collection(spec).await.map_err(backend)?;
+                for spec in collections().into_iter().chain(primitives::collection_specs()) {
+                    self.docs.ensure_collection(&spec).await.map_err(backend)?;
                 }
                 Ok::<(), LedgerError>(())
             })
@@ -139,31 +123,13 @@ impl DriverLedger {
             .map(|_| ())
     }
 
-    /// The next value of the sequence `name`, by compare-and-swap so two
-    /// writers never share one.
+    /// The next value of the sequence `name` (`tsd.counters`, owner `flows`),
+    /// atomically, so two writers never share one.
     pub(super) async fn next_seq(&self, name: &str) -> Result<u64> {
-        for _ in 0..CAS_ATTEMPTS {
-            let current = self.docs.get(COUNTERS, name).await.map_err(backend)?;
-            let (next, precondition) = match &current {
-                Some(found) => (
-                    found.doc.get("seq").and_then(Value::as_u64).unwrap_or(0) + 1,
-                    found.unchanged(),
-                ),
-                None => (1, Precondition::Absent),
-            };
-            match self
-                .docs
-                .put(COUNTERS, name, json!({ "seq": next }), precondition)
-                .await
-            {
-                Ok(_) => return Ok(next),
-                Err(error) if is_race(&error) => {}
-                Err(error) => return Err(backend(error)),
-            }
-        }
-        Err(LedgerError::Backend(format!(
-            "the {name} sequence kept changing under {CAS_ATTEMPTS} attempts"
-        )))
+        Counters::new(&self.docs)
+            .next(COUNTER_OWNER, name)
+            .await
+            .map_err(backend)
     }
 
     /// Adds one application (and one help when `helped`) to the counters of
@@ -192,7 +158,7 @@ impl DriverLedger {
             };
             doc["applied"] = json!(u64::from(counter(&doc, "applied")) + 1);
             doc["helped"] = json!(u64::from(counter(&doc, "helped")) + u64::from(helped));
-            match self.docs.put(collection, id, doc, precondition).await {
+            match put_doc(self.docs.as_ref(), collection, id, doc, precondition).await {
                 Ok(_) => return Ok(()),
                 Err(error) if is_race(&error) => {}
                 Err(error) => return Err(backend(error)),
@@ -205,11 +171,7 @@ impl DriverLedger {
 
     /// Writes `doc` at `id` only if nothing is there yet.
     pub(super) async fn insert_once(&self, collection: &str, id: &str, doc: Value) -> Result<()> {
-        match self
-            .docs
-            .put(collection, id, doc, Precondition::Absent)
-            .await
-        {
+        match put_doc(self.docs.as_ref(), collection, id, doc, Precondition::Absent).await {
             Ok(_) => Ok(()),
             Err(error) if is_race(&error) => Ok(()),
             Err(error) => Err(backend(error)),
@@ -228,7 +190,7 @@ impl DriverLedger {
     }
 
     pub(super) fn lesson_from(stored: &Versioned<Value>) -> Result<Lesson> {
-        let mut lesson: Lesson = record(stored)?;
+        let mut lesson: Lesson = decode(stored, lesson_from)?;
         lesson.id.clone_from(&stored.id);
         lesson.applied = counter(&stored.doc, "applied");
         lesson.helped = counter(&stored.doc, "helped");
@@ -242,7 +204,7 @@ impl DriverLedger {
     }
 
     pub(super) fn row_from(stored: &Versioned<Value>) -> Result<LedgerRow> {
-        let mut row: LedgerRow = record(stored)?;
+        let mut row: LedgerRow = decode(stored, row_from)?;
         row.id.clone_from(&stored.id);
         Ok(row)
     }

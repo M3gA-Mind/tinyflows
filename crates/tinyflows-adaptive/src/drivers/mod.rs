@@ -54,6 +54,9 @@ pub use ledger::DriverLedger;
 pub use migrate::{extend_storage_schema, import_legacy_adaptive_counters};
 pub use vault::DriverVault;
 
+/// Compare-and-swap attempts before a contended counter update gives up.
+const CAS_ATTEMPTS: usize = 64;
+
 /// The `tsd.counters` owner of the id sequences.
 pub(crate) const COUNTER_OWNER: &str = "flows";
 
