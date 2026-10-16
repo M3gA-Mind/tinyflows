@@ -1,7 +1,7 @@
 use super::*;
+use crate::catalog::test_support::{catalog, catalog_in};
 use serde_json::json;
 use tinystoragedrivers_core::DocumentStoreExt;
-use crate::catalog::test_support::{catalog, catalog_in};
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]
@@ -52,7 +52,11 @@ async fn values_are_tsd_kv_entries_of_owner_flows() {
     let store = catalog();
     store.kv_set("a/b", "c", &json!({ "n": 1 })).await.unwrap();
     let docs = store.docs().await.unwrap();
-    let row = docs.get("tsd.kv", "flows/kv:a%2Fb/c").await.unwrap().unwrap();
+    let row = docs
+        .get("tsd.kv", "flows/kv:a%2Fb/c")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row.doc["owner"], "flows");
     assert_eq!(row.doc["ns"], "kv:a/b");
     assert_eq!(row.doc["value"], json!({ "n": 1 }));

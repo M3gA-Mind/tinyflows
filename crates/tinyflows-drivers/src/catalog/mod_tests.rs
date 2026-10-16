@@ -18,7 +18,11 @@ fn instants_are_epoch_milliseconds_and_render_back() {
 fn stamps_never_repeat() {
     let first = next_stamp(None);
     let later = next_stamp(Some(first + 1_000_000));
-    assert_eq!(later, first + 1_000_001, "a stamp is strictly after its predecessor");
+    assert_eq!(
+        later,
+        first + 1_000_001,
+        "a stamp is strictly after its predecessor"
+    );
 }
 
 #[test]

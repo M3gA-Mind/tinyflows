@@ -107,8 +107,17 @@ async fn v1_catalog_records_migrate_to_bare_ms_bodies_and_read_back() {
     assert_eq!(def.doc["graph"], graph(), "the graph string is parsed");
     assert_eq!(def.doc["created_ms"], 1_772_600_767_250_i64);
     assert_eq!(def.doc["last_run_ms"], 1_772_600_767_250_i64);
-    assert_eq!(def.meta.created_ms, 1_772_600_767_250_i64, "history keeps its time");
-    for gone in ["created_ns", "created_at", "updated_at", "last_run_at", "graph_json"] {
+    assert_eq!(
+        def.meta.created_ms, 1_772_600_767_250_i64,
+        "history keeps its time"
+    );
+    for gone in [
+        "created_ns",
+        "created_at",
+        "updated_at",
+        "last_run_at",
+        "graph_json",
+    ] {
         assert!(def.doc.get(gone).is_none(), "{gone}");
     }
     let rev = docs.get("flows.revisions", "r1").await.unwrap().unwrap();
@@ -129,7 +138,16 @@ async fn v1_catalog_records_migrate_to_bare_ms_bodies_and_read_back() {
     let (flows, skipped) = catalog.list_flows().await.unwrap();
     assert_eq!((flows.len(), skipped), (1, 0));
     assert_eq!(flows[0].created_at, "2026-03-04T05:06:07.250+00:00");
-    assert_eq!(catalog.get_flow_run("run1").await.unwrap().unwrap().steps.len(), 1);
+    assert_eq!(
+        catalog
+            .get_flow_run("run1")
+            .await
+            .unwrap()
+            .unwrap()
+            .steps
+            .len(),
+        1
+    );
     assert_eq!(catalog.list_revisions("f1", 10).await.unwrap().len(), 1);
     assert_eq!(catalog.list_drafts().await.unwrap().len(), 1);
     assert_eq!(catalog.list_suggestions(None, 10).await.unwrap().len(), 1);

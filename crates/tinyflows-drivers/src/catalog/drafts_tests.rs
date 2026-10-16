@@ -169,7 +169,9 @@ async fn every_update_stamps_a_later_time() {
             .update_draft(&draft.id, Some(format!("n{i}")), None, None)
             .await
             .unwrap();
-        assert!(crate::catalog::instant_ms(&last) < crate::catalog::instant_ms(&updated.updated_at));
+        assert!(
+            crate::catalog::instant_ms(&last) < crate::catalog::instant_ms(&updated.updated_at)
+        );
         last = updated.updated_at;
     }
 }

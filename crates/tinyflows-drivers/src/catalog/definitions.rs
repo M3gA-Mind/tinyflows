@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::lineage::{INCARNATION, incarnation};
 use super::{
     DEFINITIONS, FlowCatalogDocuments, REVISIONS, RUNS, compare_and_swap, flag, instant_ms, int,
-    new_id, next_stamp, required, rfc3339, set_optional, text, upsert,
+    monotonic_ms, new_id, next_stamp, required, rfc3339, set_optional, text, upsert,
 };
 
 /// `flow` as a document, keeping `created_ms` from `existing` when there is
@@ -69,10 +69,7 @@ pub(crate) fn to_flow(stored: &Versioned<Value>) -> Result<Flow> {
         enabled: flag(doc, "enabled"),
         created_at: rfc3339(int(doc, "created_ms")),
         updated_at: rfc3339(int(doc, "updated_ms")),
-        last_run_at: doc
-            .get("last_run_ms")
-            .and_then(Value::as_i64)
-            .map(rfc3339),
+        last_run_at: doc.get("last_run_ms").and_then(Value::as_i64).map(rfc3339),
         last_status: text(doc, "last_status").map(str::to_string),
         require_approval: flag(doc, "require_approval"),
     })
@@ -95,7 +92,7 @@ impl FlowCatalogDocuments {
     /// Duplicates `source` into a fresh, **disabled** flow named `new_name`,
     /// with no run history.
     pub async fn insert_duplicate_flow(&self, source: &Flow, new_name: String) -> Result<Flow> {
-        let now = rfc3339(Utc::now().timestamp_millis());
+        let now = rfc3339(monotonic_ms());
         let flow = Flow {
             id: new_id(),
             name: new_name,
@@ -121,7 +118,7 @@ impl FlowCatalogDocuments {
         require_approval: bool,
         enabled: bool,
     ) -> Result<Flow> {
-        let now = rfc3339(Utc::now().timestamp_millis());
+        let now = rfc3339(monotonic_ms());
         let flow = Flow {
             id: new_id(),
             name,
@@ -257,9 +254,11 @@ impl FlowCatalogDocuments {
         flow_id: &str,
         raw_graph_json: &str,
     ) -> Result<()> {
-        // A string where the graph object belongs: it no longer decodes.
         let docs = self.docs().await?;
-        let raw = raw_graph_json.to_string();
+        // JSON text is stored as the value it holds (an older-schema graph
+        // still decodes); anything else stays a string, which never does.
+        let raw: Value = serde_json::from_str(raw_graph_json)
+            .unwrap_or_else(|_| Value::String(raw_graph_json.to_string()));
         let changed = compare_and_swap(docs, DEFINITIONS, flow_id, |doc| {
             let mut next = doc.clone();
             next["graph"] = json!(raw);

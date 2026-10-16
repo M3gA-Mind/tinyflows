@@ -185,8 +185,7 @@ impl FlowCatalogDocuments {
         let swapped = compare_and_swap(docs, DEFINITIONS, id, |doc| {
             // Same stamp *and* same incarnation: a flow removed and created
             // again under this id is a different flow.
-            if int(doc, "updated_ms") != observed
-                || incarnation(doc) != flow_incarnation.as_deref()
+            if int(doc, "updated_ms") != observed || incarnation(doc) != flow_incarnation.as_deref()
             {
                 return None;
             }

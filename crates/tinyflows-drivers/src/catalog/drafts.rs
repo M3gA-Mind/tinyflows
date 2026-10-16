@@ -12,7 +12,10 @@ use serde_json::{Value, json};
 use tinyflows_catalog::{DraftOrigin, FlowDraft};
 use tinystoragedrivers_core::{DocumentStoreExt, Precondition, Query, Sort, Versioned};
 
-use super::{DRAFTS, FlowCatalogDocuments, compare_and_swap, instant_ms, new_id, next_stamp, put_doc, rfc3339, set_optional, text};
+use super::{
+    DRAFTS, FlowCatalogDocuments, compare_and_swap, instant_ms, monotonic_ms, new_id, next_stamp,
+    put_doc, rfc3339, set_optional, text,
+};
 
 /// The same id rule as the file store, so an id valid on one backend is
 /// valid on the other.
@@ -53,8 +56,16 @@ fn from_doc(id: &str, doc: &Value) -> Result<FlowDraft> {
         graph: doc.get("graph").cloned().with_context(corrupt)?,
         origin: serde_json::from_value(doc.get("origin").cloned().unwrap_or_default())
             .with_context(corrupt)?,
-        created_at: rfc3339(doc.get("created_ms").and_then(Value::as_i64).with_context(corrupt)?),
-        updated_at: rfc3339(doc.get("updated_ms").and_then(Value::as_i64).with_context(corrupt)?),
+        created_at: rfc3339(
+            doc.get("created_ms")
+                .and_then(Value::as_i64)
+                .with_context(corrupt)?,
+        ),
+        updated_at: rfc3339(
+            doc.get("updated_ms")
+                .and_then(Value::as_i64)
+                .with_context(corrupt)?,
+        ),
     })
 }
 
@@ -67,7 +78,7 @@ impl FlowCatalogDocuments {
         graph: Value,
         origin: DraftOrigin,
     ) -> Result<FlowDraft> {
-        let now = rfc3339(Utc::now().timestamp_millis());
+        let now = rfc3339(monotonic_ms());
         let draft = FlowDraft {
             id: new_id(),
             flow_id,
@@ -78,9 +89,15 @@ impl FlowCatalogDocuments {
             updated_at: now,
         };
         let docs = self.docs().await?;
-        put_doc(docs, DRAFTS, &draft.id, to_doc(&draft)?, Precondition::Absent)
-            .await
-            .context("writing draft")?;
+        put_doc(
+            docs,
+            DRAFTS,
+            &draft.id,
+            to_doc(&draft)?,
+            Precondition::Absent,
+        )
+        .await
+        .context("writing draft")?;
         tracing::debug!(target: "flows", draft_id = %draft.id, origin = draft.origin.as_str(), "[flows] draft_store: created draft");
         Ok(draft)
     }

@@ -114,7 +114,9 @@ fn definition(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
     out.insert("created_ms".into(), created.into());
     out.insert(
         "updated_ms".into(),
-        ms(body, "updated_at", "updated_ns").unwrap_or(created).into(),
+        ms(body, "updated_at", "updated_ns")
+            .unwrap_or(created)
+            .into(),
     );
     if let Some(last) = ms(body, "last_run_at", "last_run_ns") {
         out.insert("last_run_ms".into(), last.into());
@@ -128,7 +130,13 @@ fn revision(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
     carry(
         body,
         &mut out,
-        &["flow_id", "name", "require_approval", "pending", "flow_incarnation"],
+        &[
+            "flow_id",
+            "name",
+            "require_approval",
+            "pending",
+            "flow_incarnation",
+        ],
     );
     out.insert("graph".into(), parsed(body.get("graph_json")?));
     let created = ms(body, "created_at", "created_ns").unwrap_or(0);
@@ -145,7 +153,14 @@ fn run(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
     carry(
         body,
         &mut out,
-        &["flow_id", "thread_id", "status", "error", "graph_hash", "flow_incarnation"],
+        &[
+            "flow_id",
+            "thread_id",
+            "status",
+            "error",
+            "graph_hash",
+            "flow_incarnation",
+        ],
     );
     let started = ms(body, "started_at", "started_ns").unwrap_or(0);
     out.insert("started_ms".into(), started.into());
@@ -154,7 +169,8 @@ fn run(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
     }
     out.insert(
         "steps".into(),
-        body.get("steps_json").map_or_else(|| Value::Array(vec![]), parsed),
+        body.get("steps_json")
+            .map_or_else(|| Value::Array(vec![]), parsed),
     );
     out.insert(
         "pending_approvals".into(),
@@ -186,7 +202,10 @@ fn suggestion(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
         ("connections_json", "suggested_connections"),
         ("slugs_json", "suggested_slugs"),
     ] {
-        out.insert(v2.into(), body.get(v1).map_or_else(|| Value::Array(vec![]), parsed));
+        out.insert(
+            v2.into(),
+            body.get(v1).map_or_else(|| Value::Array(vec![]), parsed),
+        );
     }
     let created = ms(body, "created_at", "created_ns").unwrap_or(0);
     out.insert("created_ms".into(), created.into());

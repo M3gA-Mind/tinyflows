@@ -87,8 +87,8 @@ mod state;
 mod steps;
 mod suggestions;
 
-pub use state::FlowStateDocuments;
 pub(crate) use migrate::extend_schema;
+pub use state::FlowStateDocuments;
 
 pub(crate) const DEFINITIONS: &str = "flows.definitions";
 pub(crate) const REVISIONS: &str = "flows.revisions";
@@ -167,8 +167,7 @@ impl FlowCatalogDocuments {
 /// `raw` (RFC 3339) as epoch milliseconds; `0` when it does not parse, so a
 /// malformed timestamp sorts first instead of failing the write.
 pub(crate) fn instant_ms(raw: &str) -> i64 {
-    DateTime::parse_from_rfc3339(raw)
-        .map_or(0, |at| at.with_timezone(&Utc).timestamp_millis())
+    DateTime::parse_from_rfc3339(raw).map_or(0, |at| at.with_timezone(&Utc).timestamp_millis())
 }
 
 /// Epoch milliseconds `ms` as the RFC 3339 text the wire types carry
@@ -182,6 +181,23 @@ pub(crate) fn rfc3339(ms: i64) -> String {
 /// The integer field `field` of `doc`; `0` when absent.
 pub(crate) fn int(doc: &Value, field: &str) -> i64 {
     doc.get(field).and_then(Value::as_i64).unwrap_or(0)
+}
+
+/// Now in epoch milliseconds, never repeating within the process: creations
+/// in quick succession still get distinct, increasing times, which is what
+/// "oldest first" orders by.
+pub(crate) fn monotonic_ms() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static LAST: AtomicI64 = AtomicI64::new(0);
+    let now = Utc::now().timestamp_millis();
+    let mut last = LAST.load(Ordering::Relaxed);
+    loop {
+        let next = now.max(last + 1);
+        match LAST.compare_exchange_weak(last, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(seen) => last = seen,
+        }
+    }
 }
 
 /// A new entity id: a ULID, sortable by creation time.
@@ -300,7 +316,7 @@ pub(crate) fn is_conflict(error: &anyhow::Error) -> bool {
 /// optimistic-concurrency token or an ordering key must never repeat, however
 /// coarse the clock or however quick the succession.
 pub(crate) fn next_stamp(previous: Option<i64>) -> i64 {
-    let now = Utc::now().timestamp_millis();
+    let now = monotonic_ms();
     previous.map_or(now, |previous| now.max(previous + 1))
 }
 

@@ -25,9 +25,9 @@ async fn suggestions_round_trip_newest_then_most_confident() {
     assert_eq!(store.upsert_suggestions(&[]).await.unwrap(), 0);
     let written = store
         .upsert_suggestions(&[
-            suggestion("old", "2026-01-01T00:00:00Z", 0.9),
-            suggestion("low", "2026-01-02T00:00:00Z", 0.1),
-            suggestion("high", "2026-01-02T00:00:00Z", 0.8),
+            suggestion("old", "2026-01-01T00:00:00.000+00:00", 0.9),
+            suggestion("low", "2026-01-02T00:00:00.000+00:00", 0.1),
+            suggestion("high", "2026-01-02T00:00:00.000+00:00", 0.8),
         ])
         .await
         .unwrap();
@@ -37,7 +37,10 @@ async fn suggestions_round_trip_newest_then_most_confident() {
         listed.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
         ["high", "low", "old"]
     );
-    assert_eq!(listed[0], suggestion("high", "2026-01-02T00:00:00Z", 0.8));
+    assert_eq!(
+        listed[0],
+        suggestion("high", "2026-01-02T00:00:00.000+00:00", 0.8)
+    );
     assert_eq!(store.list_suggestions(None, 0).await.unwrap().len(), 1);
 }
 
@@ -45,7 +48,7 @@ async fn suggestions_round_trip_newest_then_most_confident() {
 async fn a_rerun_keeps_the_users_status_and_created_at() {
     let store = catalog();
     store
-        .upsert_suggestions(&[suggestion("s", "2026-01-01T00:00:00Z", 0.5)])
+        .upsert_suggestions(&[suggestion("s", "2026-01-01T00:00:00.000+00:00", 0.5)])
         .await
         .unwrap();
     assert!(
@@ -60,7 +63,7 @@ async fn a_rerun_keeps_the_users_status_and_created_at() {
             .await
             .unwrap()
     );
-    let mut again = suggestion("s", "2026-03-01T00:00:00Z", 0.7);
+    let mut again = suggestion("s", "2026-03-01T00:00:00.000+00:00", 0.7);
     again.title = "refreshed".into();
     store.upsert_suggestions(&[again]).await.unwrap();
     let read = store
@@ -69,7 +72,7 @@ async fn a_rerun_keeps_the_users_status_and_created_at() {
         .unwrap();
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].title, "refreshed");
-    assert_eq!(read[0].created_at, "2026-01-01T00:00:00Z");
+    assert_eq!(read[0].created_at, "2026-01-01T00:00:00.000+00:00");
     assert!(
         store
             .list_suggestions(Some(SuggestionStatus::New), 10)

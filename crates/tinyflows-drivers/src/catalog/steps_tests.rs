@@ -120,7 +120,7 @@ async fn corrupt_steps_are_an_error_not_a_reset() {
     let docs = store.docs().await.unwrap();
     compare_and_swap(docs, RUNS, "r", |doc| {
         let mut next = doc.clone();
-        next["steps_json"] = json!("{");
+        next["steps"] = json!("{");
         Some(next)
     })
     .await

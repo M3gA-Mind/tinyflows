@@ -28,7 +28,7 @@ async fn upsert_keeps_created_at_and_replaces_the_rest() {
         .await
         .unwrap();
     let created = flow.created_at.clone();
-    flow.created_at = "2000-01-01T00:00:00Z".into();
+    flow.created_at = "2000-01-01T00:00:00.000+00:00".into();
     flow.name = "renamed".into();
     flow.last_status = Some("completed".into());
     store.upsert_flow(&flow).await.unwrap();
@@ -180,11 +180,11 @@ async fn removing_a_flow_removes_its_history() {
         .await
         .unwrap();
     store
-        .insert_flow_run("r1", &flow.id, "r1", "2026-01-01T00:00:00Z")
+        .insert_flow_run("r1", &flow.id, "r1", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     store
-        .insert_flow_run("r2", &other.id, "r2", "2026-01-01T00:00:00Z")
+        .insert_flow_run("r2", &other.id, "r2", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     let step = tinyflows_catalog::FlowRunStep {
