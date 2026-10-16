@@ -8,6 +8,10 @@ use tinybus::Connection;
 use tinyflows_bus::schedule::{CALLBACK_INTERFACE, CallbackAddress, callbacks};
 use tinyflows_schedule::{CronJob, DeliveryStatus, runtime::*};
 
+/// How long the host may take to run, report, deliver or trigger one job.
+pub(super) const RUN_CALLBACK_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60 * 60);
+
 pub(super) struct HostCallbacks {
     connection: Connection,
     address: CallbackAddress,
@@ -31,11 +35,21 @@ impl HostCallbacks {
         member: &str,
         args: &A,
     ) -> Result<R> {
-        let proxy = self.connection.proxy(
+        let mut proxy = self.connection.proxy(
             &self.address.destination,
             &self.address.object_path,
             CALLBACK_INTERFACE,
         )?;
+        // Running, failing, delivering and triggering are the host doing the
+        // job's actual work (an agent turn, a shell command, a flow): the bus
+        // default of 30 seconds would cut every long run short and make the
+        // runtime retry work that is still going.
+        if matches!(
+            member,
+            callbacks::EXECUTE | callbacks::FAILED | callbacks::DELIVER | callbacks::SCHEDULE_TRIGGER
+        ) {
+            proxy = proxy.with_timeout(RUN_CALLBACK_TIMEOUT);
+        }
         Ok(proxy.call(member, args).await?)
     }
 }
