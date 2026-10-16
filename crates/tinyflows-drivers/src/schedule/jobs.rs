@@ -11,14 +11,14 @@ use tinyflows_schedule::{
     SessionTarget, next_run_for_schedule, schedule_cron_expression, validate_agent_schedule,
     validate_schedule,
 };
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
+use tinystoragedrivers_core::{
+    DocumentStoreExt, Filter, Key, Query, Sort, Versioned, WriteResult,
+};
 use uuid::Uuid;
 
-use super::codec::{
-    INCARNATION, created_at, doc_to_job, incarnation, job_to_doc, nanos, set_next_run, text,
-};
+use super::codec::{INCARNATION, doc_to_job, incarnation, job_to_doc, set_next_run, text};
 use super::patch::apply_patch;
-use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, storage_error};
+use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, monotonic_ms, storage_error};
 
 /// The document id of `flow_id`'s schedule job. Deterministic, so writing it
 /// only if absent makes registration idempotent across processes.
@@ -47,7 +47,7 @@ fn new_job(job_type: JobType, schedule: Schedule, now: DateTime<Utc>) -> Result<
     Ok(CronJob {
         claim_generation: 0,
         policy: Default::default(),
-        id: Uuid::new_v4().to_string(),
+        id: Key::ulid_at(monotonic_ms()).as_str().to_owned(),
         expression: schedule_cron_expression(&schedule).unwrap_or_default(),
         next_run: next_run_for_schedule(&schedule, now)?,
         schedule,
@@ -252,7 +252,6 @@ impl CronDocuments {
         self.ensure().await?;
         let query = Query::all()
             .sort(Sort::asc("next_run_ms"))
-            .sort(Sort::asc("next_run_ns"))
             .sort(Sort::asc("_id"));
         self.docs
             .query_all(JOBS, &query)
@@ -303,7 +302,7 @@ impl CronDocuments {
                     .count(RUNS, &runs_of(&stored.id, &stored.doc))
                     .await
                     .map_err(storage_error)?;
-                let created = created_at(&stored.doc).unwrap_or(DateTime::<Utc>::MAX_UTC);
+                let created = stored.meta.created_ms;
                 ranked.push((std::cmp::Reverse(runs), created, stored.id.clone(), stored));
             }
             ranked.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
@@ -338,21 +337,13 @@ impl CronDocuments {
         excluded: &[String],
     ) -> Result<Vec<CronJob>> {
         self.ensure().await?;
-        // Due by milliseconds; nanoseconds only order jobs due within the
-        // current millisecond, so a nanosecond value saturated outside
-        // 1677–2262 never decides on its own. A document written before
-        // `next_run_ns` existed is due by its milliseconds alone.
-        let now_ms = now.timestamp_millis();
-        let same_ms = Filter::eq("next_run_ms", now_ms);
-        let due = Filter::lt("next_run_ms", now_ms).or(same_ms
-            .and(Filter::lte("next_run_ns", nanos(now)).or(Filter::exists("next_run_ns", false))));
-        let mut filter = Filter::eq("enabled", true).and(due);
+        let mut filter =
+            Filter::eq("enabled", true).and(Filter::lte("next_run_ms", now.timestamp_millis()));
         for id in excluded {
             filter = filter.and(Filter::ne("_id", id.as_str()));
         }
         let query = Query::filter(filter)
             .sort(Sort::asc("next_run_ms"))
-            .sort(Sort::asc("next_run_ns"))
             .sort(Sort::asc("_id"))
             .limit(self.max_tasks);
         let page = self.docs.query(JOBS, &query).await.map_err(storage_error)?;
@@ -385,6 +376,7 @@ impl CronDocuments {
                         id: job_id.to_string(),
                         version: *version,
                         doc,
+                        meta: stored.meta,
                     });
                 }
                 Err(error) if super::admission::conflict(&error) => {}
