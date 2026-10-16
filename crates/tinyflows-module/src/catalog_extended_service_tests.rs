@@ -344,7 +344,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
                 "PruneRuns",
                 &(PruneRunsRequest {
                     storage: alice.clone(),
-                    flow_id: created.workflow.id,
+                    flow_id: created.workflow.id.clone(),
                     keep: 1,
                 },)
             )
