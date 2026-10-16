@@ -278,15 +278,26 @@ async fn import_graph_normalizes_native_and_n8n_without_persisting() -> tinybus:
     )?;
     let native: tinyflows_bus::ImportGraphResult = proxy.call(tinyflows_bus::methods::IMPORT_GRAPH, (tinyflows_bus::ImportGraphRequest {
         graph: json!({"nodes":[{"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"manual"}}],"edges":[]}),
-        format: Some("native".into()),
+            format: Some(" TinyFlows ".into()),
     },)).await?;
     assert!(native.errors.is_empty(), "{:?}", native.errors);
     assert!(native.warnings.is_empty());
     assert!(native.graph.unwrap()["schema_version"].is_number());
 
+    let auto_native: tinyflows_bus::ImportGraphResult = proxy
+        .call(
+            tinyflows_bus::methods::IMPORT_GRAPH,
+            (tinyflows_bus::ImportGraphRequest {
+                graph: json!({"nodes":[{"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"manual"}}],"edges":[]}),
+                format: Some("".into()),
+            },),
+        )
+        .await?;
+    assert!(auto_native.errors.is_empty(), "{:?}", auto_native.errors);
+
     let n8n: tinyflows_bus::ImportGraphResult = proxy.call(tinyflows_bus::methods::IMPORT_GRAPH, (tinyflows_bus::ImportGraphRequest {
         graph: json!({"name":"imported","nodes":[{"id":"unknown","name":"Unknown","type":"custom.unknown"}],"connections":{}}),
-        format: Some("auto".into()),
+            format: Some(" N8N ".into()),
     },)).await?;
     assert!(n8n.errors.is_empty(), "{:?}", n8n.errors);
     assert!(!n8n.warnings.is_empty());

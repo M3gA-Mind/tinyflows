@@ -305,6 +305,15 @@ fn served_catalog_version_and_member_list_match_the_new_surface() {
 }
 
 #[test]
+fn approval_manifest_callback_contract_is_a_catalog_dependency() {
+    assert_eq!(
+        APPROVAL_MANIFEST_HOST_INTERFACE,
+        "ai.tinyhumans.tinyflows.ApprovalManifestHost"
+    );
+    assert_eq!(CLASSIFY_MANIFEST_CANDIDATES, "ClassifyManifestCandidates");
+}
+
+#[test]
 fn authoring_catalog_contract_types_round_trip_and_match_literal_wire_shapes() {
     let ops = ApplyGraphOpsRequest {
         graph: json!({"nodes":[],"edges":[]}),

@@ -34,9 +34,11 @@ compatibility walk checks saved sub-workflow children; missing or unavailable
 children retain the engine's existing runtime-diagnostic behavior.
 
 `ImportGraph` normalizes native and n8n documents without persistence. `auto`
-detects n8n exports, while `native` and `n8n` select a format explicitly. The
-module returns importer warnings separately from structural and engine
-compatibility errors; product trigger warnings remain host-owned.
+detects n8n exports, while `native`/`tinyflows` and `n8n` select a format
+explicitly. Format names are trimmed and case-insensitive; an empty format is
+the same as `auto`. The module returns importer warnings separately from
+structural and engine compatibility errors; product trigger warnings remain
+host-owned.
 
 ### Run / resume / cancel
 

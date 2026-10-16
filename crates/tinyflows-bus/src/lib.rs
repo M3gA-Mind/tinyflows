@@ -83,7 +83,7 @@ pub struct ValidateGraphRequest {
 pub struct ImportGraphRequest {
     /// Source document.
     pub graph: Value,
-    /// `native`, `n8n`, or `auto` (missing format is `auto`).
+    /// `native`/`tinyflows`, `n8n`, or `auto`; names are trimmed and case-insensitive.
     pub format: Option<String>,
 }
 
