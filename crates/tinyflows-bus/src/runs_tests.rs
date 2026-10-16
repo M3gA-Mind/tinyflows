@@ -47,6 +47,9 @@ fn run_control_records_keep_their_literal_wire_shape() {
         CAPS_METHODS,
         ["LlmComplete", "ToolInvoke", "HttpRequest", "CodeRun", "ShellRun", "MemoryRecall", "MemoryFlavour", "MemoryPeople", "MemoryRemember", "MemoryForget", "AgentRun", "AgentEvents", "ResolveAgent", "ListAgents", "ResolveContext", "ResolveTools", "ResolveWorkdir", "ApprovalDecide", "ApprovalCancel"]
     );
+    assert_eq!(CAPS_CONTRACT_VERSION, 1);
+    assert_eq!(MAX_AGENT_EVENTS_PAGE, 256);
+    assert_eq!(MAX_AGENT_TRANSCRIPT_EVENTS, 10_000);
 }
 
 #[cfg(test)]

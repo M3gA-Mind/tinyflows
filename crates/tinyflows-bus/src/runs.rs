@@ -36,6 +36,12 @@ pub mod methods {
 
 /// Interface the host serves so the module can reach every host capability.
 pub const CAPS_INTERFACE: &str = "ai.tinyhumans.tinyflows.CapsHost";
+/// Version of the host-served capability callback contract.
+pub const CAPS_CONTRACT_VERSION: u32 = 1;
+/// Maximum progress records accepted in one `AgentEvents` page.
+pub const MAX_AGENT_EVENTS_PAGE: usize = 256;
+/// Maximum progress records folded into one agent transcript.
+pub const MAX_AGENT_TRANSCRIPT_EVENTS: usize = 10_000;
 
 /// Host callback members, in stable interface order.
 pub const CAPS_METHODS: &[&str] = &[

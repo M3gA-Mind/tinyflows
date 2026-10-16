@@ -33,10 +33,6 @@ use task_executor::{CapabilityTaskExecutor, TaskRunnerLink};
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 /// Delay between empty, nonterminal agent event polls.
 const EMPTY_POLL_DELAY: Duration = Duration::from_millis(25);
-/// Reject oversized pages so one callback cannot exhaust the module's memory.
-const MAX_AGENT_EVENTS_PAGE: usize = 256;
-/// Keep the folded transcript bounded even for a very long agent loop.
-const MAX_AGENT_TRANSCRIPT_EVENTS: usize = 10_000;
 
 /// Engine adapters fixed to one host-created callback address and run context.
 pub struct CapsHostPorts {
@@ -369,10 +365,10 @@ impl AgentRunner for CapsHostPorts {
                     CALLBACK_TIMEOUT.saturating_sub(started.elapsed()),
                 )
                 .await?;
-            if events.events.len() > MAX_AGENT_EVENTS_PAGE {
+            if events.events.len() > runs::MAX_AGENT_EVENTS_PAGE {
                 return Err(capability_error("agent callback returned an oversized event page"));
             }
-            if transcript.len().saturating_add(events.events.len()) > MAX_AGENT_TRANSCRIPT_EVENTS {
+            if transcript.len().saturating_add(events.events.len()) > runs::MAX_AGENT_TRANSCRIPT_EVENTS {
                 return Err(capability_error("agent callback exceeded the transcript event limit"));
             }
             let had_events = !events.events.is_empty();
