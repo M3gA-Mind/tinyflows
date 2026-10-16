@@ -137,3 +137,26 @@ fn job_with_origin_and_run_with_delivery_status_wire_bytes() {
     let run: CronRun = serde_json::from_str(run_json).unwrap();
     assert_eq!(serde_json::to_string(&run).unwrap(), run_json);
 }
+
+/// A patch that does not mention the agent definition must still not mention it
+/// after a trip over the wire; only an explicit clear writes `null`.
+#[test]
+fn an_unrelated_patch_does_not_clear_the_agent_definition_on_a_round_trip() {
+    let untouched = CronJobPatch {
+        enabled: Some(false),
+        ..CronJobPatch::default()
+    };
+    let wire = serde_json::to_value(&untouched).unwrap();
+    assert!(wire.get("agent_id").is_none(), "{wire}");
+    let back: CronJobPatch = serde_json::from_value(wire).unwrap();
+    assert_eq!(back.agent_id, None);
+
+    let cleared = CronJobPatch {
+        agent_id: Some(None),
+        ..CronJobPatch::default()
+    };
+    let wire = serde_json::to_value(&cleared).unwrap();
+    assert_eq!(wire["agent_id"], serde_json::Value::Null);
+    let back: CronJobPatch = serde_json::from_value(wire).unwrap();
+    assert_eq!(back.agent_id, Some(None));
+}

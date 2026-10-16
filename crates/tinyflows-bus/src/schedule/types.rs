@@ -441,7 +441,16 @@ pub struct CronJobPatch {
     /// "clear the agent definition" (`Some(None)`). See
     /// [`deserialize_double_option`] for why the custom deserializer is required
     /// to honor a wire `null` as a clear rather than a silent no-op.
-    #[serde(default, deserialize_with = "deserialize_double_option")]
+    ///
+    /// Omitted when serialized for `None`: the custom deserializer reads a
+    /// present `null` as a clear, so a patch that leaves the agent alone must
+    /// not write `"agent_id": null` or crossing a serialized boundary (the bus)
+    /// would turn every unrelated patch into "clear the agent definition".
+    #[serde(
+        default,
+        deserialize_with = "deserialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub agent_id: Option<Option<String>>,
     /// Set (`Some(Some(_))`) or clear (`Some(None)`) the job's origin
     /// conversation; `None` leaves it unchanged (and is omitted when
