@@ -21,18 +21,18 @@ fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
 }
 
-fn workflow(flow: StoredFlow) -> Result<Workflow> {
-    Ok(Workflow {
+fn workflow(flow: StoredFlow) -> Workflow {
+    Workflow {
         id: flow.id,
         name: flow.name,
         enabled: flow.enabled,
-        graph: serde_json::to_value(flow.graph)?,
+        graph: serde_json::to_value(flow.graph).expect("WorkflowGraph is JSON serializable"),
         created_at: flow.created_at,
         updated_at: flow.updated_at,
         last_run_at: flow.last_run_at,
         last_status: flow.last_status,
         require_approval: flow.require_approval,
-    })
+    }
 }
 
 fn revision(revision: tinyflows_catalog::FlowRevision) -> WorkflowRevision {
@@ -153,7 +153,7 @@ impl CatalogService {
                 message: error.to_string(),
             })?;
         Ok(PutWorkflowResult {
-            workflow: workflow(flow).map_err(store_error)?,
+            workflow: workflow(flow),
             born_disabled: automatic,
             approval_forced,
         })
@@ -197,7 +197,7 @@ impl CatalogService {
             .map_err(map_update_error)?;
         Ok(PutWorkflowResult {
             born_disabled: current.enabled && !flow.enabled && automatic,
-            workflow: workflow(flow).map_err(store_error)?,
+            workflow: workflow(flow),
             approval_forced,
         })
     }
@@ -221,7 +221,7 @@ impl CatalogService {
             .await
             .map_err(store_error)?;
         Ok(PutWorkflowResult {
-            workflow: workflow(flow).map_err(store_error)?,
+            workflow: workflow(flow),
             born_disabled: true,
             approval_forced: false,
         })
@@ -242,11 +242,7 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
         tinyflows_catalog::store::FlowUpdateError::Conflict(current) => {
             FlowUpdateError::VersionConflict {
                 message: "This flow changed since you loaded it. Reload to see the latest version, then reapply your change.".into(),
-                current: workflow(*current).unwrap_or_else(|_| Workflow {
-                    id: String::new(), name: String::new(), enabled: false, graph: Value::Null,
-                    created_at: String::new(), updated_at: String::new(), last_run_at: None,
-                    last_status: None, require_approval: false,
-                }),
+                current: workflow(*current),
             }
         }
         tinyflows_catalog::store::FlowUpdateError::Store(error) => store_error(error),
@@ -276,15 +272,14 @@ impl CatalogService {
         storage: CatalogStorage,
         id: String,
     ) -> tinybus::Result<Option<Workflow>> {
-        self.store(storage)
+        let flow = self
+            .store(storage)
             .await
             .map_err(failure)?
             .get_flow(&id)
             .await
-            .map_err(failure)?
-            .map(workflow)
-            .transpose()
-            .map_err(failure)
+            .map_err(failure)?;
+        Ok(flow.map(workflow))
     }
 
     async fn put_workflow(
@@ -316,7 +311,7 @@ impl CatalogService {
             .set_enabled(&request.id, request.enabled)
             .await
             .map_err(failure)?;
-        workflow(flow).map_err(failure)
+        Ok(workflow(flow))
     }
 
     async fn list_revisions(
