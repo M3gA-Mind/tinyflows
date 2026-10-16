@@ -1,17 +1,14 @@
 use super::tests::{
-    connections, graph, put_proxy, scope, scope_with_documents, scope_with_draft_delete_failure,
+    connections, graph, put_proxy, scope_with_documents, scope_with_draft_delete_failure,
 };
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
     self as catalog, CallbackAddress, CatalogStorage, CreateDraftRequest, DraftIdRequest,
-    DraftOrigin, DraftPromotionFailure, DraftPromotionOperation, FlowDraft, FlowRun,
-    FlowSuggestion, ListAllRunsRequest, ListRunsRequest, ListSuggestionsRequest,
-    PromoteDraftRequest, PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest,
-    PutWorkflowResponse, RunIdRequest, SavePromotedDraftRequest, SavePromotedDraftResponse,
-    SavePromotedDraftResult, SetSuggestionStatusRequest, SuggestionStatus, UpdateDraftRequest,
-    UpsertSuggestionsRequest,
+    DraftOrigin, DraftPromotionFailure, DraftPromotionOperation, FlowDraft, PromoteDraftRequest,
+    PromoteDraftResponse, PutWorkflowRequest, PutWorkflowResponse, SavePromotedDraftRequest,
+    SavePromotedDraftResponse, SavePromotedDraftResult, UpdateDraftRequest,
 };
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tinystoragedrivers_core::DocumentStore;

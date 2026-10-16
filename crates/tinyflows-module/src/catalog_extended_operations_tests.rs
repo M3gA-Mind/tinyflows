@@ -3,10 +3,9 @@ use serde_json::json;
 use std::sync::Arc;
 use tinyflows_bus::catalog::{
     self as catalog, CreateDraftRequest, DraftIdRequest, DraftOrigin, FlowDraft, FlowRun,
-    FlowSuggestion, ListAllRunsRequest, ListRunsRequest, ListSuggestionsRequest,
-    PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse, RunIdRequest,
-    SetSuggestionStatusRequest, SuggestionStatus, UpdateDraftRequest,
-    UpsertSuggestionsRequest,
+    FlowSuggestion, ListAllRunsRequest, ListRunsRequest, ListSuggestionsRequest, PruneRunsRequest,
+    PutWorkflowRequest, PutWorkflowResponse, RunIdRequest, SetSuggestionStatusRequest,
+    SuggestionStatus, UpdateDraftRequest, UpsertSuggestionsRequest,
 };
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tinystoragedrivers_core::DocumentStore;
@@ -92,27 +91,32 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     assert_eq!(updated.flow_id, None);
     let listed_drafts: Vec<FlowDraft> = proxy.call("ListDrafts", &(alice.clone(),)).await.unwrap();
     assert_eq!(listed_drafts.len(), 2);
-    assert!(proxy
-        .call::<bool>(
-            "DeleteDraft",
-            &(DraftIdRequest {
-                storage: alice.clone(),
-                id: other_draft.id,
-            },),
-        )
-        .await
-        .unwrap());
+    assert!(
+        proxy
+            .call::<bool>(
+                "DeleteDraft",
+                &(DraftIdRequest {
+                    storage: alice.clone(),
+                    id: other_draft.id,
+                },),
+            )
+            .await
+            .unwrap()
+    );
 
-    assert_eq!(proxy
-        .call::<usize>(
-            "UpsertSuggestions",
-            &(UpsertSuggestionsRequest {
-                storage: alice.clone(),
-                suggestions: vec![suggestion("suggestion-a")],
-            },),
-        )
-        .await
-        .unwrap(), 1);
+    assert_eq!(
+        proxy
+            .call::<usize>(
+                "UpsertSuggestions",
+                &(UpsertSuggestionsRequest {
+                    storage: alice.clone(),
+                    suggestions: vec![suggestion("suggestion-a")],
+                },),
+            )
+            .await
+            .unwrap(),
+        1
+    );
     let suggestions: Vec<FlowSuggestion> = proxy
         .call(
             "ListSuggestions",
@@ -125,28 +129,32 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
         .await
         .unwrap();
     assert_eq!(suggestions.len(), 1);
-    assert!(proxy
-        .call::<bool>(
-            "SetSuggestionStatus",
-            &(SetSuggestionStatusRequest {
-                storage: alice.clone(),
-                id: "suggestion-a".into(),
-                status: SuggestionStatus::Dismissed,
-            },),
-        )
-        .await
-        .unwrap());
-    assert!(!proxy
-        .call::<bool>(
-            "SetSuggestionStatus",
-            &(SetSuggestionStatusRequest {
-                storage: alice.clone(),
-                id: "missing".into(),
-                status: SuggestionStatus::Built,
-            },),
-        )
-        .await
-        .unwrap());
+    assert!(
+        proxy
+            .call::<bool>(
+                "SetSuggestionStatus",
+                &(SetSuggestionStatusRequest {
+                    storage: alice.clone(),
+                    id: "suggestion-a".into(),
+                    status: SuggestionStatus::Dismissed,
+                },),
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        !proxy
+            .call::<bool>(
+                "SetSuggestionStatus",
+                &(SetSuggestionStatusRequest {
+                    storage: alice.clone(),
+                    id: "missing".into(),
+                    status: SuggestionStatus::Built,
+                },),
+            )
+            .await
+            .unwrap()
+    );
 
     let created: PutWorkflowResponse = proxy
         .call(
@@ -222,17 +230,20 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
         .await
         .unwrap();
     assert_eq!(all.len(), 2);
-    assert_eq!(proxy
-        .call::<usize>(
-            "PruneRuns",
-            &(PruneRunsRequest {
-                storage: alice.clone(),
-                flow_id: created.workflow.id.clone(),
-                keep: 1,
-            },),
-        )
-        .await
-        .unwrap(), 1);
+    assert_eq!(
+        proxy
+            .call::<usize>(
+                "PruneRuns",
+                &(PruneRunsRequest {
+                    storage: alice.clone(),
+                    flow_id: created.workflow.id.clone(),
+                    keep: 1,
+                },),
+            )
+            .await
+            .unwrap(),
+        1
+    );
     let remaining: Vec<FlowRun> = proxy
         .call(
             "ListRuns",
