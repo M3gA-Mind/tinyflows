@@ -57,7 +57,11 @@ impl Documents {
         connection: Connection,
         address: CallbackAddress,
     ) -> anyhow::Result<Self> {
-        connection.proxy(&address.destination, &address.object_path, STORAGE_INTERFACE)?;
+        connection.proxy(
+            &address.destination,
+            &address.object_path,
+            STORAGE_INTERFACE,
+        )?;
         let mut documents = Self {
             connection,
             address,
@@ -67,9 +71,7 @@ impl Documents {
         struct CapabilityReport {
             transactions: bool,
         }
-        let report: CapabilityReport = documents
-            .request(storage::CAPABILITIES, json!({}))
-            .await?;
+        let report: CapabilityReport = documents.request(storage::CAPABILITIES, json!({})).await?;
         if report.transactions {
             documents.capabilities = documents.capabilities.with(Capability::Transactions);
         }
@@ -135,7 +137,8 @@ impl DocumentStore for Documents {
             };
             Self::validate_collection(collection)?;
         }
-        self.request(storage::ATOMIC_BATCH, json!({"ops":ops})).await
+        self.request(storage::ATOMIC_BATCH, json!({"ops":ops}))
+            .await
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<()> {
@@ -144,11 +147,8 @@ impl DocumentStore for Documents {
     }
 
     async fn get(&self, collection: &str, id: &str) -> Result<Option<Versioned<Value>>> {
-        self.call(
-            storage::GET,
-            json!({"collection":collection,"id":id}),
-        )
-        .await
+        self.call(storage::GET, json!({"collection":collection,"id":id}))
+            .await
     }
 
     async fn put(
@@ -204,7 +204,9 @@ impl DocumentStore for Documents {
         _sort: &[Sort],
         _patch: &Value,
     ) -> Result<Option<Versioned<Value>>> {
-        Err(StorageError::backend("claim is outside the catalog document port"))
+        Err(StorageError::backend(
+            "claim is outside the catalog document port",
+        ))
     }
 
     async fn drop_collection(&self, _collection: &str) -> Result<()> {

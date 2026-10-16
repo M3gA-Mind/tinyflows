@@ -1,6 +1,6 @@
 use super::*;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 
 fn wire_round_trip<T>(value: T)
@@ -101,10 +101,12 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
         born_disabled: false,
         approval_forced: false,
     }));
-    wire_round_trip(PutWorkflowResponse::Error(FlowUpdateError::VersionConflict {
-        message: "changed".into(),
-        current: workflow.clone(),
-    }));
+    wire_round_trip(PutWorkflowResponse::Error(
+        FlowUpdateError::VersionConflict {
+            message: "changed".into(),
+            current: workflow.clone(),
+        },
+    ));
     wire_round_trip(ListWorkflowsResult {
         workflows: vec![],
         skipped_rows: 2,

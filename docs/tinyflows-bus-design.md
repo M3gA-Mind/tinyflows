@@ -4,8 +4,8 @@ Goal: the OpenHuman host reaches workflow behaviour only through the
 `tinyflows-bus` contract served by the compiled `tinyflows-module`. The host
 keeps config, security policy and approvals, credentials, `Outcome<T>`
 controllers and event-bus wiring. This document fixes the contract shape and
-the slice order. This slice adds only the design and a skeleton; no module
-conversion happens here.
+the slice order. Catalog CRUD and revision history are served by the module;
+run execution remains a later slice.
 
 ## Contract surfaces
 
@@ -17,7 +17,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | Authoring | served, v1 | `ValidateGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, graph ops gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
-| Catalog | skeleton, v1 | list/get/put/delete workflows, `ListRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
+| Catalog | served, v2 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
 boundary as JSON; the host never links the engine. Adding a surface does not
@@ -110,10 +110,23 @@ implementation of the catalog stores; `tinyflows-import` stays the one-shot
 reader of legacy `.db` files. No `tinyflows-sqlite` crate is created. Scope is
 the agent id, set by the host when it binds the callback object.
 
+The served Catalog v2 receives a `CatalogStorage` callback address on each
+request. That object is created by the host for the acting agent, so the module
+does not accept a scope string from workflow data. The module drives
+`FlowCatalogDocuments` through the callback and allowlists its catalog
+collections. `PutWorkflow` distinguishes create, update and duplicate; update
+uses the previously observed `updated_at` as its optional expected version and
+returns a structured conflict with the current workflow. Create enforces the
+generic automatic-trigger and outbound-approval safeguards and reports whether
+it born-disabled the workflow or forced approval. List rows include status,
+trigger kind, node count, update time and skipped corrupt-row count; revisions
+are served by id and history order.
+
 ## Slice plan
 
-1. This slice: design plus `runs`/`catalog` vocabulary skeleton.
-2. Catalog CRUD and `NodeKinds` served; core `flows` store reads move behind
+1. Catalog CRUD, enablement, revisions and scoped document callbacks are
+   served. `runs` remains vocabulary-only.
+2. `NodeKinds` served; core `flows` store reads move behind
    the bus; delete the core copies and tests.
 3. `ApplyGraphOps` and `ApprovalManifest` served (host classifies).
 4. `CapsHost` callbacks and `StartRun`/`PollRun`/`CancelRun`; core run

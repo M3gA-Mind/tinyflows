@@ -46,6 +46,29 @@ async fn an_update_captures_the_prior_graph_and_keeps_created_at() {
 }
 
 #[tokio::test]
+async fn revision_count_tracks_prior_snapshots_without_counting_the_current_definition() {
+    let store = catalog();
+    let flow = store
+        .create_flow("v1".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 0);
+    store
+        .update_flow_graph(
+            &flow.id,
+            "v2".into(),
+            trigger_graph(),
+            false,
+            None,
+            false,
+            Some(&flow.updated_at),
+        )
+        .await
+        .unwrap();
+    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 1);
+}
+
+#[tokio::test]
 async fn a_stale_expected_version_is_a_conflict_carrying_the_current_flow() {
     let store = catalog();
     let flow = store
