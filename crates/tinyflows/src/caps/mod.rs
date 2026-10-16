@@ -38,7 +38,7 @@ pub use self::approval::{
 };
 pub use self::schema::sample_for_schema;
 pub use self::shell::{ShellInterpreter, ShellOutcome, ShellRequest, ShellRunner, ShellScript};
-pub use self::tasks::{TaskRunner, TaskSpec, TaskState, TokioTaskRunner};
+pub use self::tasks::{TaskExecutor, TaskRunner, TaskSpec, TaskState, TokioTaskRunner};
 
 /// A chat / LLM provider used by `agent` and `output_parser` nodes.
 #[async_trait]
