@@ -7,7 +7,7 @@ use tinyflows::store::types::{
     RunRecord, WorkflowError, WorkflowNote, WorkflowProposal, WorkflowRecord, WorkflowRevision,
     WorkflowSummary,
 };
-use tinyflows::store::{ProposalDecisionGuard, WorkflowStore};
+use tinyflows::store::{HostPolicy, ProposalDecisionGuard, WorkflowStore};
 
 use super::{DriverWorkflowStore, locks};
 
