@@ -7,23 +7,34 @@
 //! in the cloud, memory in tests) hands it a document handle, usually one bound
 //! to a tenant scope.
 //!
-//! # Layout
+//! # Layout (storage schema v2, owner `flows`)
 //!
 //! | Collection | Document id | Holds |
 //! | --- | --- | --- |
-//! | `wf_definitions` | workflow id | one [`WorkflowRecord`] |
-//! | `wf_revisions` | revision id | one superseded copy of a workflow |
-//! | `wf_runs` | run id | one [`RunRecord`] |
-//! | `wf_notes` | workflow id | the workflow's whole journal (at most [`MAX_NOTES`]) |
-//! | `wf_proposals` | proposal id | one [`WorkflowProposal`] |
-//! | `wf_locks` | workflow id | the lease behind [`WorkflowStore::lock_proposal_decision`] |
-//! | `wf_quarantine` | random token | a journal that could not be parsed, set aside |
+//! | `flows.workflows` | `Key::of([workflow id])` | one [`WorkflowRecord`] |
+//! | `flows.workflow_revisions` | revision id | one superseded copy of a workflow |
+//! | `flows.workflow_runs` | `Key::of([run id])` | one [`RunRecord`] |
+//! | `flows.workflow_notes` | `Key::of([workflow id])` | the workflow's whole journal (at most [`MAX_NOTES`]) |
+//! | `flows.workflow_proposals` | `Key::of([proposal id])` | one [`WorkflowProposal`] |
+//! | `flows.workflow_quarantine` | ULID | a journal that could not be parsed, set aside |
 //!
-//! A record's nested data (a graph's free-form node config, a proposal's ops)
-//! is stored as a JSON **string** beside the few scalar fields queries use, so
-//! a MongoDB-backed port never meets an arbitrary key. Ids longer than the
-//! drivers' key limit are replaced by their SHA-256 in the document id; the
-//! record itself keeps the real id.
+//! The names carry `workflow_` because the records are not the catalog's: a
+//! [`WorkflowRecord`] is not a `Flow` (`flows.definitions`), nor a [`RunRecord`]
+//! a catalog run (`flows.runs`). The decision lock is not a collection of this
+//! owner: it is a `tsd.leases` lease (owner `flows`, key
+//! `workflow_decision/<workflow id>`).
+//!
+//! Bodies are bare snake_case objects: a graph, a run's steps, a journal's
+//! notes and a proposal's ops are real JSON values, not strings, and every
+//! instant is one epoch-millisecond `*_ms` field (`started_ms`, `finished_ms`,
+//! `recorded_ms`, `created_ms`, `decided_ms`, `superseded_ms`). The model types
+//! keep their camelCase wire form; the conversion is in `codec`. Ids longer
+//! than a key allows are hashed by `Key::of`; the record itself keeps the real
+//! id in its `id` field.
+//!
+//! `flows_*`-style v1 data (`wf_*`, JSON strings under `record_json`,
+//! `run_json`, `notes_json`, `proposal_json`) moves with the steps in
+//! `storage_schema()`; see `migrate`.
 //!
 //! # What the port gives in place of files
 //!
@@ -40,10 +51,10 @@
 //!   the document they swap, so two processes (or store instances) racing the
 //!   same edit cannot both win;
 //! - the journal is one document per workflow, updated by compare-and-swap;
-//! - [`WorkflowStore::lock_proposal_decision`] is a lease document, claimed
-//!   with a write-if-absent (or a swap over an expired lease), so it holds
-//!   across processes sharing one database. The lease lasts [`LOCK_LEASE`]; a
-//!   decision that takes longer than that loses its exclusion.
+//! - [`WorkflowStore::lock_proposal_decision`] is a `tsd.leases` lease, so it
+//!   holds across processes sharing one database. The lease lasts
+//!   [`LOCK_LEASE`]; a decision that takes longer than that loses its
+//!   exclusion.
 //!
 //! The trait is synchronous, so each call runs on `tinystoragedrivers`'
 //! [`Blocking`] bridge (one per process, or the host's own through
@@ -56,32 +67,37 @@ use tinyflows::store::types::{
     WorkflowSummary,
 };
 use tinyflows::store::{EnginePolicy, HostPolicy, MAX_NOTES, ProposalDecisionGuard, WorkflowStore};
-use tinystoragedrivers_core::{Blocking, CollectionSpec, DocumentStore, IndexSpec, StorageError};
+use tinystoragedrivers_core::{
+    Blocking, CollectionSpec, DocumentStore, IndexSpec, Key, Precondition, StorageError, Version,
+    WriteOptions, primitives,
+};
 use tokio::sync::OnceCell;
 
+mod codec;
 mod definitions;
 mod history;
 mod import;
 mod locks;
+mod migrate;
 mod notes;
 mod proposals;
 mod runs;
 
 pub use locks::LOCK_LEASE;
+pub(crate) use migrate::extend_schema;
 
-pub(crate) const DEFINITIONS: &str = "wf_definitions";
-pub(crate) const REVISIONS: &str = "wf_revisions";
-pub(crate) const RUNS: &str = "wf_runs";
-pub(crate) const NOTES: &str = "wf_notes";
-pub(crate) const PROPOSALS: &str = "wf_proposals";
-pub(crate) const LOCKS: &str = "wf_locks";
-pub(crate) const QUARANTINE: &str = "wf_quarantine";
+pub(crate) const DEFINITIONS: &str = "flows.workflows";
+pub(crate) const REVISIONS: &str = "flows.workflow_revisions";
+pub(crate) const RUNS: &str = "flows.workflow_runs";
+pub(crate) const NOTES: &str = "flows.workflow_notes";
+pub(crate) const PROPOSALS: &str = "flows.workflow_proposals";
+pub(crate) const QUARANTINE: &str = "flows.workflow_quarantine";
+
+/// The body version of every collection here (`wf_*` was version 1).
+pub(crate) const SCHEMA_VERSION: u32 = 2;
 
 /// Compare-and-swap attempts before a contended write gives up.
 pub(crate) const CAS_ATTEMPTS: usize = 32;
-
-/// Longest id stored as is; longer ones are hashed.
-const MAX_ID_LEN: usize = 400;
 
 /// What the async halves share.
 pub(crate) struct Inner {
@@ -165,15 +181,14 @@ impl DriverWorkflowStore {
             CollectionSpec::new(DEFINITIONS),
             CollectionSpec::new(REVISIONS).index(IndexSpec::new(
                 "by_workflow",
-                ["workflow_id", "superseded_at"],
+                ["workflow_id", "superseded_ms"],
             )),
             CollectionSpec::new(RUNS)
-                .index(IndexSpec::new("by_workflow", ["workflow_id", "started_at"]))
-                .index(IndexSpec::new("by_settled", ["settled", "started_at"])),
+                .index(IndexSpec::new("by_workflow", ["workflow_id", "started_ms"]))
+                .index(IndexSpec::new("by_settled", ["settled", "started_ms"])),
             CollectionSpec::new(NOTES),
             CollectionSpec::new(PROPOSALS)
-                .index(IndexSpec::new("by_workflow", ["workflow_id", "created_at"])),
-            CollectionSpec::new(LOCKS),
+                .index(IndexSpec::new("by_workflow", ["workflow_id", "created_ms"])),
             CollectionSpec::new(QUARANTINE),
         ]
     }
@@ -215,7 +230,10 @@ impl Inner {
     pub(crate) async fn ensure(&self) -> Result<(), WorkflowError> {
         self.declared
             .get_or_try_init(|| async {
-                for spec in DriverWorkflowStore::collections() {
+                for spec in DriverWorkflowStore::collections()
+                    .into_iter()
+                    .chain(primitives::collection_specs())
+                {
                     self.docs.ensure_collection(&spec).await.map_err(storage)?;
                 }
                 Ok::<(), WorkflowError>(())
@@ -235,24 +253,37 @@ pub(crate) fn malformed(context: &str, error: impl std::fmt::Display) -> Workflo
     WorkflowError::Malformed(format!("{context}: {error}"))
 }
 
-/// The document id for an id the caller chose: refused when empty or
-/// containing a control character, hashed when too long to use as a key.
+/// The document id for an id the caller chose (`Key::of`, which hashes one
+/// too long to use as a key): refused when empty or containing a control
+/// character.
 pub(crate) fn doc_id(id: &str) -> Result<String, WorkflowError> {
     if id.is_empty() || id.chars().any(char::is_control) {
         return Err(WorkflowError::Malformed(format!(
             "{id:?} is not a usable id: it is empty or contains a control character"
         )));
     }
-    if id.len() <= MAX_ID_LEN {
-        return Ok(id.to_string());
-    }
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(id.as_bytes());
-    Ok(format!("h:{}", hex_lower(&digest)))
+    Key::of([id])
+        .map(|key| key.as_str().to_owned())
+        .map_err(storage)
 }
 
-fn hex_lower(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+/// Writes `doc` at `collection/id` under `precondition`, declaring the
+/// stores' body version.
+pub(crate) async fn put_doc(
+    docs: &dyn DocumentStore,
+    collection: &str,
+    id: &str,
+    doc: serde_json::Value,
+    precondition: Precondition,
+) -> Result<Version, StorageError> {
+    docs.put_with(
+        collection,
+        id,
+        doc,
+        precondition,
+        WriteOptions::new().schema(SCHEMA_VERSION),
+    )
+    .await
 }
 
 /// Epoch milliseconds, saturating at zero if the clock is before the epoch.
@@ -471,6 +502,10 @@ mod history_tests;
 #[cfg(test)]
 #[path = "locks_tests.rs"]
 mod locks_tests;
+
+#[cfg(test)]
+#[path = "migrate_tests.rs"]
+mod migrate_tests;
 
 #[cfg(test)]
 #[path = "notes_tests.rs"]
