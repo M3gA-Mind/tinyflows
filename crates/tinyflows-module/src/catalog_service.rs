@@ -17,6 +17,16 @@ struct CatalogService {
     connection: Connection,
 }
 
+struct UpdateWorkflow {
+    storage: CatalogStorage,
+    id: String,
+    name: String,
+    graph: Value,
+    require_approval: bool,
+    expected_version: Option<String>,
+    force_disarm_automatic: bool,
+}
+
 fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
 }
@@ -106,15 +116,15 @@ impl CatalogService {
                 expected_version,
                 force_disarm_automatic,
             } => {
-                self.update(
+                self.update(UpdateWorkflow {
                     storage,
                     id,
                     name,
-                    raw,
+                    graph: raw,
                     require_approval,
-                    expected_version.as_deref(),
+                    expected_version,
                     force_disarm_automatic,
-                )
+                })
                 .await
             }
             PutWorkflowRequest::Duplicate { storage, id, name } => {
@@ -161,14 +171,17 @@ impl CatalogService {
 
     async fn update(
         &self,
-        storage: CatalogStorage,
-        id: String,
-        name: String,
-        raw: Value,
-        requested_approval: bool,
-        expected_version: Option<&str>,
-        force_disarm_automatic: bool,
+        request: UpdateWorkflow,
     ) -> std::result::Result<PutWorkflowResult, FlowUpdateError> {
+        let UpdateWorkflow {
+            storage,
+            id,
+            name,
+            graph: raw,
+            require_approval: requested_approval,
+            expected_version,
+            force_disarm_automatic,
+        } = request;
         let store = self.store(storage).await.map_err(store_error)?;
         let current = store
             .get_flow(&id)
@@ -191,7 +204,7 @@ impl CatalogService {
                 requested_approval || approval_forced,
                 None,
                 force_disarm_automatic,
-                expected_version,
+                expected_version.as_deref(),
             )
             .await
             .map_err(map_update_error)?;
