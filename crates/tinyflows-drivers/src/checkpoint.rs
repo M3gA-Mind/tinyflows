@@ -8,54 +8,60 @@
 //!
 //! # Layout
 //!
-//! Three collections, named from a prefix (default [`DEFAULT_PREFIX`], kept
-//! apart from TinyAgents' own `graph_*` checkpointer collections so both can
-//! share one backend):
+//! The graph checkpointer exists once in the storage schema, as the `graph.*`
+//! collections that `tinyagents-graph` declares and migrates; every user of it
+//! tells itself apart by a namespace (`ns`). This crate keeps its own
+//! checkpointer code (tinyflows does not depend on tinyagents) but reads and
+//! writes exactly those documents, under namespace [`NAMESPACE`] (`flows`) by
+//! default; `checkpoint_layout` holds the ids and bodies:
 //!
-//! - `<prefix>_checkpoints`: one document per stored checkpoint,
-//!   `{thread, namespace, seq, checkpoint_id, record}` (`namespace` is the
-//!   encoded subgraph namespace, so scoped reads filter on it). `seq` is a per-thread insertion
+//! - `graph.checkpoints`: one document per stored checkpoint,
+//!   `{ns, thread, subgraph, seq, checkpoint_id, checkpoint}` under
+//!   `Key::of([ns, thread, seq])`. `subgraph` is the encoded subgraph
+//!   namespace, so scoped reads filter on it. `seq` is a per-thread insertion
 //!   counter, so listing is a query sorted on it and duplicate checkpoint ids
 //!   resolve to the latest write, exactly like the append-only backends.
-//! - `<prefix>_threads`: one counter document per thread, advanced with a
-//!   compare-and-swap so concurrent writers never share a `seq`.
-//! - `<prefix>_writes`: one document per `(thread, namespace, checkpoint)`
-//!   holding the merged pending writes (see [`merge_writes`]).
+//! - `graph.threads`: one counter document per thread, `{ns, thread, next}`,
+//!   advanced with [`Repo::update`] so concurrent writers never share a `seq`.
+//! - `graph.writes`: one document per `(thread, subgraph, checkpoint)` holding
+//!   the merged pending writes (see [`merge_writes`]).
+//!
+//! The engine's checkpointer trait has no execution lease, so no `tsd.leases`
+//! record is written here; a host that fences a thread uses the lease key
+//! `Key::of([ns, thread])` under owner `graph`, as `tinyagents-graph` does.
 
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::Value;
+use tinyflows::graph::checkpoint::merge_writes;
 use tinyflows::graph::error::{GraphError, Result};
 use tinyflows::graph::ids::CheckpointId;
-use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, DocumentStoreExt, ErrorKind, Filter, IndexSpec, Precondition,
-    Query, Sort, Versioned,
-};
-use tokio::sync::OnceCell;
-
-use crate::checkpoint_keys::{key, map_error, namespace_key, require_checkpoint_id};
-
-use tinyflows::graph::checkpoint::merge_writes;
 use tinyflows::graph::{
     Checkpoint, CheckpointConfig, CheckpointMetadata, CheckpointTuple, Checkpointer, PendingWrite,
 };
+use tinystoragedrivers_core::{
+    DocumentStore, DocumentStoreExt, ErrorKind, Filter, Query, Repo, Sort, Versioned, WriteOptions,
+};
+use tokio::sync::OnceCell;
 
-/// How many times a compare-and-swap loop retries before giving up.
-const CAS_ATTEMPTS: usize = 64;
-
-/// The collection prefix [`DriverCheckpointer::new`] uses.
-pub const DEFAULT_PREFIX: &str = "flows_graph";
+use crate::checkpoint_layout::{
+    CHECKPOINTS, CheckpointBody, NAMESPACE, SCHEMA_VERSION, THREADS, ThreadBody, WRITES,
+    WritesBody, checkpoint_id_key, checkpoints_spec, map_error, require_checkpoint_id,
+    subgraph_key, thread_id_key, threads_spec, writes_id_key, writes_spec,
+};
 
 /// A [`Checkpointer`] that stores everything in a driver [`DocumentStore`].
 pub struct DriverCheckpointer<State> {
     docs: Arc<dyn DocumentStore>,
-    checkpoints: String,
-    threads: String,
-    writes: String,
+    ns: String,
+    checkpoints: Repo<CheckpointBody>,
+    threads: Repo<ThreadBody>,
+    writes: Repo<WritesBody>,
     declared: Arc<OnceCell<()>>,
     _state: PhantomData<fn() -> State>,
 }
@@ -64,6 +70,7 @@ impl<State> Clone for DriverCheckpointer<State> {
     fn clone(&self) -> Self {
         Self {
             docs: Arc::clone(&self.docs),
+            ns: self.ns.clone(),
             checkpoints: self.checkpoints.clone(),
             threads: self.threads.clone(),
             writes: self.writes.clone(),
@@ -76,48 +83,54 @@ impl<State> Clone for DriverCheckpointer<State> {
 impl<State> std::fmt::Debug for DriverCheckpointer<State> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DriverCheckpointer")
-            .field("checkpoints", &self.checkpoints)
+            .field("ns", &self.ns)
             .finish_non_exhaustive()
     }
 }
 
 impl<State> DriverCheckpointer<State> {
-    /// Store checkpoints in the `flows_graph_*` collections of `docs`.
+    /// Store checkpoints in the `graph.*` collections of `docs`, under the
+    /// workflow namespace [`NAMESPACE`] (`flows`).
     pub fn new(docs: Arc<dyn DocumentStore>) -> Self {
-        Self::with_prefix(docs, DEFAULT_PREFIX)
+        Self::with_namespace(docs, NAMESPACE)
     }
 
-    /// Store checkpoints in the `<prefix>_*` collections of `docs`, so
-    /// several independent checkpointers can share one backend.
-    pub fn with_prefix(docs: Arc<dyn DocumentStore>, prefix: &str) -> Self {
+    /// Store checkpoints in the `graph.*` collections of `docs` under the
+    /// namespace `ns`, so several independent checkpointers can share one
+    /// backend without meeting.
+    ///
+    /// # Panics
+    ///
+    /// Never: the collection names are valid constants.
+    #[allow(clippy::expect_used, reason = "the collection names are constants")]
+    pub fn with_namespace(docs: Arc<dyn DocumentStore>, ns: impl Into<String>) -> Self {
+        let options = WriteOptions::new().schema(SCHEMA_VERSION);
+        fn repo<T>(docs: &Arc<dyn DocumentStore>, name: &str, options: WriteOptions) -> Repo<T> {
+            Repo::new(docs, name)
+                .expect("graph collections are valid names")
+                .with_options(options)
+        }
         Self {
+            checkpoints: repo(&docs, CHECKPOINTS, options),
+            threads: repo(&docs, THREADS, options),
+            writes: repo(&docs, WRITES, options),
             docs,
-            checkpoints: format!("{prefix}_checkpoints"),
-            threads: format!("{prefix}_threads"),
-            writes: format!("{prefix}_writes"),
+            ns: ns.into(),
             declared: Arc::new(OnceCell::new()),
             _state: PhantomData,
         }
     }
 
+    /// This checkpointer's namespace.
+    pub fn namespace(&self) -> &str {
+        &self.ns
+    }
+
     async fn declared(&self) -> Result<()> {
         self.declared
             .get_or_try_init(|| async {
-                let specs = [
-                    CollectionSpec::new(&self.checkpoints)
-                        .index(IndexSpec::new("by_thread_seq", ["thread", "seq"]))
-                        .index(IndexSpec::new("by_thread_id", ["thread", "checkpoint_id"]))
-                        .index(IndexSpec::new(
-                            "by_thread_namespace",
-                            ["thread", "namespace", "seq"],
-                        )),
-                    CollectionSpec::new(&self.threads),
-                    CollectionSpec::new(&self.writes)
-                        .index(IndexSpec::new("by_thread", ["thread"]))
-                        .index(IndexSpec::new("by_namespace", ["thread", "ns_key"])),
-                ];
-                for spec in &specs {
-                    self.docs.ensure_collection(spec).await.map_err(map_error)?;
+                for spec in [checkpoints_spec(), threads_spec(), writes_spec()] {
+                    self.docs.ensure_collection(&spec).await.map_err(map_error)?;
                 }
                 Ok::<(), GraphError>(())
             })
@@ -127,48 +140,57 @@ impl<State> DriverCheckpointer<State> {
 
     /// Reserve the next insertion sequence number for `thread`.
     async fn next_seq(&self, thread: &str) -> Result<u64> {
-        let id = key(&[thread]);
-        for _ in 0..CAS_ATTEMPTS {
-            let current = self.docs.get(&self.threads, &id).await.map_err(map_error)?;
-            let (seq, precondition) = match &current {
-                Some(found) => (
-                    found.doc.get("next").and_then(Value::as_u64).unwrap_or(0),
-                    found.unchanged(),
-                ),
-                None => (0, Precondition::Absent),
-            };
-            let doc = json!({ "thread": thread, "next": seq + 1 });
-            match self.docs.put(&self.threads, &id, doc, precondition).await {
-                Ok(_) => return Ok(seq),
-                Err(error) if error.kind() == ErrorKind::Conflict => continue,
-                Err(error) => return Err(map_error(error)),
-            }
-        }
-        Err(GraphError::Checkpoint(format!(
-            "could not reserve a checkpoint sequence for thread `{thread}`"
-        )))
+        let (stored, _) = self
+            .threads
+            .update(&thread_id_key(&self.ns, thread), |current| {
+                Ok(Some(ThreadBody {
+                    ns: self.ns.clone(),
+                    thread: thread.to_owned(),
+                    next: current.map_or(1, |counter| counter.next + 1),
+                }))
+            })
+            .await
+            .map_err(map_error)?
+            .ok_or_else(|| {
+                GraphError::Checkpoint(format!(
+                    "could not reserve a checkpoint sequence for thread `{thread}`"
+                ))
+            })?;
+        Ok(stored.next - 1)
+    }
+
+    /// The filter selecting `thread`'s documents in this namespace.
+    fn thread_filter(&self, thread: &str) -> Filter {
+        Filter::eq("ns", self.ns.as_str()).and(Filter::eq("thread", thread))
     }
 
     /// Every stored checkpoint document of `thread`, in insertion order.
     async fn thread_docs(&self, thread: &str) -> Result<Vec<Versioned<Value>>> {
         self.declared().await?;
-        let query = Query::filter(Filter::eq("thread", thread)).sort(Sort::asc("seq"));
+        let query = Query::filter(self.thread_filter(thread)).sort(Sort::asc("seq"));
         self.docs
-            .query_all(&self.checkpoints, &query)
+            .query_all(CHECKPOINTS, &query)
             .await
             .map_err(map_error)
-    }
-
-    fn writes_id(thread: &str, namespace: &[String], checkpoint_id: &str) -> String {
-        key(&[thread, &namespace_key(namespace), checkpoint_id])
     }
 
     async fn drop_writes(&self, filter: Filter) -> Result<()> {
         self.docs
-            .delete_where(&self.writes, &filter)
+            .delete_where(WRITES, &filter)
             .await
             .map(|_| ())
             .map_err(map_error)
+    }
+
+    /// The newest checkpoint document matching `filter`.
+    async fn newest(&self, filter: Filter) -> Result<Option<Versioned<Value>>> {
+        let query = Query::filter(filter).sort(Sort::desc("seq")).limit(1);
+        let page = self
+            .docs
+            .query(CHECKPOINTS, &query)
+            .await
+            .map_err(map_error)?;
+        Ok(page.items.into_iter().next())
     }
 }
 
@@ -177,7 +199,7 @@ where
     State: DeserializeOwned,
 {
     fn decode(stored: Versioned<Value>) -> Result<Checkpoint<State>> {
-        let record = stored.doc.get("record").cloned().unwrap_or(Value::Null);
+        let record = stored.doc.get("checkpoint").cloned().unwrap_or(Value::Null);
         serde_json::from_value(record).map_err(|error| {
             GraphError::Checkpoint(format!(
                 "storage driver checkpointer: decode record: {error}"
@@ -195,16 +217,19 @@ where
         self.declared().await?;
         let id = CheckpointId::new(checkpoint.checkpoint_id.clone());
         let seq = self.next_seq(&checkpoint.thread_id).await?;
-        let doc = json!({
-            "thread": checkpoint.thread_id,
-            "namespace": namespace_key(&checkpoint.namespace),
-            "seq": seq,
-            "checkpoint_id": checkpoint.checkpoint_id,
-            "record": serde_json::to_value(&checkpoint)?,
-        });
-        let doc_id = key(&[&checkpoint.thread_id, &format!("{seq:020}")]);
-        self.docs
-            .put(&self.checkpoints, &doc_id, doc, Precondition::Absent)
+        let body = CheckpointBody {
+            ns: self.ns.clone(),
+            thread: checkpoint.thread_id.clone(),
+            subgraph: subgraph_key(&checkpoint.namespace),
+            seq,
+            checkpoint_id: checkpoint.checkpoint_id.clone(),
+            checkpoint: serde_json::to_value(&checkpoint)?,
+        };
+        self.checkpoints
+            .insert(
+                &checkpoint_id_key(&self.ns, &checkpoint.thread_id, seq),
+                &body,
+            )
             .await
             .map_err(map_error)?;
         Ok(id)
@@ -216,21 +241,15 @@ where
         checkpoint_id: Option<&str>,
     ) -> Result<Option<Checkpoint<State>>> {
         self.declared().await?;
-        let mut filter = Filter::eq("thread", thread_id);
+        let mut filter = self.thread_filter(thread_id);
         if let Some(id) = checkpoint_id {
             filter = filter.and(Filter::eq("checkpoint_id", id));
         }
-        let query = Query::filter(filter).sort(Sort::desc("seq")).limit(1);
-        let page = self
-            .docs
-            .query(&self.checkpoints, &query)
-            .await
-            .map_err(map_error)?;
-        page.items.into_iter().next().map(Self::decode).transpose()
+        self.newest(filter).await?.map(Self::decode).transpose()
     }
 
-    /// One indexed query on the stored namespace, so a parent run and a
-    /// subgraph sharing a thread never load each other's checkpoints, even
+    /// One indexed query on the stored subgraph namespace, so a parent run and
+    /// a subgraph sharing a thread never load each other's checkpoints, even
     /// when they reuse a checkpoint id.
     async fn get_scoped(
         &self,
@@ -239,18 +258,13 @@ where
         namespace: &[String],
     ) -> Result<Option<Checkpoint<State>>> {
         self.declared().await?;
-        let mut filter =
-            Filter::eq("thread", thread_id).and(Filter::eq("namespace", namespace_key(namespace)));
+        let mut filter = self
+            .thread_filter(thread_id)
+            .and(Filter::eq("subgraph", subgraph_key(namespace)));
         if let Some(id) = checkpoint_id {
             filter = filter.and(Filter::eq("checkpoint_id", id));
         }
-        let query = Query::filter(filter).sort(Sort::desc("seq")).limit(1);
-        let page = self
-            .docs
-            .query(&self.checkpoints, &query)
-            .await
-            .map_err(map_error)?;
-        page.items.into_iter().next().map(Self::decode).transpose()
+        self.newest(filter).await?.map(Self::decode).transpose()
     }
 
     /// One indexed read of the namespace's checkpoints and one of its
@@ -264,27 +278,29 @@ where
         limit: Option<usize>,
     ) -> Result<Vec<CheckpointTuple<State>>> {
         self.declared().await?;
-        let ns_key = namespace_key(namespace);
-        let query = Query::filter(
-            Filter::eq("thread", thread_id).and(Filter::eq("namespace", ns_key.as_str())),
-        )
-        .sort(Sort::asc("seq"));
+        let subgraph = subgraph_key(namespace);
+        let filter = self
+            .thread_filter(thread_id)
+            .and(Filter::eq("subgraph", subgraph.as_str()));
         let records = self
             .docs
-            .query_all(&self.checkpoints, &query)
+            .query_all(
+                CHECKPOINTS,
+                &Query::filter(filter.clone()).sort(Sort::asc("seq")),
+            )
             .await
             .map_err(map_error)?;
         if records.is_empty() {
             return Ok(Vec::new());
         }
-        let mut writes: std::collections::HashMap<String, Vec<PendingWrite>> =
-            std::collections::HashMap::new();
+        let mut writes: HashMap<String, Vec<PendingWrite>> = HashMap::new();
         let stored_writes = self
             .docs
             .query_all(
-                &self.writes,
+                WRITES,
                 &Query::filter(
-                    Filter::eq("thread", thread_id).and(Filter::eq("ns_key", ns_key.as_str())),
+                    self.thread_filter(thread_id)
+                        .and(Filter::eq("subgraph", subgraph.as_str())),
                 ),
             )
             .await
@@ -299,8 +315,7 @@ where
         }
 
         // Last write wins for a re-used id, matching `get`.
-        let mut by_id: std::collections::HashMap<String, Checkpoint<State>> =
-            std::collections::HashMap::with_capacity(records.len());
+        let mut by_id: HashMap<String, Checkpoint<State>> = HashMap::with_capacity(records.len());
         let mut cursor: Option<String> = None;
         for stored in records {
             let checkpoint = Self::decode(stored)?;
@@ -369,7 +384,7 @@ where
         self.declared().await?;
         let counters = self
             .docs
-            .query_all(&self.threads, &Query::all())
+            .query_all(THREADS, &Query::filter(Filter::eq("ns", self.ns.as_str())))
             .await
             .map_err(map_error)?;
         let mut threads = Vec::new();
@@ -379,7 +394,7 @@ where
             };
             let live = self
                 .docs
-                .count(&self.checkpoints, &Filter::eq("thread", thread))
+                .count(CHECKPOINTS, &self.thread_filter(thread))
                 .await
                 .map_err(map_error)?;
             if live > 0 {
@@ -392,12 +407,12 @@ where
     async fn delete_thread(&self, thread_id: &str) -> Result<()> {
         self.declared().await?;
         self.docs
-            .delete_where(&self.checkpoints, &Filter::eq("thread", thread_id))
+            .delete_where(CHECKPOINTS, &self.thread_filter(thread_id))
             .await
             .map_err(map_error)?;
         // Keep the sequence counter: a later thread of the same name continues
         // after it, so its records never interleave with stale cursors.
-        self.drop_writes(Filter::eq("thread", thread_id)).await
+        self.drop_writes(self.thread_filter(thread_id)).await
     }
 
     async fn delete_checkpoints(&self, thread_id: &str, ids: &[String]) -> Result<usize> {
@@ -405,20 +420,16 @@ where
             return Ok(0);
         }
         self.declared().await?;
-        let filter = Filter::eq("thread", thread_id).and(Filter::one_of(
+        let filter = self.thread_filter(thread_id).and(Filter::one_of(
             "checkpoint_id",
             ids.iter().map(String::as_str),
         ));
         let removed = self
             .docs
-            .delete_where(&self.checkpoints, &filter)
+            .delete_where(CHECKPOINTS, &filter)
             .await
             .map_err(map_error)?;
-        self.drop_writes(Filter::eq("thread", thread_id).and(Filter::one_of(
-            "checkpoint_id",
-            ids.iter().map(String::as_str),
-        )))
-        .await?;
+        self.drop_writes(filter).await?;
         Ok(usize::try_from(removed).unwrap_or(usize::MAX))
     }
 
@@ -428,36 +439,32 @@ where
             return Ok(());
         }
         self.declared().await?;
-        let id = Self::writes_id(&config.thread_id, &config.namespace, &checkpoint_id);
-        for _ in 0..CAS_ATTEMPTS {
-            let current = self.docs.get(&self.writes, &id).await.map_err(map_error)?;
-            let (mut stored, precondition): (Vec<PendingWrite>, Precondition) = match &current {
-                Some(found) => (
-                    serde_json::from_value(
-                        found.doc.get("writes").cloned().unwrap_or(Value::Null),
-                    )?,
-                    found.unchanged(),
-                ),
-                None => (Vec::new(), Precondition::Absent),
-            };
-            merge_writes(&mut stored, writes);
-            let doc = json!({
-                "thread": config.thread_id,
-                "namespace": config.namespace,
-                "ns_key": namespace_key(&config.namespace),
-                "checkpoint_id": checkpoint_id,
-                "writes": serde_json::to_value(&stored)?,
-            });
-            match self.docs.put(&self.writes, &id, doc, precondition).await {
-                Ok(_) => return Ok(()),
-                Err(error) if error.kind() == ErrorKind::Conflict => continue,
-                Err(error) => return Err(map_error(error)),
-            }
-        }
-        Err(GraphError::Checkpoint(format!(
-            "could not record pending writes for thread `{}`",
-            config.thread_id
-        )))
+        let subgraph = subgraph_key(&config.namespace);
+        let id = writes_id_key(&self.ns, &config.thread_id, &subgraph, &checkpoint_id);
+        self.writes
+            .update(&id, |current| {
+                let mut stored = current.map(|body| body.writes).unwrap_or_default();
+                merge_writes(&mut stored, writes);
+                Ok(Some(WritesBody {
+                    ns: self.ns.clone(),
+                    thread: config.thread_id.clone(),
+                    subgraph: subgraph.clone(),
+                    checkpoint_id: checkpoint_id.clone(),
+                    writes: stored,
+                }))
+            })
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                if error.kind() == ErrorKind::Conflict {
+                    GraphError::Checkpoint(format!(
+                        "could not record pending writes for thread `{}`",
+                        config.thread_id
+                    ))
+                } else {
+                    map_error(error)
+                }
+            })
     }
 
     async fn get_writes(&self, config: &CheckpointConfig) -> Result<Vec<PendingWrite>> {
@@ -465,13 +472,19 @@ where
             return Ok(Vec::new());
         };
         self.declared().await?;
-        let id = Self::writes_id(&config.thread_id, &config.namespace, &checkpoint_id);
-        let Some(found) = self.docs.get(&self.writes, &id).await.map_err(map_error)? else {
-            return Ok(Vec::new());
-        };
-        Ok(serde_json::from_value(
-            found.doc.get("writes").cloned().unwrap_or(Value::Null),
-        )?)
+        let id = writes_id_key(
+            &self.ns,
+            &config.thread_id,
+            &subgraph_key(&config.namespace),
+            &checkpoint_id,
+        );
+        Ok(self
+            .writes
+            .get(&id)
+            .await
+            .map_err(map_error)?
+            .map(|found| found.doc.writes)
+            .unwrap_or_default())
     }
 }
 
