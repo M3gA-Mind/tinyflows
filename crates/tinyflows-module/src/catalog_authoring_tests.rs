@@ -38,7 +38,11 @@ async fn connections() -> (Connection, Connection) {
 #[tokio::test]
 async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Result<()> {
     let (_server, client) = connections().await;
-    let proxy = client.proxy(tinyflows_bus::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
     let contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> =
         proxy.call(catalog::members::NODE_KINDS, ()).await?;
     assert_eq!(contracts.len(), tinyflows_bus::node_kinds::NODE_KINDS.len());
@@ -72,7 +76,11 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
 async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure()
 -> tinybus::Result<()> {
     let (_server, client) = connections().await;
-    let proxy = client.proxy(tinyflows_bus::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
     let request = ApplyGraphOpsRequest {
         graph: json!({"nodes":[{"id":"start","name":"Before","kind":"trigger"}],"edges":[]}),
         ops: vec![
@@ -138,7 +146,11 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
         {"id":"dynamic","name":"Dynamic","kind":"tool_call","config":{"slug":"=item.tool"}},
         {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"agent-1"}}
     ],"edges":[]});
-    let proxy = client.proxy(tinyflows_bus::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
     let entries: Vec<Value> = proxy
         .call(
             catalog::members::APPROVAL_MANIFEST,
@@ -188,7 +200,11 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
         )
         .await?;
     client.request_name("test.ApprovalHost").await?;
-    let proxy = client.proxy(tinyflows_bus::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
     let request = ApprovalManifestRequest {
         graph: json!({"nodes":[{"id":"code","name":"Code","kind":"code"}],"edges":[]}),
         native_prefix: "oh:".into(),
