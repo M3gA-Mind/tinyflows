@@ -7,29 +7,31 @@ fn valid_graph() -> Value {
     ], "edges": []})
 }
 
-#[test]
-fn valid_candidate_returns_migrated_graph_without_errors() {
-    let report = validate_graph(valid_graph()).unwrap();
+#[tokio::test]
+async fn valid_candidate_returns_migrated_graph_without_errors() {
+    let report = validate_graph(valid_graph(), None).await.unwrap();
     assert!(report.is_valid(), "{:?}", report.errors);
     let graph = report.graph.unwrap();
     assert_eq!(graph["nodes"][0]["id"], "start");
 }
 
-#[test]
-fn unparseable_candidate_returns_structured_failure_without_graph() {
-    let report = validate_graph(json!({"nodes": "invalid"})).unwrap();
+#[tokio::test]
+async fn unparseable_candidate_returns_structured_failure_without_graph() {
+    let report = validate_graph(json!({"nodes": "invalid"}), None)
+        .await
+        .unwrap();
     assert!(!report.is_valid());
     assert!(report.graph.is_none());
     assert_eq!(report.errors.len(), 1);
     assert_eq!(report.errors[0].code, "unparseable_graph");
 }
 
-#[test]
-fn structural_failures_are_aggregated_and_preserve_candidate() {
+#[tokio::test]
+async fn structural_failures_are_aggregated_and_preserve_candidate() {
     let mut graph = valid_graph();
     graph["nodes"] = json!([]);
     graph["edges"] = json!([{"from_node": "missing", "to_node": "absent"}]);
-    let report = validate_graph(graph).unwrap();
+    let report = validate_graph(graph, None).await.unwrap();
     assert!(!report.is_valid());
     assert!(report.graph.is_some());
     assert!(report.errors.len() > 1, "{:?}", report.errors);
@@ -47,8 +49,8 @@ fn structural_failures_are_aggregated_and_preserve_candidate() {
     );
 }
 
-#[test]
-fn unsupported_engine_topology_is_reported_after_structural_validation() {
+#[tokio::test]
+async fn unsupported_engine_topology_is_reported_after_structural_validation() {
     let nodes = [
         ("start", "trigger", json!({})),
         ("outer", "condition", json!({"field":"o"})),
@@ -71,7 +73,9 @@ fn unsupported_engine_topology_is_reported_after_structural_validation() {
         ("c", "main", "merge"),
     ]
     .map(|(from, port, to)| json!({"from_node":from,"from_port":port,"to_node":to}));
-    let report = validate_graph(json!({"nodes":nodes,"edges":edges})).unwrap();
+    let report = validate_graph(json!({"nodes":nodes,"edges":edges}), None)
+        .await
+        .unwrap();
     assert!(!report.is_valid());
     assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
     assert_eq!(
@@ -81,12 +85,12 @@ fn unsupported_engine_topology_is_reported_after_structural_validation() {
     assert_eq!(report.errors[0].node_id.as_deref(), Some("merge"));
 }
 
-#[test]
-fn migrated_candidate_preserves_unknown_editor_metadata() {
+#[tokio::test]
+async fn migrated_candidate_preserves_unknown_editor_metadata() {
     let mut candidate = valid_graph();
     candidate["editor"] = json!({"viewport": {"x": 17}, "selected": "start"});
     candidate["nodes"][0]["position"] = json!({"x": 23, "y": 42});
-    let report = validate_graph(candidate.clone()).unwrap();
+    let report = validate_graph(candidate.clone(), None).await.unwrap();
     assert!(report.is_valid());
     let migrated = report.graph.unwrap();
     assert_eq!(migrated["editor"], candidate["editor"]);
@@ -100,15 +104,15 @@ fn migrated_candidate_preserves_unknown_editor_metadata() {
     );
 }
 
-#[test]
-fn input_validation_errors_identify_the_affected_field() {
+#[tokio::test]
+async fn input_validation_errors_identify_the_affected_field() {
     let mut candidate = valid_graph();
     candidate["inputs"] = json!([
         {"name": "repo-url", "type": "string"},
         {"name": "depth", "type": "number", "default": "3"},
         {"name": "depth", "type": "number"}
     ]);
-    let report = validate_graph(candidate).unwrap();
+    let report = validate_graph(candidate, None).await.unwrap();
     for (code, field) in [
         ("invalid_input_name", "repo-url"),
         ("input_default_type_mismatch", "depth"),
@@ -123,11 +127,11 @@ fn input_validation_errors_identify_the_affected_field() {
     }
 }
 
-#[test]
-fn future_schema_returns_unparseable_failure_without_a_migrated_graph() {
+#[tokio::test]
+async fn future_schema_returns_unparseable_failure_without_a_migrated_graph() {
     let mut candidate = valid_graph();
     candidate["schema_version"] = json!(tinyflows::model::CURRENT_SCHEMA_VERSION + 1);
-    let report = validate_graph(candidate).unwrap();
+    let report = validate_graph(candidate, None).await.unwrap();
     assert!(report.graph.is_none());
     assert_eq!(report.errors[0].code, "unparseable_graph");
 }

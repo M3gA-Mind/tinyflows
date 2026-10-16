@@ -5,12 +5,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
-    self, CatalogStorage, CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft,
-    FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest,
-    ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest,
-    PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse,
-    PutWorkflowResult, RunIdRequest, SetEnabledRequest, SetSuggestionStatusRequest,
-    UpdateDraftRequest, UpsertSuggestionsRequest, Workflow, WorkflowRevision, WorkflowSummary,
+    self, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest, CatalogStorage,
+    CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion,
+    FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest, ListRunsRequest,
+    ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest, PromoteDraftResponse,
+    PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult, RunIdRequest,
+    SetEnabledRequest, SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest,
+    Workflow, WorkflowRevision, WorkflowSummary,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -267,6 +268,26 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
+    async fn node_kinds(
+        &self,
+    ) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
+        Ok(super::catalog_authoring::node_kinds())
+    }
+
+    async fn apply_graph_ops(
+        &self,
+        request: ApplyGraphOpsRequest,
+    ) -> tinybus::Result<ApplyGraphOpsResult> {
+        Ok(super::catalog_authoring::apply_graph_ops(request))
+    }
+
+    async fn approval_manifest(
+        &self,
+        request: ApprovalManifestRequest,
+    ) -> tinybus::Result<Vec<Value>> {
+        super::catalog_authoring::approval_manifest(&self.connection, request).await
+    }
+
     async fn list_workflows(
         &self,
         storage: CatalogStorage,
@@ -470,3 +491,7 @@ mod extended_tests;
 #[cfg(test)]
 #[path = "catalog_extended_operations_tests.rs"]
 mod operations_tests;
+
+#[cfg(test)]
+#[path = "catalog_authoring_tests.rs"]
+mod authoring_tests;

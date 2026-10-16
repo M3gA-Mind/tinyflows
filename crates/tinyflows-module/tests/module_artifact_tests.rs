@@ -1,3 +1,5 @@
+#[path = "support/authoring_contract_calls.rs"]
+mod authoring_contract_calls;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
 #[path = "support/document_callbacks.rs"]
@@ -8,7 +10,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
-use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
+use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS, OBJECT_PATH, methods};
 
 struct HostCallback;
 
@@ -33,6 +35,8 @@ impl HostCallback {
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
@@ -53,6 +57,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         dependency.optional
             && dependency.interface.interface.as_str()
                 == tinyflows_bus::catalog::DRAFT_PROMOTION_HOST_INTERFACE
+    }));
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str()
+                == tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE
     }));
     let provided = info
         .manifest
@@ -346,6 +355,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     );
 
     let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
+    let catalog_proxy = connection
+        .proxy(
+            BUS_NAME,
+            tinyflows_bus::catalog::OBJECT_PATH,
+            tinyflows_bus::catalog::INTERFACE,
+        )
+        .unwrap();
     connection
         .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
         .await
@@ -370,19 +386,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(failures, ["artifact callback refused account"]);
 
-    let report: GraphValidation = proxy
-        .call(
-            methods::VALIDATE_GRAPH,
-            (json!({
-                "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
-                "edges": []
-            }),),
-        )
-        .await
-        .unwrap();
-    assert!(report.is_valid(), "{:?}", report.errors);
-    let graph = report.graph.unwrap();
-    assert!(graph["schema_version"].as_u64().unwrap() > 0);
+    let graph = authoring_contract_calls::verify_surface(&proxy, &catalog_proxy).await;
+    let manifest = authoring_contract_calls::approval_manifest(&connection, &catalog_proxy).await;
+    assert_eq!(manifest.len(), 1);
+    assert_eq!(manifest[0]["node_id"], "code");
     let failures: Vec<String> = proxy
         .call(methods::BINDING_FAILURES, (graph,))
         .await

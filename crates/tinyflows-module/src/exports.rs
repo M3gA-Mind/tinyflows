@@ -83,6 +83,17 @@ fn manifest() -> TbSlice {
                     optional: true,
                     reason: "Draft promotion invokes the scope-bound host save path".into(),
                 },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(
+                            tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
+                        )
+                        .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Approval manifests use the scope-bound host policy classifier".into(),
+                },
             ],
             environment: vec![],
             capabilities: vec![],
