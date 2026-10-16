@@ -55,7 +55,7 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
     assert_eq!(code.example["kind"], "code");
     assert!(code.notes.is_empty());
     assert_eq!(
-        serde_json::to_value(&code).unwrap(),
+        serde_json::to_value(code).unwrap(),
         json!({
             "kind":"code",
             "summary":"Run a sandboxed JavaScript or Python snippet.",
