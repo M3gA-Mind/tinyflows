@@ -6,7 +6,7 @@ use tinybus::Connection;
 use tinyflows_bus::schedule::{CallbackAddress, DOCUMENT_INTERFACE, DOCUMENT_METHOD};
 use tinystoragedrivers_core::{
     Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteResult,
+    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteOptions, WriteResult,
 };
 
 pub(super) struct Documents {
