@@ -1,4 +1,4 @@
-# tinyflows-bus design (openhuman#7562, epic #7544, tinyflows#132)
+# tinyflows-bus design (openhuman#8055, tinyflows#3)
 
 Goal: the OpenHuman host reaches workflow behaviour only through the
 `tinyflows-bus` contract served by the compiled `tinyflows-module`. The host
@@ -14,10 +14,10 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 
 | Surface | Status | Members |
 | --- | --- | --- |
-| Authoring | served, v1 | `ValidateGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, graph ops gates, preflight) |
+| Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
-| Catalog | served, v3 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns` |
+| Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
 boundary as JSON; the host never links the engine. Adding a surface does not
@@ -26,9 +26,17 @@ surface's version and the registry records the pair.
 
 ### Validate / migrate / compat
 
-Already served as `ValidateGraph`. Migration, structural validation and engine
-compatibility run in the module; the result carries the migrated graph even
-when invalid so editors keep the author's work.
+`ValidateGraph` runs migration, structural validation and engine compatibility
+in the module; the result carries the migrated graph even when invalid so
+editors keep the author's work. A request may include the scope-bound
+`AuthoringHost.ResolveWorkflow` callback. When present, the shared async
+compatibility walk checks saved sub-workflow children; missing or unavailable
+children retain the engine's existing runtime-diagnostic behavior.
+
+`ImportGraph` normalizes native and n8n documents without persistence. `auto`
+detects n8n exports, while `native` and `n8n` select a format explicitly. The
+module returns importer warnings separately from structural and engine
+compatibility errors; product trigger warnings remain host-owned.
 
 ### Run / resume / cancel
 
@@ -41,12 +49,21 @@ cursor. Run checkpoints live in the host document port (below).
 
 ### Node kinds, graph_ops, gates, preflight
 
-`NodeKinds` returns each kind's config schema and ports so the host stops
-mirroring the enum. `ApplyGraphOps` wraps `graph_ops` (pure, deterministic).
-Gates and mock-run preflight are `BuilderFailures` (served). The approval
-manifest splits as already landed in `tinyflows-catalog::approval_manifest`:
-the module lists candidates, the host classifies each with its security
-policy, the module assembles the wire entries.
+The complete `NodeKindContract` data model, host-note overlay method, and
+renderers live in `tinyflows-bus::node_kinds`; `tinyflows::catalog` only
+re-exports them for existing engine users. The `NodeKinds` member returns the
+full ordered schema, including config fields, ports, examples and portable
+notes, without requiring hosts to link the engine. `ApplyGraphOps` applies
+tagged edits sequentially to a private graph copy and returns either the full
+result or the first indexed error, with no validation or persistence.
+
+The approval manifest follows `tinyflows-catalog::approval_manifest`: the
+module lists candidates in graph order, the scope-bound
+`ApprovalManifestHost.ClassifyManifestCandidates` callback classifies every
+candidate slot, and the module assembles the wire entries. A missing,
+malformed, or failed callback response fails the operation closed. Host policy
+still owns HTTP/code/native/connector classification and curated-read skips;
+dynamic and agent rows have no host classification.
 
 ## Host callbacks for caps traits
 

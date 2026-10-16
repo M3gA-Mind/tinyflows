@@ -54,6 +54,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             && dependency.interface.interface.as_str()
                 == tinyflows_bus::catalog::DRAFT_PROMOTION_HOST_INTERFACE
     }));
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str()
+                == tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE
+    }));
     let provided = info
         .manifest
         .provides
