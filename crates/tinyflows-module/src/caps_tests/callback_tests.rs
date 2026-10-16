@@ -251,3 +251,102 @@ async fn approval_transport_failure_is_a_capability_error_and_never_pending() {
     let error = ApprovalProvider::decide(&port, &request).await.unwrap_err();
     assert!(matches!(error, EngineError::Capability(_)));
 }
+
+#[tokio::test]
+async fn missing_callback_service_fails_each_result_capability_as_an_error() {
+    let (module, _host) = support::memory_bus().await;
+    let port = ports(module, "/caps/missing");
+    let shell = ShellRequest {
+        interpreter: ShellInterpreter::Sh,
+        script: ShellScript::Inline("true".into()),
+        cwd: None,
+        env: BTreeMap::new(),
+        input: Value::Null,
+    };
+    let approval = ApprovalRequest {
+        request_id: "r".into(),
+        node_id: "n".into(),
+        run_id: None,
+        title: None,
+        prompt: None,
+        subject: ApprovalSubject {
+            kind: "text".into(),
+            value: json!("x"),
+        },
+        assignees: vec![],
+        metadata: json!({}),
+    };
+    let agent = AgentRunRequest {
+        agent: AgentDefinition::new("agent"),
+        model: AgentModelSelection::default(),
+        input: AgentInput::default(),
+        context: vec![],
+        tools: vec![],
+        connection_ref: None,
+        working_dir: None,
+        identity: AgentRunIdentity {
+            node_id: "agent".into(),
+            ..AgentRunIdentity::default()
+        },
+        metadata: Default::default(),
+        output_schema: None,
+        config: json!({}),
+    };
+    let failures = [
+        LlmProvider::complete(&port, json!({}), None).await.unwrap_err(),
+        ToolInvoker::invoke(&port, "tool", json!({}), None)
+            .await
+            .unwrap_err(),
+        HttpClient::request(&port, json!({}), None).await.unwrap_err(),
+        CodeRunner::run(&port, CodeLanguage::Python, "return input", json!({}))
+            .await
+            .unwrap_err(),
+        ShellRunner::run(&port, shell).await.unwrap_err(),
+        MemoryProvider::recall(&port, "flow", "q", json!({}))
+            .await
+            .unwrap_err(),
+        MemoryProvider::flavour(&port, "x").await.unwrap_err(),
+        MemoryProvider::people(&port, None).await.unwrap_err(),
+        MemoryProvider::remember(&port, "flow", "k", json!(1))
+            .await
+            .unwrap_err(),
+        MemoryProvider::forget(&port, "flow", "k")
+            .await
+            .unwrap_err(),
+        ApprovalProvider::decide(&port, &approval)
+            .await
+            .unwrap_err(),
+        ApprovalProvider::cancel(&port, "r", "done")
+            .await
+            .unwrap_err(),
+        AgentRunner::run_agent(&port, "agent", json!({}), None)
+            .await
+            .unwrap_err(),
+        AgentRunner::run(&port, agent).await.unwrap_err(),
+        AgentRunner::resolve_agent(&port, "agent")
+            .await
+            .unwrap_err(),
+        AgentRunner::list_agents(&port).await.unwrap_err(),
+        AgentRunner::resolve_context(&port, "host", &json!({}), &Default::default())
+            .await
+            .unwrap_err(),
+        AgentRunner::resolve_tools(&port, &[], None)
+            .await
+            .unwrap_err(),
+    ];
+    assert!(failures.iter().all(|error| matches!(error, EngineError::Capability(_))));
+    assert!(matches!(
+        AgentRunner::resolve_workdir(&port, "/workspace", "repo").await,
+        WorkdirCheck::Refused(_)
+    ));
+    assert!(port
+        .call_one::<_, runs::AgentEventsResponse>(
+            runs::caps::AGENT_EVENTS,
+            &runs::AgentEventsRequest {
+                handle: "h".into(),
+                cursor: 0,
+            },
+        )
+        .await
+        .is_err());
+}

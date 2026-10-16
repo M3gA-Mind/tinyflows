@@ -25,6 +25,7 @@ pub(super) struct FakeHost {
     pub approval_calls: Arc<AtomicUsize>,
     pub fail_approval: bool,
     pub tool_gate: Option<Arc<ToolGate>>,
+    pub first_event_seq: u64,
 }
 
 impl FakeHost {
@@ -139,7 +140,7 @@ impl FakeHost {
         if request.cursor == 0 {
             Ok(AgentEventsResponse {
                 events: vec![AgentProgressEvent {
-                    seq: 1,
+                        seq: self.first_event_seq,
                     at_ms: 10,
                     kind: "tool_call".into(),
                     text: "read".into(),
@@ -255,6 +256,7 @@ pub(super) async fn serve_caps(
             approval_calls: Arc::new(AtomicUsize::new(0)),
             fail_approval,
             tool_gate: None,
+            first_event_seq: 1,
         },
     )
     .await
@@ -279,11 +281,33 @@ pub(super) async fn serve_caps_with_blocked_tools(
             approval_calls: Arc::new(AtomicUsize::new(0)),
             fail_approval: false,
             tool_gate: Some(Arc::clone(&gate)),
+            first_event_seq: 1,
         },
     )
     .await
     .unwrap();
     gate
+}
+
+pub(super) async fn serve_caps_with_first_event_seq(
+    host: &Connection,
+    owner: &str,
+    path: &str,
+    first_event_seq: u64,
+) {
+    host.serve_at(
+        path.parse().unwrap(),
+        FakeHost {
+            owner: owner.into(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+            approval_calls: Arc::new(AtomicUsize::new(0)),
+            fail_approval: false,
+            tool_gate: None,
+            first_event_seq,
+        },
+    )
+    .await
+    .unwrap();
 }
 
 pub(super) fn caps_host(path: &str) -> CapsHost {
