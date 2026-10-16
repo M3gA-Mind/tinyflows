@@ -70,7 +70,7 @@ pub struct UpdateDraftRequest {
     /// Optional replacement name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Optional replacement graph.
+    /// Optional replacement graph; explicit JSON `null` replaces it with raw null.
     #[serde(
         default,
         deserialize_with = "deserialize_graph_patch",
