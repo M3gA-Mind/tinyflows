@@ -1,13 +1,15 @@
 //! Conversion and orchestration for the Catalog v3 operations.
 
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
-    self as wire, CreateDraftRequest, DraftIdRequest, DraftPromotionOperation, FlowDraft,
-    FlowRun, FlowRunStep, FlowSuggestion, ListAllRunsRequest, ListRunsRequest,
-    ListSuggestionsRequest, PromoteDraftRequest, PromoteDraftResult, PruneRunsRequest,
-    RunIdRequest, SavePromotedDraftRequest, SavePromotedDraftResult, SetSuggestionStatusRequest,
-    SuggestionStatus, UpdateDraftRequest, UpsertSuggestionsRequest,
+    self as wire, CreateDraftRequest, DraftIdRequest, DraftPromotionFailure,
+    DraftPromotionOperation, FlowDraft, FlowRun, FlowRunStep, FlowSuggestion, ListAllRunsRequest,
+    ListRunsRequest, ListSuggestionsRequest, PromoteDraftRequest, PromoteDraftResponse,
+    PromoteDraftResult, PruneRunsRequest, RunIdRequest, SavePromotedDraftRequest,
+    SavePromotedDraftResponse, SetSuggestionStatusRequest, SuggestionStatus, UpdateDraftRequest,
+    UpsertSuggestionsRequest,
 };
 use tinyflows_catalog::{
     DraftOrigin as StoredDraftOrigin, FlowDraft as StoredDraft, FlowRun as StoredRun,
@@ -16,11 +18,16 @@ use tinyflows_catalog::{
 };
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tinystoragedrivers_core::DocumentStore;
-use std::sync::Arc;
 
-async fn store(connection: &Connection, storage: wire::CatalogStorage) -> Result<FlowCatalogDocuments> {
-    let docs = super::catalog_documents::Documents::new(connection.clone(), storage.callback).await?;
-    Ok(FlowCatalogDocuments::new(Arc::new(docs) as Arc<dyn DocumentStore>))
+async fn store(
+    connection: &Connection,
+    storage: wire::CatalogStorage,
+) -> Result<FlowCatalogDocuments> {
+    let docs =
+        super::catalog_documents::Documents::new(connection.clone(), storage.callback).await?;
+    Ok(FlowCatalogDocuments::new(
+        Arc::new(docs) as Arc<dyn DocumentStore>
+    ))
 }
 
 fn origin(value: wire::DraftOrigin) -> StoredDraftOrigin {
@@ -121,34 +128,78 @@ fn run(value: StoredRun) -> FlowRun {
     }
 }
 
-pub(super) async fn create_draft(connection: &Connection, request: CreateDraftRequest) -> Result<FlowDraft> {
-    store(connection, request.storage).await?
-        .create_draft(request.flow_id, request.name, request.graph, origin(request.origin))
-        .await.map(draft).context("creating flow draft")
+pub(super) async fn create_draft(
+    connection: &Connection,
+    request: CreateDraftRequest,
+) -> Result<FlowDraft> {
+    store(connection, request.storage)
+        .await?
+        .create_draft(
+            request.flow_id,
+            request.name,
+            request.graph,
+            origin(request.origin),
+        )
+        .await
+        .map(draft)
+        .context("creating flow draft")
 }
 
-pub(super) async fn get_draft(connection: &Connection, request: DraftIdRequest) -> Result<Option<FlowDraft>> {
-    store(connection, request.storage).await?.get_draft(&request.id).await.map(|value| value.map(draft))
+pub(super) async fn get_draft(
+    connection: &Connection,
+    request: DraftIdRequest,
+) -> Result<Option<FlowDraft>> {
+    store(connection, request.storage)
+        .await?
+        .get_draft(&request.id)
+        .await
+        .map(|value| value.map(draft))
 }
 
-pub(super) async fn update_draft(connection: &Connection, request: UpdateDraftRequest) -> Result<FlowDraft> {
-    store(connection, request.storage).await?
+pub(super) async fn update_draft(
+    connection: &Connection,
+    request: UpdateDraftRequest,
+) -> Result<FlowDraft> {
+    store(connection, request.storage)
+        .await?
         .update_draft(&request.id, request.name, request.graph, request.flow_id)
-        .await.map(draft)
+        .await
+        .map(draft)
 }
 
-pub(super) async fn list_drafts(connection: &Connection, storage: wire::CatalogStorage) -> Result<Vec<FlowDraft>> {
-    store(connection, storage).await?.list_drafts().await.map(|items| items.into_iter().map(draft).collect())
+pub(super) async fn list_drafts(
+    connection: &Connection,
+    storage: wire::CatalogStorage,
+) -> Result<Vec<FlowDraft>> {
+    store(connection, storage)
+        .await?
+        .list_drafts()
+        .await
+        .map(|items| items.into_iter().map(draft).collect())
 }
 
 pub(super) async fn delete_draft(connection: &Connection, request: DraftIdRequest) -> Result<bool> {
-    store(connection, request.storage).await?.delete_draft(&request.id).await
+    store(connection, request.storage)
+        .await?
+        .delete_draft(&request.id)
+        .await
 }
 
-pub(super) async fn promote_draft(connection: &Connection, request: PromoteDraftRequest) -> Result<PromoteDraftResult> {
-    let PromoteDraftRequest { storage, host, id, require_approval } = request;
+pub(super) async fn promote_draft(
+    connection: &Connection,
+    request: PromoteDraftRequest,
+) -> Result<PromoteDraftResponse> {
+    let PromoteDraftRequest {
+        storage,
+        host,
+        id,
+        require_approval,
+    } = request;
     let catalog = store(connection, storage.clone()).await?;
-    let draft = catalog.get_draft(&id).await?.with_context(|| format!("draft '{id}' not found"))?;
+    let draft = catalog
+        .get_draft(&id)
+        .await?
+        .with_context(|| format!("draft '{id}' not found"))?;
     let operation = match draft.flow_id.clone() {
         Some(id) => DraftPromotionOperation::Update {
             id,
@@ -163,11 +214,28 @@ pub(super) async fn promote_draft(connection: &Connection, request: PromoteDraft
             require_approval: require_approval.unwrap_or(false),
         },
     };
-    let proxy = connection.proxy(&host.destination, &host.object_path, wire::DRAFT_PROMOTION_HOST_INTERFACE)?;
-    let saved: SavePromotedDraftResult = proxy.call(
-        wire::draft_promotion_host::SAVE_PROMOTED_DRAFT,
-        &(SavePromotedDraftRequest { operation }),
-    ).await.context("saving promoted workflow through host")?;
+    let proxy = connection.proxy(
+        &host.destination,
+        &host.object_path,
+        wire::DRAFT_PROMOTION_HOST_INTERFACE,
+    )?;
+    let saved: SavePromotedDraftResponse = proxy
+        .call(
+            wire::draft_promotion_host::SAVE_PROMOTED_DRAFT,
+            &(SavePromotedDraftRequest { operation }),
+        )
+        .await
+        .context("saving promoted workflow through host")?;
+    let saved = match saved {
+        SavePromotedDraftResponse::Ok(saved) => saved,
+        SavePromotedDraftResponse::Error(error) => {
+            return Ok(PromoteDraftResponse::Error(DraftPromotionFailure {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+            }));
+        }
+    };
     let (draft_deleted, cleanup_warning) = match catalog.delete_draft(&id).await {
         Ok(removed) => (removed, None),
         Err(error) => {
@@ -175,41 +243,89 @@ pub(super) async fn promote_draft(connection: &Connection, request: PromoteDraft
             (false, Some(error.to_string()))
         }
     };
-    Ok(PromoteDraftResult {
+    Ok(PromoteDraftResponse::Ok(PromoteDraftResult {
         workflow: saved.workflow,
         metadata: saved.metadata,
         draft_deleted,
         cleanup_warning,
-    })
+    }))
 }
 
-pub(super) async fn upsert_suggestions(connection: &Connection, request: UpsertSuggestionsRequest) -> Result<usize> {
-    let suggestions: Vec<_> = request.suggestions.into_iter().map(stored_suggestion).collect();
-    store(connection, request.storage).await?.upsert_suggestions(&suggestions).await
+pub(super) async fn upsert_suggestions(
+    connection: &Connection,
+    request: UpsertSuggestionsRequest,
+) -> Result<usize> {
+    let suggestions: Vec<_> = request
+        .suggestions
+        .into_iter()
+        .map(stored_suggestion)
+        .collect();
+    store(connection, request.storage)
+        .await?
+        .upsert_suggestions(&suggestions)
+        .await
 }
 
-pub(super) async fn list_suggestions(connection: &Connection, request: ListSuggestionsRequest) -> Result<Vec<FlowSuggestion>> {
-    store(connection, request.storage).await?
+pub(super) async fn list_suggestions(
+    connection: &Connection,
+    request: ListSuggestionsRequest,
+) -> Result<Vec<FlowSuggestion>> {
+    store(connection, request.storage)
+        .await?
         .list_suggestions(request.status.map(suggestion_status), request.limit)
-        .await.map(|items| items.into_iter().map(suggestion).collect())
+        .await
+        .map(|items| items.into_iter().map(suggestion).collect())
 }
 
-pub(super) async fn set_suggestion_status(connection: &Connection, request: SetSuggestionStatusRequest) -> Result<bool> {
-    store(connection, request.storage).await?.set_suggestion_status(&request.id, suggestion_status(request.status)).await
+pub(super) async fn set_suggestion_status(
+    connection: &Connection,
+    request: SetSuggestionStatusRequest,
+) -> Result<bool> {
+    store(connection, request.storage)
+        .await?
+        .set_suggestion_status(&request.id, suggestion_status(request.status))
+        .await
 }
 
-pub(super) async fn get_run(connection: &Connection, request: RunIdRequest) -> Result<Option<FlowRun>> {
-    store(connection, request.storage).await?.get_flow_run(&request.id).await.map(|value| value.map(run))
+pub(super) async fn get_run(
+    connection: &Connection,
+    request: RunIdRequest,
+) -> Result<Option<FlowRun>> {
+    store(connection, request.storage)
+        .await?
+        .get_flow_run(&request.id)
+        .await
+        .map(|value| value.map(run))
 }
 
-pub(super) async fn list_runs(connection: &Connection, request: ListRunsRequest) -> Result<Vec<FlowRun>> {
-    store(connection, request.storage).await?.list_flow_runs(&request.flow_id, request.limit).await.map(|items| items.into_iter().map(run).collect())
+pub(super) async fn list_runs(
+    connection: &Connection,
+    request: ListRunsRequest,
+) -> Result<Vec<FlowRun>> {
+    store(connection, request.storage)
+        .await?
+        .list_flow_runs(&request.flow_id, request.limit)
+        .await
+        .map(|items| items.into_iter().map(run).collect())
 }
 
-pub(super) async fn list_all_runs(connection: &Connection, request: ListAllRunsRequest) -> Result<Vec<FlowRun>> {
-    store(connection, request.storage).await?.list_all_flow_runs(request.limit).await.map(|items| items.into_iter().map(run).collect())
+pub(super) async fn list_all_runs(
+    connection: &Connection,
+    request: ListAllRunsRequest,
+) -> Result<Vec<FlowRun>> {
+    store(connection, request.storage)
+        .await?
+        .list_all_flow_runs(request.limit)
+        .await
+        .map(|items| items.into_iter().map(run).collect())
 }
 
-pub(super) async fn prune_runs(connection: &Connection, request: PruneRunsRequest) -> Result<usize> {
-    store(connection, request.storage).await?.prune_flow_runs(&request.flow_id, request.keep).await
+pub(super) async fn prune_runs(
+    connection: &Connection,
+    request: PruneRunsRequest,
+) -> Result<usize> {
+    store(connection, request.storage)
+        .await?
+        .prune_flow_runs(&request.flow_id, request.keep)
+        .await
 }

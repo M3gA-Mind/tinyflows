@@ -74,6 +74,15 @@ fn manifest() -> TbSlice {
                         "Catalog requests require a host callback bound to the acting agent scope"
                             .into(),
                 },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::catalog::DRAFT_PROMOTION_HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Draft promotion invokes the scope-bound host save path".into(),
+                },
             ],
             environment: vec![],
             capabilities: vec![],

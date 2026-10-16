@@ -5,9 +5,12 @@ use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
-    self, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, ListRevisionsRequest,
-    ListWorkflowsResult, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult,
-    SetEnabledRequest, Workflow, WorkflowRevision, WorkflowSummary,
+    self, CatalogStorage, CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft,
+    FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest,
+    ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest,
+    PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse,
+    PutWorkflowResult, RunIdRequest, SetEnabledRequest, SetSuggestionStatusRequest,
+    UpdateDraftRequest, UpsertSuggestionsRequest, Workflow, WorkflowRevision, WorkflowSummary,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -350,6 +353,96 @@ impl CatalogService {
             .revision_by_id(&request.flow_id, &request.revision_id)
             .await
             .map(|item| item.map(revision))
+            .map_err(failure)
+    }
+
+    async fn create_draft(&self, request: CreateDraftRequest) -> tinybus::Result<FlowDraft> {
+        super::catalog_extended_ops::create_draft(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn get_draft(&self, request: DraftIdRequest) -> tinybus::Result<Option<FlowDraft>> {
+        super::catalog_extended_ops::get_draft(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn update_draft(&self, request: UpdateDraftRequest) -> tinybus::Result<FlowDraft> {
+        super::catalog_extended_ops::update_draft(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn list_drafts(&self, storage: CatalogStorage) -> tinybus::Result<Vec<FlowDraft>> {
+        super::catalog_extended_ops::list_drafts(&self.connection, storage)
+            .await
+            .map_err(failure)
+    }
+
+    async fn delete_draft(&self, request: DraftIdRequest) -> tinybus::Result<bool> {
+        super::catalog_extended_ops::delete_draft(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn promote_draft(
+        &self,
+        request: PromoteDraftRequest,
+    ) -> tinybus::Result<PromoteDraftResponse> {
+        super::catalog_extended_ops::promote_draft(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn upsert_suggestions(
+        &self,
+        request: UpsertSuggestionsRequest,
+    ) -> tinybus::Result<usize> {
+        super::catalog_extended_ops::upsert_suggestions(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn list_suggestions(
+        &self,
+        request: ListSuggestionsRequest,
+    ) -> tinybus::Result<Vec<FlowSuggestion>> {
+        super::catalog_extended_ops::list_suggestions(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn set_suggestion_status(
+        &self,
+        request: SetSuggestionStatusRequest,
+    ) -> tinybus::Result<bool> {
+        super::catalog_extended_ops::set_suggestion_status(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn get_run(&self, request: RunIdRequest) -> tinybus::Result<Option<FlowRun>> {
+        super::catalog_extended_ops::get_run(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn list_runs(&self, request: ListRunsRequest) -> tinybus::Result<Vec<FlowRun>> {
+        super::catalog_extended_ops::list_runs(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn list_all_runs(&self, request: ListAllRunsRequest) -> tinybus::Result<Vec<FlowRun>> {
+        super::catalog_extended_ops::list_all_runs(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn prune_runs(&self, request: PruneRunsRequest) -> tinybus::Result<usize> {
+        super::catalog_extended_ops::prune_runs(&self.connection, request)
+            .await
             .map_err(failure)
     }
 }

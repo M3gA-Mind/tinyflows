@@ -72,7 +72,11 @@ pub struct UpdateDraftRequest {
     /// Optional replacement graph.
     pub graph: Option<Value>,
     /// Missing means unchanged, null clears, and a string assigns.
-    #[serde(default, deserialize_with = "deserialize_flow_id_patch", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_flow_id_patch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub flow_id: Option<Option<String>>,
 }
 
@@ -140,6 +144,28 @@ pub struct SavePromotedDraftResult {
     pub metadata: Value,
 }
 
+/// Host save failure carried without collapsing its structured RPC details.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DraftPromotionFailure {
+    /// Stable host error code.
+    pub code: String,
+    /// Human-readable explanation.
+    pub message: String,
+    /// Host-owned structured error data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+/// Typed host callback outcome.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+pub enum SavePromotedDraftResponse {
+    /// Normal save succeeded.
+    Ok(SavePromotedDraftResult),
+    /// Normal save failed and the draft must be retained.
+    Error(DraftPromotionFailure),
+}
+
 /// Save result plus the draft cleanup outcome.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PromoteDraftResult {
@@ -152,6 +178,16 @@ pub struct PromoteDraftResult {
     /// Cleanup failure detail, when the save succeeded but deletion failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup_warning: Option<String>,
+}
+
+/// Promotion success or the structured failure returned by the host save.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+pub enum PromoteDraftResponse {
+    /// Workflow saved; draft cleanup was attempted.
+    Ok(PromoteDraftResult),
+    /// Host save failed; the draft remains available.
+    Error(DraftPromotionFailure),
 }
 
 /// Workflow suggestion lifecycle status.

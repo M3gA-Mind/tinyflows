@@ -4,9 +4,9 @@
 //! host to one acting agent, and the module performs catalog operations over
 //! that scoped document port.
 
+mod extended_types;
 mod storage_types;
 mod types;
-mod extended_types;
 
 pub use storage_types::{
     CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentPage, CatalogDocumentPrecondition,
@@ -16,12 +16,12 @@ pub use storage_types::{
     DocQueryRequest,
 };
 
+pub use extended_types::*;
 pub use types::{
     CallbackAddress, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, GetRevisionRequest,
     ListRevisionsRequest, ListWorkflowsResult, PutWorkflowRequest, PutWorkflowResponse,
     PutWorkflowResult, SetEnabledRequest, Workflow, WorkflowRevision, WorkflowSummary,
 };
-pub use extended_types::*;
 
 /// Catalog interface on the shared module bus name.
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Catalog";
@@ -92,7 +92,7 @@ pub mod members {
     pub const LIST_DRAFTS: &str = "ListDrafts";
     /// `(DraftIdRequest) -> bool`.
     pub const DELETE_DRAFT: &str = "DeleteDraft";
-    /// `(PromoteDraftRequest) -> PromoteDraftResult`.
+    /// `(PromoteDraftRequest) -> PromoteDraftResponse`.
     pub const PROMOTE_DRAFT: &str = "PromoteDraft";
     /// `(UpsertSuggestionsRequest) -> usize`.
     pub const UPSERT_SUGGESTIONS: &str = "UpsertSuggestions";
