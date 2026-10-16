@@ -11,7 +11,60 @@ use std::collections::HashSet;
 
 use serde_json::{Value, json};
 use tinyflows::model::{NodeKind, WorkflowGraph};
-pub use tinyflows_bus::catalog::{ManifestCandidate, ManifestClass};
+
+/// One node that may prompt, as read from the graph.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ManifestCandidate {
+    /// HTTP request node.
+    Http {
+        /// Node id.
+        node_id: String,
+        /// Configured URL, or a generic label.
+        url: String,
+    },
+    /// Sandboxed code node.
+    Code {
+        /// Node id.
+        node_id: String,
+    },
+    /// Tool slug resolved from runtime data.
+    DynamicTool {
+        /// Node id.
+        node_id: String,
+    },
+    /// Host-native tool call.
+    NativeTool {
+        /// Node id.
+        node_id: String,
+        /// Tool name with the native prefix stripped.
+        tool_name: String,
+        /// The node's args.
+        args: Value,
+    },
+    /// Connector action.
+    ConnectorTool {
+        /// Node id.
+        node_id: String,
+        /// Action slug.
+        slug: String,
+    },
+    /// Agent with an inner harness turn.
+    Agent {
+        /// Node id.
+        node_id: String,
+    },
+}
+
+/// Host policy classification for a manifest candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestClass {
+    /// Product-defined command class name.
+    pub name: String,
+    /// Whether policy blocks the action.
+    pub blocked: bool,
+    /// Whether a curated read action can be omitted from the manifest.
+    pub skip: bool,
+}
 
 /// Walks `graph` and lists every node that could raise an approval prompt, in
 /// graph order. `native_prefix` is the slug prefix of host-native tools.

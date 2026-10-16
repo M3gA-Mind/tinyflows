@@ -24,7 +24,6 @@ readme = "../../README.md"
 
 [dependencies]
 tinyflows = { workspace = true }
-tinyflows-bus = { version = "0.1.0", path = "../tinyflows-bus" }
 # `store::FlowUpdateError` only: the store-failure variant carries the
 # backend's error.
 anyhow = "1.0"
