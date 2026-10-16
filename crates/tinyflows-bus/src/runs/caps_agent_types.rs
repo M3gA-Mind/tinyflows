@@ -7,12 +7,16 @@ use serde_json::{Map, Value};
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentLimits {
     /// Maximum model/tool iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_steps: Option<u32>,
     /// Maximum tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tool_calls: Option<u32>,
     /// Whole-agent wall clock limit in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_timeout_secs: Option<u32>,
     /// Per-tool wall clock limit in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_timeout_secs: Option<u32>,
 }
 
@@ -22,6 +26,7 @@ pub struct ToolGrant {
     /// Exact slug or trailing `.*` pattern.
     pub slug: String,
     /// Trusted host connection reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_ref: Option<String>,
 }
 
@@ -30,15 +35,24 @@ pub struct ToolGrant {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContextSourceKind {
     /// Literal or expression-resolved text.
-    Text { text: Value },
+    Text { #[serde(default)] text: Value },
     /// Input items.
     Items,
     /// Memory recall through the existing memory capability.
-    Memory { scope: String, query: String, limit: Option<u32> },
+    Memory {
+        scope: String,
+        query: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+    },
     /// Host-defined flavour lookup.
     Flavour { slug: String },
     /// Host-defined context source and parameters.
-    Host { source: String, params: Value },
+    Host {
+        source: String,
+        #[serde(default, skip_serializing_if = "Value::is_null")]
+        params: Value,
+    },
 }
 
 /// One source declared in an agent definition.
@@ -50,7 +64,7 @@ pub struct ContextSource {
     #[serde(flatten)]
     pub kind: ContextSourceKind,
     /// Whether unresolved source absence is accepted.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub optional: bool,
 }
 
@@ -76,6 +90,7 @@ pub struct AgentDefinition {
     pub provider: Option<String>,
     /// Declared working directory.
     #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Advisory agent-loop limits.
     #[serde(default)]
@@ -95,8 +110,10 @@ pub struct AgentDefinition {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentModelSelection {
     /// Preferred model id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Preferred provider id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
 
@@ -104,7 +121,7 @@ pub struct AgentModelSelection {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct AgentInput {
     /// Resolved task text.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub text: String,
     /// Input items in order.
     #[serde(default)]
@@ -119,9 +136,10 @@ pub struct ContextBlock {
     /// Source kind wire name.
     pub source_kind: String,
     /// Renderable prose when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// Structured context payload.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Value::is_null")]
     pub data: Value,
 }
 
@@ -131,12 +149,16 @@ pub struct ToolDescriptor {
     /// Tool slug.
     pub slug: String,
     /// Display name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Input JSON schema, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<Value>,
     /// Trusted connection reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_ref: Option<String>,
 }
 
@@ -144,8 +166,10 @@ pub struct ToolDescriptor {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentRunIdentity {
     /// Enclosing workflow run id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
     /// Workflow id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_id: Option<String>,
     /// Graph node id.
     pub node_id: String,
@@ -153,6 +177,7 @@ pub struct AgentRunIdentity {
     #[serde(default)]
     pub depth: u32,
     /// Input item index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_index: Option<usize>,
 }
 
@@ -174,15 +199,19 @@ pub struct AgentRunRequest {
     #[serde(default)]
     pub tools: Vec<ToolDescriptor>,
     /// Trusted host connection reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_ref: Option<String>,
     /// Effective requested working directory (still host-validated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Informational run identity.
     #[serde(default)]
     pub identity: AgentRunIdentity,
     /// Merged host metadata.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub metadata: Map<String, Value>,
     /// Output JSON schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<Value>,
     /// Resolved node configuration, preserved for legacy harnesses.
     #[serde(default)]
@@ -245,12 +274,16 @@ pub enum StopReason {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentUsage {
     /// Prompt tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
     /// Output tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<u64>,
     /// Model/tool steps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steps: Option<u32>,
     /// Tool calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<u32>,
 }
 
@@ -260,6 +293,7 @@ pub struct AgentRunOutcome {
     /// Why the host loop stopped.
     pub stop: StopReason,
     /// Prose response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// Structured response.
     #[serde(default)]
@@ -268,9 +302,10 @@ pub struct AgentRunOutcome {
     #[serde(default)]
     pub raw: Value,
     /// Optional usage figures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<AgentUsage>,
     /// Settled agent transcript.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transcript: Vec<TranscriptEntry>,
 }
 
