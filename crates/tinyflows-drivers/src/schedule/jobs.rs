@@ -78,7 +78,7 @@ impl CronDocuments {
                 .commit_job(&job.id, None, Some(doc.clone()), vec![])
                 .await
             {
-                Ok(_) => return self.get_job(&job.id).await,
+                Ok(_) => return self.created(&job.id).await,
                 Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => {
                     return Err(error).with_context(|| format!("Failed to insert cron {what}"));
@@ -86,6 +86,13 @@ impl CronDocuments {
             }
         }
         anyhow::bail!("cron store: insertion kept changing")
+    }
+
+    /// Reads back a job this call just created, noting its creation time.
+    async fn created(&self, id: &str) -> Result<CronJob> {
+        let job = self.get_job(id).await?;
+        super::note_created(job.created_at);
+        Ok(job)
     }
 
     /// Adds an enabled shell job on a plain cron `expression` (see
@@ -228,7 +235,7 @@ impl CronDocuments {
                 .commit_job(&job.id, None, Some(doc.clone()), vec![])
                 .await
             {
-                Ok(_) => return self.get_job(&job.id).await,
+                Ok(_) => return self.created(&job.id).await,
                 Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => return Err(error).context("Failed to insert cron flow-schedule job"),
             }

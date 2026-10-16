@@ -171,27 +171,28 @@ impl CronDocuments {
     }
 }
 
-/// Waits until the wall clock is in a millisecond no job of this process was
-/// created in. A job's creation time (the record's `created_ms`) is its
-/// identity for the runs written against it, so two creations, such as a flow
-/// schedule job removed and registered again, must not share one.
+/// The latest creation millisecond of a job in this process.
+static LAST_CREATED_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// Waits until the wall clock is past the millisecond of the latest job this
+/// process created ([`note_created`]). A job's creation time (the record's
+/// `created_ms`) is its identity for the runs written against it, so two
+/// creations, such as a flow schedule job removed and registered again, must
+/// not share one.
 async fn fresh_millisecond() {
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static LAST: AtomicI64 = AtomicI64::new(0);
-    loop {
-        let now = chrono::Utc::now().timestamp_millis();
-        let last = LAST.load(Ordering::SeqCst);
-        if now > last {
-            if LAST
-                .compare_exchange(last, now, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                return;
-            }
-        } else {
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        }
+    while chrono::Utc::now().timestamp_millis()
+        <= LAST_CREATED_MS.load(std::sync::atomic::Ordering::SeqCst)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
+}
+
+/// Records the creation time a store gave a new job.
+fn note_created(created: chrono::DateTime<chrono::Utc>) {
+    LAST_CREATED_MS.fetch_max(
+        created.timestamp_millis(),
+        std::sync::atomic::Ordering::SeqCst,
+    );
 }
 
 /// A storage failure as this store's error.
