@@ -279,4 +279,135 @@ fn extended_catalog_wire_names_and_optional_patch_states_are_pinned() {
         .unwrap(),
         json!({"storage":{"callback":{"destination":"test.CatalogStorage", "object_path":"/agent/alice/CatalogStorage"}}, "flow_id":"flow-1", "keep":2})
     );
+    let callback = json!({"destination":"test.Promotion", "object_path":"/alice/Promotion"});
+    assert_eq!(
+        serde_json::to_value(CreateDraftRequest {
+            storage: storage(),
+            flow_id: Some("flow-1".into()),
+            name: "Draft".into(),
+            graph: json!({"nodes": []}),
+            origin: DraftOrigin::Chat,
+        })
+        .unwrap(),
+        json!({"storage":storage(), "flow_id":"flow-1", "name":"Draft", "graph":{"nodes":[]}, "origin":"chat"})
+    );
+    assert_eq!(
+        serde_json::to_value(DraftIdRequest {
+            storage: storage(),
+            id: "draft-1".into(),
+        })
+        .unwrap(),
+        json!({"storage":storage(), "id":"draft-1"})
+    );
+    assert_eq!(
+        serde_json::to_value(PromoteDraftRequest {
+            storage: storage(),
+            host: CallbackAddress {
+                destination: "test.Promotion".into(),
+                object_path: "/alice/Promotion".into()
+            },
+            id: "draft-1".into(),
+            require_approval: Some(false),
+        })
+        .unwrap(),
+        json!({"storage":storage(), "host":callback, "id":"draft-1", "require_approval":false})
+    );
+    assert_eq!(
+        serde_json::to_value(DraftPromotionOperation::Create {
+            name: "Draft".into(),
+            graph: json!({"nodes": []}),
+            require_approval: false,
+        })
+        .unwrap(),
+        json!({"operation":"create", "name":"Draft", "graph":{"nodes":[]}, "require_approval":false})
+    );
+    assert_eq!(
+        serde_json::to_value(SavePromotedDraftRequest {
+            operation: DraftPromotionOperation::Create {
+                name: "Draft".into(),
+                graph: json!({}),
+                require_approval: true
+            },
+        })
+        .unwrap(),
+        json!({"operation":{"operation":"create", "name":"Draft", "graph":{}, "require_approval":true}})
+    );
+    assert_eq!(
+        serde_json::to_value(SavePromotedDraftResult {
+            workflow: workflow(),
+            metadata: json!({"host_log":"saved"}),
+        })
+        .unwrap(),
+        json!({"workflow":workflow(), "metadata":{"host_log":"saved"}})
+    );
+    assert_eq!(
+        serde_json::to_value(PromoteDraftResponse::Ok(PromoteDraftResult {
+            workflow: workflow(),
+            metadata: json!({"host_log":"saved"}),
+            draft_deleted: false,
+            cleanup_warning: Some("cleanup".into()),
+        }))
+        .unwrap(),
+        json!({"status":"ok", "value":{"workflow":workflow(), "metadata":{"host_log":"saved"}, "draft_deleted":false, "cleanup_warning":"cleanup"}})
+    );
+    assert_eq!(
+        serde_json::to_value(suggestion()).unwrap(),
+        json!({
+            "id":"suggestion-1", "title":"Title", "one_liner":"One line", "rationale":"Reason",
+            "trigger_hint":"manual", "steps_outline":["step"], "suggested_connections":["http_cred:billing"],
+            "suggested_slugs":["stripe:create"], "build_prompt":"build", "confidence":0.75,
+            "status":"dismissed", "created_at":"created", "source_run_id":"run-1"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(UpsertSuggestionsRequest {
+            storage: storage(),
+            suggestions: vec![suggestion()],
+        })
+        .unwrap(),
+        json!({"storage":storage(), "suggestions":[suggestion()]})
+    );
+    assert_eq!(
+        serde_json::to_value(ListSuggestionsRequest {
+            storage: storage(),
+            status: None,
+            limit: 4,
+        })
+        .unwrap(),
+        json!({"storage":storage(), "status":null, "limit":4})
+    );
+    assert_eq!(
+        serde_json::to_value(SetSuggestionStatusRequest {
+            storage: storage(),
+            id: "suggestion-1".into(),
+            status: SuggestionStatus::Built,
+        })
+        .unwrap(),
+        json!({"storage":storage(), "id":"suggestion-1", "status":"built"})
+    );
+    assert_eq!(
+        serde_json::to_value(RunIdRequest {
+            storage: storage(),
+            id: "run-1".into(),
+        })
+        .unwrap(),
+        json!({"storage":storage(), "id":"run-1"})
+    );
+    assert_eq!(
+        serde_json::to_value(ListRunsRequest {
+            storage: storage(),
+            flow_id: "flow-1".into(),
+            limit: 3,
+        })
+        .unwrap(),
+        json!({"storage":storage(), "flow_id":"flow-1", "limit":3})
+    );
+    assert_eq!(
+        serde_json::to_value(ListAllRunsRequest {
+            storage: storage(),
+            limit: 5,
+        })
+        .unwrap(),
+        json!({"storage":storage(), "limit":5})
+    );
 }
