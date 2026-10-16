@@ -14,8 +14,8 @@
 //! the entry on `Drop` (including on panic / early return), so a finished run
 //! can never leave a stale token wedged in the map.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
