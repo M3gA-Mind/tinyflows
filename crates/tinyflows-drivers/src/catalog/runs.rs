@@ -178,6 +178,62 @@ impl FlowCatalogDocuments {
         error: Option<&str>,
         graph_hash: Option<&str>,
     ) -> Result<bool> {
+        self.finish_flow_run_from_status(
+            id,
+            status,
+            finished_at,
+            steps,
+            pending_approvals,
+            error,
+            graph_hash,
+            &LIVE,
+        )
+        .await
+    }
+
+    /// Settles a run only while it is still parked for approval.
+    ///
+    /// Use this when an operation began from a previously observed
+    /// `pending_approval` row and must not settle a resume that claimed it in
+    /// the meantime. The status predicate is part of the compare-and-swap;
+    /// checking the row in the caller before [`Self::finish_flow_run`] would leave a
+    /// race between that read and this write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn finish_parked_flow_run(
+        &self,
+        id: &str,
+        status: &str,
+        finished_at: &str,
+        steps: &[FlowRunStep],
+        pending_approvals: &[String],
+        error: Option<&str>,
+        graph_hash: Option<&str>,
+    ) -> Result<bool> {
+        self.finish_flow_run_from_status(
+            id,
+            status,
+            finished_at,
+            steps,
+            pending_approvals,
+            error,
+            graph_hash,
+            &["pending_approval"],
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_flow_run_from_status(
+        &self,
+        id: &str,
+        status: &str,
+        finished_at: &str,
+        steps: &[FlowRunStep],
+        pending_approvals: &[String],
+        error: Option<&str>,
+        graph_hash: Option<&str>,
+        allowed_statuses: &[&str],
+    ) -> Result<bool> {
         let pending_json = serde_json::to_string(pending_approvals)
             .context("Failed to serialize flow run pending approvals")?;
         let steps_json =
@@ -186,7 +242,7 @@ impl FlowCatalogDocuments {
         // Status and steps in one swap: a run is never terminal with a stale
         // step list, and a failed write leaves it live and retryable.
         let settled = compare_and_swap(docs, RUNS, id, |doc| {
-            if !LIVE.contains(&super::runs::status(doc)) {
+            if !allowed_statuses.contains(&super::runs::status(doc)) {
                 return None;
             }
             let mut next = doc.clone();
