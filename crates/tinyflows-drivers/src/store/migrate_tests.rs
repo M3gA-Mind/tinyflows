@@ -7,7 +7,6 @@ use tinystoragedrivers_core::{
     Scope, ScopeClass, ScopedStorage, StorageBackend,
 };
 
-use super::test_support::valid_document;
 use super::*;
 
 fn scoped() -> ScopedStorage {
@@ -322,5 +321,4 @@ async fn migrating_twice_changes_nothing() {
     migrate(&storage).await;
     let second = docs(&storage).get("flows.workflows", "sweep").await.unwrap();
     assert_eq!(first.unwrap().doc, second.unwrap().doc);
-    let _ = valid_document("unused");
 }
