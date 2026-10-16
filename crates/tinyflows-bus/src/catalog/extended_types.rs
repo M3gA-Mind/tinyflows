@@ -68,8 +68,10 @@ pub struct UpdateDraftRequest {
     /// Draft id.
     pub id: String,
     /// Optional replacement name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Optional replacement graph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<Value>,
     /// Missing means unchanged, null clears, and a string assigns.
     #[serde(
