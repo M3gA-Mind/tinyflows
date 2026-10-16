@@ -19,8 +19,7 @@ use tokio::sync::OnceCell;
 use tinyflows::caps::StateStore;
 use tinyflows::error::{EngineError, Result};
 
-/// The `tsd.kv` owner of every key-value entry tinyflows stores.
-pub const KV_OWNER: &str = "flows";
+use crate::storage::{KV_OWNER, STATE_NAMESPACE};
 
 /// A [`StateStore`] keeping each key in a driver [`DocumentStore`].
 #[derive(Debug, Clone)]
@@ -32,7 +31,7 @@ pub struct DriverStateStore {
 
 impl DriverStateStore {
     /// The `tsd.kv` namespace [`Self::new`] uses.
-    pub const DEFAULT_NAMESPACE: &'static str = "state";
+    pub const DEFAULT_NAMESPACE: &'static str = STATE_NAMESPACE;
 
     /// State in namespace [`Self::DEFAULT_NAMESPACE`] of `docs`.
     pub fn new(docs: Arc<dyn DocumentStore>) -> Self {

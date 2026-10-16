@@ -46,6 +46,7 @@ mod checkpoint_layout;
 pub mod schedule;
 #[cfg(feature = "engine")]
 mod state_store;
+pub mod storage;
 #[cfg(feature = "store")]
 pub mod store;
 
@@ -54,4 +55,8 @@ pub use checkpoint::DriverCheckpointer;
 #[cfg(feature = "engine")]
 pub use checkpoint_layout::NAMESPACE;
 #[cfg(feature = "engine")]
-pub use state_store::{DriverStateStore, KV_OWNER};
+pub use state_store::DriverStateStore;
+
+pub use storage::{KV_OWNER, import_legacy_kv, storage_schema};
+#[cfg(feature = "schedule")]
+pub use storage::{cron_storage_schema, import_legacy_cron_counters};
