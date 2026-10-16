@@ -239,5 +239,8 @@ pub(super) async fn setup(connection: &Connection) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "schedule_members_tests.rs"]
+mod members_tests;
+#[cfg(test)]
 #[path = "schedule_service_tests.rs"]
 mod tests;

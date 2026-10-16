@@ -4,7 +4,7 @@ use tinyflows_bus::schedule::CALLBACK_INTERFACE;
 use tokio::sync::Mutex;
 
 #[derive(Default)]
-struct State {
+pub(super) struct State {
     records: Mutex<Vec<Value>>,
     completions: Mutex<Vec<Value>>,
     executions: Mutex<Vec<String>>,
@@ -43,7 +43,7 @@ impl Callbacks {
     }
 }
 
-async fn connections() -> (Connection, Connection, Arc<State>) {
+pub(super) async fn connections() -> (Connection, Connection, Arc<State>) {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let server = Connection::connect(bus.connect().await.unwrap())
@@ -210,7 +210,7 @@ async fn module_job_storage_preserves_policy_updates_and_run_history() {
 }
 
 #[path = "../tests/support/document_callbacks.rs"]
-mod document_callbacks;
+pub(super) mod document_callbacks;
 
 #[tokio::test]
 async fn module_document_store_retries_policy_migration_conflicts_without_losing_seeded_jobs() {
