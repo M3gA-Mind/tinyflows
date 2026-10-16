@@ -134,7 +134,8 @@ async fn connections() -> (Connection, Connection) {
 }
 
 async fn scope(host: &Connection, name: &str) -> CatalogStorage {
-    let scoped = MemoryStorage::new().for_scope(&Scope::new(name)).unwrap();
+    let scope = Scope::new(name).unwrap();
+    let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
     let path = format!("/test/catalog/{name}");
     host.serve_at(
         path.parse().unwrap(),
@@ -151,7 +152,11 @@ async fn scope(host: &Connection, name: &str) -> CatalogStorage {
 }
 
 fn put_proxy(host: &Connection) -> tinybus::Result<tinybus::Proxy> {
-    host.proxy(catalog::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)
+    host.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )
 }
 
 #[tokio::test]
@@ -199,6 +204,7 @@ async fn catalog_bus_serves_create_update_conflict_history_and_agent_scopes() {
     let PutWorkflowResponse::Ok(changed) = changed else {
         panic!("update failed: {changed:?}")
     };
+    assert_eq!(changed.workflow.name, "Updated flow");
     let conflict: PutWorkflowResponse = proxy
         .call(
             "PutWorkflow",
@@ -243,7 +249,10 @@ async fn catalog_bus_serves_create_update_conflict_history_and_agent_scopes() {
         .unwrap();
     assert_eq!(fetched, Some(revisions[0].clone()));
 
-    let alice_list: ListWorkflowsResult = proxy.call("ListWorkflows", &(alice,)).await.unwrap();
+    let alice_list: ListWorkflowsResult = proxy
+        .call("ListWorkflows", &(alice.clone(),))
+        .await
+        .unwrap();
     assert_eq!(alice_list.workflows[0].name, "Updated flow");
     assert_eq!(alice_list.workflows[0].revision, 2);
     assert_eq!(
