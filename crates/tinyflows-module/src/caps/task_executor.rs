@@ -50,7 +50,9 @@ impl TaskExecutor for CapabilityTaskExecutor {
                     .map_err(|error| EngineError::Capability(format!("invalid child workflow: {error}")))?;
                 let compiled = tinyflows::compiler::compile(&graph).map_err(capability_error)?;
                 let mut capabilities = self.capabilities.clone();
-                capabilities.tasks = self.task_runner.upgrade();
+                capabilities.tasks = Some(self.task_runner.upgrade().ok_or_else(|| {
+                    capability_error("task runner was dropped before child workflow execution")
+                })?);
                 let outcome = tinyflows::engine::run(&compiled, input, &capabilities)
                     .await
                     .map_err(capability_error)?;

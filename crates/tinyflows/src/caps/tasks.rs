@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use serde_json::Value;
+use std::panic::AssertUnwindSafe;
 
 use crate::error::{EngineError, Result};
 
@@ -197,12 +199,29 @@ impl TaskRunner for TokioTaskRunner {
 
         let executor = self.executor.clone();
         let handle = tokio::spawn(async move {
-            *state.lock().expect("task state poisoned") = TaskState::Running;
+            {
+                let mut state = state.lock().expect("task state poisoned");
+                if state.is_settled() {
+                    return;
+                }
+                *state = TaskState::Running;
+            }
             let result = match executor {
-                Some(executor) => executor.execute(spec).await,
+                Some(executor) => AssertUnwindSafe(executor.execute(spec))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(EngineError::Capability(
+                            "task executor panicked".to_string(),
+                        ))
+                    }),
                 None => Ok(record_spec(spec)),
             };
-            *state.lock().expect("task state poisoned") = match result {
+            let mut state = state.lock().expect("task state poisoned");
+            if state.is_settled() {
+                return;
+            }
+            *state = match result {
                 Ok(value) => TaskState::Done(value),
                 Err(error) => TaskState::Failed(error.to_string()),
             };
