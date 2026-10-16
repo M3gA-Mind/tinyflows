@@ -2,8 +2,9 @@
 //!
 //! - [`storage_schema()`] is owner `flows` (scope class Tenant): the flow
 //!   catalog (`flows.definitions`, `.revisions`, `.runs`, `.suggestions`,
-//!   `.drafts`), the workflow store (`flows.workflow_*`) and, through
-//!   `tinyflows-adaptive`, `flows.adaptive_*`.
+//!   `.drafts`). The library-only workflow store (`wf_*`, feature `store`) and
+//!   `flows.adaptive_*` are not yet on v2 (follow-ups); an owner may be
+//!   declared once, so they will extend this same schema.
 //! - [`cron_storage_schema()`] is owner `cron`: `cron.jobs`, `cron.runs`,
 //!   `cron.admission`.
 //! - The graph checkpointer is **not** declared here: owner `graph`
@@ -45,10 +46,6 @@ pub fn storage_schema() -> Schema {
     #[cfg(feature = "catalog")]
     {
         schema = crate::catalog::extend_schema(schema);
-    }
-    #[cfg(feature = "store")]
-    {
-        schema = crate::store::extend_schema(schema);
     }
     schema
 }
