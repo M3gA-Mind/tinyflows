@@ -8,7 +8,7 @@ where
     T: Serialize + DeserializeOwned + PartialEq + std::fmt::Debug,
 {
     let bytes = serde_json::to_vec(&value).unwrap();
-    let decoded = serde_json::from_slice(&bytes).unwrap();
+    let decoded: T = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(decoded, value);
 }
 
