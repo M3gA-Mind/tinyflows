@@ -13,7 +13,7 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Authoring";
 /// Served authoring object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Authoring";
 /// Version of this wire contract.
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 2;
 /// Authoring members provided by the module.
 pub const METHODS: &[&str] = &[
     "ValidateGraph",
@@ -98,6 +98,8 @@ impl GraphValidation {
 }
 
 pub mod catalog;
+/// Transport-free node-kind authoring contracts.
+pub mod node_kinds;
 pub mod runs;
 pub mod schedule;
 

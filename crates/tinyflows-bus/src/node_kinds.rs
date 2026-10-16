@@ -1,12 +1,11 @@
 //! Machine-readable authoring contracts for the node kinds — the queryable DSL
 //! schema.
 //!
-//! A [`Node`](crate::model::Node)'s `config` is free-form
+//! A node's `config` is free-form
 //! [`serde_json::Value`](serde_json::Value): each executor reads the keys it
 //! needs at run time, so the per-kind config *shape* was, until now, documented
 //! only in prose in downstream hosts. This module makes that shape a typed,
-//! host-agnostic **source of truth** — one [`NodeKindContract`] per
-//! [`NodeKind`](crate::model::NodeKind) — so a host (or an agent authoring a
+//! host-agnostic **source of truth** — one [`NodeKindContract`] per node kind — so a host (or an agent authoring a
 //! graph) can enumerate the kinds and fetch one kind's config fields, ports, an
 //! example node, and the authoring gotchas without reading a prompt.
 //!
@@ -32,7 +31,7 @@ use group_02::*;
 use group_03::*;
 
 /// The node kinds, in the canonical order used wherever the DSL is enumerated
-/// (matches [`NodeKind`](crate::model::NodeKind)'s serde discriminators).
+/// (matches the model's serde discriminators).
 pub const NODE_KINDS: [&str; 22] = [
     "trigger",
     "agent",
@@ -352,10 +351,3 @@ pub fn render_node_kinds_required(contracts: &[NodeKindContract]) -> String {
         .join(", ")
 }
 
-#[cfg(test)]
-#[path = "catalog_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "fan_out_contract_tests.rs"]
-mod fan_out_contract_tests;
