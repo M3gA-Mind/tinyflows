@@ -466,3 +466,7 @@ mod tests;
 #[cfg(test)]
 #[path = "catalog_extended_service_tests.rs"]
 mod extended_tests;
+
+#[cfg(test)]
+#[path = "catalog_extended_operations_tests.rs"]
+mod operations_tests;
