@@ -11,5 +11,5 @@ pub use tinyflows_bus::node_kinds::*;
 mod tests;
 
 #[cfg(test)]
-#[path = "catalog/fan_out_contract_tests.rs"]
+#[path = "fan_out_contract_tests.rs"]
 mod fan_out_contract_tests;
