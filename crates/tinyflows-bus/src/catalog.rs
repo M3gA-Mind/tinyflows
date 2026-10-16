@@ -58,6 +58,13 @@ pub const METHODS: &[&str] = &[
 pub const STORAGE_INTERFACE: &str = "ai.tinyhumans.tinyflows.CatalogStorage";
 /// Scope-bound host callback used only for draft promotion saves.
 pub const DRAFT_PROMOTION_HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.DraftPromotionHost";
+/// Stable members of the draft-promotion host callback.
+pub mod draft_promotion_host {
+    /// `(SavePromotedDraftRequest) -> SavePromotedDraftResult`.
+    pub const SAVE_PROMOTED_DRAFT: &str = "SavePromotedDraft";
+    /// Methods accepted by the module when it calls the promotion host.
+    pub const METHODS: &[&str] = &[SAVE_PROMOTED_DRAFT];
+}
 
 /// Stable member names, in [`METHODS`] order.
 pub mod members {
