@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 use super::super::test_support::{daily, store};
 use chrono::Duration;
@@ -101,7 +102,7 @@ async fn removing_a_legacy_job_spares_a_replacements_runs() {
     // A legacy database predates both incarnation and admission metadata.
     store
         .docs
-        .delete(ADMISSION, "ledger", Precondition::None)
+        .delete(super::super::ADMISSION, "ledger", Precondition::None)
         .await
         .unwrap();
     orphan(&store, 9_101, &job.id, None).await;
