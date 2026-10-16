@@ -51,16 +51,26 @@ impl Documents {
                 Ok(Value::Null)
             }
             "get" => encode(self.docs.get(collection, id).await?),
-            "put" => encode(
-                self.docs
-                    .put(
-                        collection,
-                        id,
-                        request["doc"].clone(),
-                        decode(&request["precondition"])?,
-                    )
-                    .await?,
-            ),
+            "put" => {
+                let mut options = tinystoragedrivers_core::WriteOptions::new();
+                if let Some(schema) = request["schema"].as_u64() {
+                    options = options.schema(u32::try_from(schema).unwrap_or(0));
+                }
+                if let Some(expires_ms) = request["expires_ms"].as_i64() {
+                    options = options.expires_ms(expires_ms);
+                }
+                encode(
+                    self.docs
+                        .put_with(
+                            collection,
+                            id,
+                            request["doc"].clone(),
+                            decode(&request["precondition"])?,
+                            options,
+                        )
+                        .await?,
+                )
+            }
             "delete" => encode(
                 self.docs
                     .delete(collection, id, decode(&request["precondition"])?)

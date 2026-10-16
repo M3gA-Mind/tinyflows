@@ -37,7 +37,7 @@ catalog = [
 # `tinyflows-schedule`, so a host that runs scheduled jobs but no flows can
 # build with `default-features = false, features = ["schedule"]` and pull
 # neither the engine nor its expression stack.
-schedule = ["dep:tinyflows-schedule", "dep:anyhow", "dep:chrono", "dep:uuid"]
+schedule = ["dep:tinyflows-schedule", "dep:anyhow", "dep:chrono", "dep:uuid", "dep:tokio"]
 # `store`: `DriverWorkflowStore`, the engine's `WorkflowStore` on documents (saved
 # workflows, revisions, runs, the notes journal, proposals). Its synchronous
 # trait runs on the storage crates' `Blocking` bridge.
@@ -53,7 +53,7 @@ store = [
 test-fixtures = ["catalog"]
 
 [dependencies]
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.11.0" }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

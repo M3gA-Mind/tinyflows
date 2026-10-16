@@ -3,9 +3,10 @@
 //! isolation and key-encoding guarantees the driver layout adds.
 
 use super::*;
+use crate::checkpoint_layout::{checkpoint_id_key, subgraph_key, thread_id_key};
 use serde_json::json;
 use tinyflows::graph::ids::NodeId;
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend, StorageError};
+use tinystoragedrivers_core::{MemoryStorage, Precondition, Scope, StorageBackend, StorageError};
 
 fn docs(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentStore> {
     Arc::clone(
@@ -284,12 +285,12 @@ async fn prune_keeps_the_newest_checkpoints() {
 /// finds nothing.
 
 #[tokio::test]
-async fn scopes_and_prefixes_keep_threads_apart() {
+async fn scopes_and_namespaces_keep_threads_apart() {
     let storage = MemoryStorage::new();
     let alice = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "alice"));
     let bob = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "bob"));
     let other =
-        DriverCheckpointer::<serde_json::Value>::with_prefix(docs(&storage, "alice"), "other");
+        DriverCheckpointer::<serde_json::Value>::with_namespace(docs(&storage, "alice"), "other");
     alice
         .put(checkpoint("t", "c1", None, 1, json!(1)))
         .await
@@ -353,17 +354,44 @@ async fn pending_writes_never_merge_across_lookalike_namespaces() {
 }
 
 #[test]
-fn keys_are_unambiguous_and_long_ones_hashed() {
-    assert_ne!(key(&["a/b", "c"]), key(&["a", "b/c"]));
-    let hashed = key(&[&"t".repeat(500)]);
-    assert!(hashed.starts_with("h:") && hashed.len() == 66, "{hashed}");
-    assert_ne!(hashed, key(&[&"u".repeat(500)]));
-    let ns = |parts: &[&str]| parts.iter().map(|p| (*p).to_string()).collect::<Vec<_>>();
+fn keys_are_unambiguous_and_namespaces_encode_injectively() {
     assert_ne!(
-        namespace_key(&ns(&["a", "b"])),
-        namespace_key(&ns(&["a/b"]))
+        checkpoint_id_key("flows", "a/b", 1),
+        checkpoint_id_key("flows", "a", 1)
     );
-    assert_ne!(namespace_key(&ns(&["ab"])), namespace_key(&ns(&["a", "b"])));
+    assert_ne!(thread_id_key("flows", "a/b"), thread_id_key("flows/a", "b"));
+    let ns = |parts: &[&str]| parts.iter().map(|p| (*p).to_string()).collect::<Vec<_>>();
+    assert_ne!(subgraph_key(&ns(&["a", "b"])), subgraph_key(&ns(&["a/b"])));
+    assert_ne!(subgraph_key(&ns(&["ab"])), subgraph_key(&ns(&["a", "b"])));
+    assert_ne!(subgraph_key(&ns(&[""])), subgraph_key(&[]));
+}
+
+#[tokio::test]
+async fn documents_are_the_v2_graph_layout_under_the_flows_namespace() {
+    let storage = MemoryStorage::new();
+    let docs = docs(&storage, "local");
+    let saver = DriverCheckpointer::<serde_json::Value>::new(Arc::clone(&docs));
+    saver
+        .put(checkpoint("a/b", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
+    let row = docs
+        .get("graph.checkpoints", &format!("flows/a%2Fb/{:020}", 0))
+        .await
+        .unwrap()
+        .expect("id is Key::of([ns, thread, seq])");
+    assert_eq!(row.doc["ns"], "flows");
+    assert_eq!(row.doc["thread"], "a/b");
+    assert_eq!(row.doc["subgraph"], "");
+    assert_eq!(row.doc["checkpoint_id"], "c1");
+    assert!(row.doc["checkpoint"].is_object());
+    assert_eq!(row.meta.schema, 4);
+    let counter = docs
+        .get("graph.threads", "flows/a%2Fb")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(counter.doc["next"], 1);
 }
 
 #[tokio::test]
@@ -376,13 +404,13 @@ async fn a_corrupt_record_is_a_checkpoint_error() {
         .await
         .unwrap();
     let stored = docs
-        .query_all(&saver.checkpoints, &Query::all())
+        .query_all(CHECKPOINTS, &Query::all())
         .await
         .unwrap()
         .remove(0);
     let mut doc = stored.doc;
-    doc["record"] = json!("not a checkpoint");
-    docs.put(&saver.checkpoints, &stored.id, doc, Precondition::None)
+    doc["checkpoint"] = json!("not a checkpoint");
+    docs.put(CHECKPOINTS, &stored.id, doc, Precondition::None)
         .await
         .unwrap();
     let error = saver.get("t", None).await.unwrap_err();

@@ -14,7 +14,7 @@ use super::lineage::{FLOW_INCARNATION, belongs, belongs_in, incarnation, live_fl
 use super::steps::steps_in;
 use super::{
     CAS_ATTEMPTS, DEFINITIONS, FlowCatalogDocuments, MAX_FLOW_RUNS_PER_FLOW, RUNS, best_effort,
-    compare_and_swap, instant_before, instant_ns, required, set_optional, text,
+    compare_and_swap, instant_ms, int, put_doc, required, rfc3339, set_optional, text,
 };
 
 /// Whether `current` (the definition read after a run query) is still the
@@ -40,16 +40,19 @@ fn status(doc: &Value) -> &str {
 fn to_run(stored: &Versioned<Value>) -> Result<FlowRun> {
     let doc = &stored.doc;
     let steps = steps_in(doc).with_context(|| format!("run {} steps are corrupt", stored.id))?;
-    let pending_approvals: Vec<String> =
-        serde_json::from_str(text(doc, "pending_approvals_json").unwrap_or("[]"))
-            .with_context(|| format!("run {} pending approvals are corrupt", stored.id))?;
+    let pending_approvals: Vec<String> = serde_json::from_value(
+        doc.get("pending_approvals")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
+    )
+    .with_context(|| format!("run {} pending approvals are corrupt", stored.id))?;
     Ok(FlowRun {
         id: stored.id.clone(),
         flow_id: required(stored, "flow_id")?.to_string(),
         thread_id: required(stored, "thread_id")?.to_string(),
         status: required(stored, "status")?.to_string(),
-        started_at: required(stored, "started_at")?.to_string(),
-        finished_at: text(doc, "finished_at").map(str::to_string),
+        started_at: rfc3339(int(doc, "started_ms")),
+        finished_at: doc.get("finished_ms").and_then(Value::as_i64).map(rfc3339),
         steps,
         pending_approvals,
         error: text(doc, "error").map(str::to_string),
@@ -57,23 +60,22 @@ fn to_run(stored: &Versioned<Value>) -> Result<FlowRun> {
     })
 }
 
-/// Whether run `doc` was parked (its `finished_at`, else `started_at`)
-/// strictly before `cutoff`.
-fn parked_before(doc: &Value, cutoff: &str) -> bool {
-    let since = text(doc, "finished_at")
-        .or_else(|| text(doc, "started_at"))
-        .unwrap_or_default();
-    instant_before(since, cutoff)
+/// Whether run `doc` was parked (its `finished_ms`, else `started_ms`)
+/// strictly before `cutoff_ms`.
+fn parked_before(doc: &Value, cutoff_ms: i64) -> bool {
+    doc.get("finished_ms")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| int(doc, "started_ms"))
+        < cutoff_ms
 }
 
-/// Stamps `finished_at` (and its sort key) on `doc`, or clears both.
+/// Stamps `finished_ms` on `doc` from an RFC 3339 `finished_at`, or clears it.
 pub(super) fn set_finished(doc: &mut Value, finished_at: Option<&str>) {
-    set_optional(doc, "finished_at", finished_at);
     match finished_at {
-        Some(at) => doc["finished_ns"] = json!(instant_ns(at)),
+        Some(at) => doc["finished_ms"] = json!(instant_ms(at)),
         None => {
             if let Some(object) = doc.as_object_mut() {
-                object.remove("finished_ns");
+                object.remove("finished_ms");
             }
         }
     }
@@ -103,13 +105,12 @@ impl FlowCatalogDocuments {
             "flow_id": flow_id,
             "thread_id": thread_id,
             "status": "running",
-            "started_at": started_at,
-            "started_ns": instant_ns(started_at),
-            "steps_json": "[]",
-            "pending_approvals_json": "[]",
+            "started_ms": instant_ms(started_at),
+            "steps": [],
+            "pending_approvals": [],
         });
         set_optional(&mut run, FLOW_INCARNATION, incarnation(&flow.doc));
-        docs.put(RUNS, id, run.clone(), Precondition::Absent)
+        put_doc(docs, RUNS, id, run.clone(), Precondition::Absent)
             .await
             .context("Failed to insert flow run")?;
         // SQLite's foreign key, across processes: a `remove_flow` that raced
@@ -134,7 +135,7 @@ impl FlowCatalogDocuments {
     pub async fn prune_flow_runs(&self, flow_id: &str, keep: usize) -> Result<usize> {
         let docs = self.docs().await?;
         let query = Query::filter(Filter::eq("flow_id", flow_id))
-            .sort(Sort::desc("started_ns"))
+            .sort(Sort::desc("started_ms"))
             .sort(Sort::desc("_id"));
         let flow = docs.get(DEFINITIONS, flow_id).await?;
         let (runs, orphans): (Vec<_>, Vec<_>) = docs
@@ -178,10 +179,10 @@ impl FlowCatalogDocuments {
         error: Option<&str>,
         graph_hash: Option<&str>,
     ) -> Result<bool> {
-        let pending_json = serde_json::to_string(pending_approvals)
+        let pending = serde_json::to_value(pending_approvals)
             .context("Failed to serialize flow run pending approvals")?;
-        let steps_json =
-            serde_json::to_string(steps).context("Failed to serialize flow run steps")?;
+        let steps_value =
+            serde_json::to_value(steps).context("Failed to serialize flow run steps")?;
         let docs = self.docs().await?;
         // Status and steps in one swap: a run is never terminal with a stale
         // step list, and a failed write leaves it live and retryable.
@@ -192,8 +193,8 @@ impl FlowCatalogDocuments {
             let mut next = doc.clone();
             next["status"] = json!(status);
             set_finished(&mut next, Some(finished_at));
-            next["steps_json"] = json!(steps_json);
-            next["pending_approvals_json"] = json!(pending_json);
+            next["steps"] = steps_value.clone();
+            next["pending_approvals"] = pending.clone();
             set_optional(&mut next, "error", error);
             set_optional(&mut next, "graph_hash", graph_hash);
             Some(next)
@@ -213,6 +214,7 @@ impl FlowCatalogDocuments {
         now: &str,
         error_msg: &str,
     ) -> Result<Vec<(String, String)>> {
+        let cutoff = instant_ms(cutoff);
         let docs = self.docs().await?;
         let parked = docs
             .query_all(
@@ -268,11 +270,12 @@ impl FlowCatalogDocuments {
         &self,
         started_before: &str,
     ) -> Result<Vec<(String, String)>> {
+        let started_before = instant_ms(started_before);
         let docs = self.docs().await?;
         let running = docs
             .query_all(
                 RUNS,
-                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ns")),
+                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ms")),
             )
             .await?;
         let flows = live_flows(docs).await?;
@@ -282,12 +285,7 @@ impl FlowCatalogDocuments {
         reclaim(docs, RUNS, &orphans).await;
         Ok(running
             .iter()
-            .filter(|run| {
-                instant_before(
-                    text(&run.doc, "started_at").unwrap_or_default(),
-                    started_before,
-                )
-            })
+            .filter(|run| int(&run.doc, "started_ms") < started_before)
             .map(|run| {
                 (
                     run.id.clone(),
@@ -438,7 +436,7 @@ impl FlowCatalogDocuments {
         let docs = self.docs().await?;
         let limit = limit.max(1);
         let mut query = Query::filter(filter)
-            .sort(Sort::desc("started_ns"))
+            .sort(Sort::desc("started_ms"))
             .sort(Sort::desc("_id"))
             .limit(limit);
         let mut runs = Vec::with_capacity(limit);

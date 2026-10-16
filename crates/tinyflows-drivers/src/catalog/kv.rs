@@ -1,53 +1,53 @@
-//! `flows_kv`: the namespaced key/value state a host binds to the engine's
-//! `StateStore` (through [`super::FlowStateDocuments`]) and settles `dedup`
-//! nodes against.
+//! Namespaced key/value state a host binds to the engine's `StateStore`
+//! (through [`super::FlowStateDocuments`]) and settles `dedup` nodes against.
 //!
-//! One document per `(namespace, key)`, id length-prefixed so no two pairs
-//! share a slot, the value kept as a JSON string. These are the documents
-//! [`super::FlowStateDocuments`] reads and writes, so a value a run stored is
-//! what [`FlowCatalogDocuments::kv_get`] returns.
+//! The values live in `tsd.kv` under owner `flows`, one `tsd.kv` namespace per
+//! catalog namespace (`kv:<namespace>`, see
+//! [`catalog_namespace`](crate::storage::catalog_namespace)); the retired
+//! `flows_kv` collection moves there with
+//! [`import_legacy_kv`](crate::storage::import_legacy_kv).
 
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
-use tinystoragedrivers_core::Precondition;
+use serde_json::Value;
+use tinystoragedrivers_core::{Kv, primitives};
 
-use super::{FlowCatalogDocuments, KV, composite_id, required};
-
-fn kv_id(namespace: &str, key: &str) -> String {
-    composite_id(&[namespace, key])
-}
+use super::FlowCatalogDocuments;
+use crate::storage::{KV_OWNER, catalog_namespace};
 
 impl FlowCatalogDocuments {
+    /// The `tsd.kv` handle of `namespace`, after declaring `tsd.kv`.
+    async fn kv(&self, namespace: &str) -> Result<Kv> {
+        let docs = self.docs().await?;
+        for spec in primitives::collection_specs() {
+            docs.ensure_collection(&spec).await?;
+        }
+        Ok(Kv::ns(docs, KV_OWNER, catalog_namespace(namespace))?)
+    }
+
     /// The value under `key` in `namespace`, or `None`.
     pub async fn kv_get(&self, namespace: &str, key: &str) -> Result<Option<Value>> {
-        let docs = self.docs().await?;
-        let Some(stored) = docs.get(KV, &kv_id(namespace, key)).await? else {
-            return Ok(None);
-        };
-        let value = serde_json::from_str(required(&stored, "value_json")?)
-            .with_context(|| format!("flow state {namespace}/{key} is corrupt"))?;
-        Ok(Some(value))
+        self.kv(namespace)
+            .await?
+            .get(key)
+            .await
+            .with_context(|| format!("flow state {namespace}/{key} is corrupt"))
     }
 
     /// Stores `value` under `key` in `namespace`, replacing any earlier value.
     pub async fn kv_set(&self, namespace: &str, key: &str, value: &Value) -> Result<()> {
-        let raw = serde_json::to_string(value).context("Failed to serialize flow state value")?;
-        let docs = self.docs().await?;
-        docs.put(
-            KV,
-            &kv_id(namespace, key),
-            json!({ "namespace": namespace, "key": key, "value_json": raw }),
-            Precondition::None,
-        )
-        .await
-        .context("Failed to store flow state value")?;
+        self.kv(namespace)
+            .await?
+            .put(key, value)
+            .await
+            .context("Failed to store flow state value")?;
         Ok(())
     }
 
     /// Deletes `key` from `namespace`; a missing key is not an error.
     pub async fn kv_delete(&self, namespace: &str, key: &str) -> Result<()> {
-        let docs = self.docs().await?;
-        docs.delete(KV, &kv_id(namespace, key), Precondition::None)
+        self.kv(namespace)
+            .await?
+            .delete(key)
             .await
             .context("Failed to delete flow state value")?;
         Ok(())

@@ -13,10 +13,10 @@ of `tinyflows` itself.
 
 | Type | Implements | Layout |
 | --- | --- | --- |
-| `DriverStateStore` | `tinyflows::caps::StateStore` | one document per key in `flows_state` |
-| `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `flows_graph_checkpoints`, `_threads`, `_writes` |
-| `schedule::CronDocuments` | the cron job and run store | `cron_jobs`, `cron_runs`, `cron_counters` |
-| `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows_*` |
+| `DriverStateStore` | `tinyflows::caps::StateStore` | one `tsd.kv` entry per key (owner `flows`, namespace `state`) |
+| `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `graph.checkpoints`, `graph.threads`, `graph.writes` (namespace `flows`; declared by `tinyagents-graph`) |
+| `schedule::CronDocuments` | the cron job and run store | `cron.jobs`, `cron.runs`, `cron.admission`; run numbers in `tsd.counters`, claims in `tsd.leases` |
+| `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows.*` |
 | `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `wf_*` |
 
 ```rust
@@ -42,6 +42,17 @@ A host that runs scheduled jobs but no flows builds with
 `default-features = false, features = ["schedule"]` and pulls neither the
 engine nor its expression stack.
 
+## Storage schema v2
+
+Everything here stores on the uniform schema of `tinystoragedrivers` v1.0.0.
+`storage_schema()` (owner `flows`) and `cron_storage_schema()` (owner `cron`)
+declare the collections and carry the v1 -> v2 steps; the host composes them
+with `Registry::compose` and runs `Registry::migrate` per scope, then calls
+`import_legacy_kv` and `import_legacy_cron_counters` once per scope (a document
+step cannot write `tsd.*`). The graph checkpointer reads and writes the
+`graph.*` documents of `tinyagents-graph` under namespace `flows`. The
+library-only `store::DriverWorkflowStore` (`wf_*`) is still on its v1 names.
+
 ## The flow catalog (`catalog`)
 
 `FlowCatalogDocuments` is the catalog and the authoring drafts: one `async fn`
@@ -60,12 +71,12 @@ let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
 
 | Collection | One document per |
 | --- | --- |
-| `flows_definitions` | flow |
-| `flows_revisions` | superseded graph (newest 20 kept) |
-| `flows_runs` | run, with its steps |
-| `flows_kv` | `(namespace, key)` of flow state |
-| `flows_suggestions` | discovery suggestion |
-| `flows_drafts` | authoring draft |
+| `flows.definitions` | flow |
+| `flows.revisions` | superseded graph (newest 20 kept) |
+| `flows.runs` | run, with its steps |
+| `tsd.kv` (owner `flows`, namespace `kv:<namespace>`) | `(namespace, key)` of flow state |
+| `flows.suggestions` | discovery suggestion |
+| `flows.drafts` | authoring draft |
 
 - Every guarded SQL `UPDATE … WHERE status = …` (finish, resume, interrupt,
   TTL expiry) is a compare-and-swap on the run, so a transition happens at
@@ -96,7 +107,7 @@ let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
 - Graphs, steps, drafts and state values are JSON strings, optional fields
   are omitted rather than `null`, and ordering uses epoch-nanosecond fields.
 
-`FlowStateDocuments` is one flow's namespaced state over the same `flows_kv`
+`FlowStateDocuments` is one flow's namespaced state over the same `tsd.kv`
 documents as `kv_get` / `kv_set` / `kv_delete`. It is the engine's
 `StateStore` and the host's synchronous `DedupKv`; the latter runs on the
 storage crates' `Blocking` bridge (one per process, or the host's own via

@@ -6,7 +6,7 @@ use tinybus::Connection;
 use tinyflows_bus::schedule::{CallbackAddress, DOCUMENT_INTERFACE, DOCUMENT_METHOD};
 use tinystoragedrivers_core::{
     Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteResult,
+    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteOptions, WriteResult,
 };
 
 pub(super) struct Documents {
@@ -75,9 +75,12 @@ impl Documents {
     fn validate_collection(collection: &str) -> Result<()> {
         // Only schedule-owned collections can cross this narrow callback seam.
         if ![
-            "cron_jobs",
-            "cron_runs",
-            "cron_counters",
+            "cron.jobs",
+            "cron.runs",
+            "cron.admission",
+            "tsd.counters",
+            "tsd.leases",
+            "tsd.migrations",
             "cron_job_policies",
         ]
         .contains(&collection)
@@ -145,6 +148,31 @@ impl DocumentStore for Documents {
         precondition: Precondition,
     ) -> Result<Version> {
         self.call(collection, json!({"op":"put","collection":collection,"id":id,"doc":doc,"precondition":precondition})).await
+    }
+    async fn put_with(
+        &self,
+        collection: &str,
+        id: &str,
+        doc: Value,
+        precondition: Precondition,
+        options: WriteOptions,
+    ) -> Result<Version> {
+        if options.created_ms.is_some() {
+            // A creation time is a host-only migration option; the callback
+            // seam cannot carry it.
+            return Err(StorageError::unsupported(
+                Capability::RecordMetadata,
+                "a module cannot set a document's creation time",
+            ));
+        }
+        let mut request = json!({"op":"put","collection":collection,"id":id,"doc":doc,"precondition":precondition});
+        if options.schema != 0 {
+            request["schema"] = json!(options.schema);
+        }
+        if let Some(expires_ms) = options.expires_ms {
+            request["expires_ms"] = json!(expires_ms);
+        }
+        self.call(collection, request).await
     }
     async fn delete(&self, collection: &str, id: &str, precondition: Precondition) -> Result<bool> {
         self.call(

@@ -181,7 +181,7 @@ async fn one_shot_claim_releases_admission_and_retains_delivery_history() {
         a.claim_due_job(
             &job.id,
             "w",
-            at - Duration::nanoseconds(1),
+            at - Duration::milliseconds(1),
             Duration::minutes(1)
         )
         .await
@@ -194,7 +194,7 @@ async fn one_shot_claim_releases_admission_and_retains_delivery_history() {
         .unwrap()
         .unwrap();
     assert_eq!(claim.job().id, job.id);
-    assert_eq!(claim.occurrence(), at);
+    assert_eq!(claim.occurrence().timestamp_millis(), at.timestamp_millis());
     assert_eq!(claim.owner(), "w");
     assert!(!claim.token().is_empty());
     assert!(!claim.incarnation().is_empty());
@@ -322,10 +322,20 @@ async fn invalid_inputs_and_malformed_stored_leases_fail_closed() {
             .await
             .is_err()
     );
-    let mut stored = a.docs.get(super::JOBS, &job.id).await.unwrap().unwrap().doc;
-    stored["occurrence_lease"] = json!({"token": 1});
+    // The claim's lease record, tampered with.
+    let key = tinystoragedrivers_core::Key::of([
+        job.id.as_str(),
+        job.next_run.timestamp_millis().to_string().as_str(),
+    ])
+    .unwrap();
+    let id = tinystoragedrivers_core::Key::of(["cron", key.as_str()]).unwrap();
     a.docs
-        .put(super::JOBS, &job.id, stored, Precondition::None)
+        .put(
+            "tsd.leases",
+            id.as_str(),
+            json!({"holder": 1}),
+            Precondition::None,
+        )
         .await
         .unwrap();
     assert!(
@@ -419,4 +429,60 @@ async fn completion_already_in_flight_cannot_write_into_a_recreated_job() {
             .unwrap()
     );
     assert_eq!(setup.list_runs(&job.id, 10).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_claim_is_a_tsd_lease_and_run_numbers_a_tsd_counter() {
+    use serde_json::Value;
+    use tinystoragedrivers_core::Key;
+    let a = super::test_support::store();
+    let job = a.add_shell_job(None, daily(), "echo").await.unwrap();
+    let claim = a
+        .claim_due_job(&job.id, "worker", job.next_run, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    let key = Key::of([
+        job.id.as_str(),
+        job.next_run.timestamp_millis().to_string().as_str(),
+    ])
+    .unwrap();
+    let id = Key::of(["cron", key.as_str()]).unwrap();
+    let lease = a
+        .docs
+        .get("tsd.leases", id.as_str())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(lease.doc["holder"], claim.token());
+    assert_eq!(lease.doc["epoch"], 1);
+    let stored = a.docs.get(super::JOBS, &job.id).await.unwrap().unwrap();
+    assert!(
+        stored.doc.get("occurrence_lease").is_none(),
+        "no embedded lease"
+    );
+
+    assert!(
+        a.complete_claim(&claim, job.next_run, true, "ok", None)
+            .await
+            .unwrap()
+    );
+    let counter = a
+        .docs
+        .get("tsd.counters", "cron/runs")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(counter.doc["value"], 1);
+    let done = a.docs.get(super::JOBS, &job.id).await.unwrap().unwrap();
+    assert_eq!(
+        done.doc["completed_occurrence"]["token"],
+        Value::from(claim.token())
+    );
+    // The finished claim cannot be completed twice.
+    assert!(
+        !a.complete_claim(&claim, job.next_run, true, "again", None)
+            .await
+            .unwrap()
+    );
 }

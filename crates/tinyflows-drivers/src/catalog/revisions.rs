@@ -10,28 +10,32 @@ use tinyflows_catalog::{Flow, FlowRevision};
 use tinystoragedrivers_core::{
     DocumentStore, DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort, Versioned,
 };
-use uuid::Uuid;
 
 use super::definitions::to_flow;
 use super::lineage::{FLOW_INCARNATION, belongs, incarnation, reclaim};
 use super::{
     DEFINITIONS, FlowCatalogDocuments, FlowUpdateError, MAX_REVISIONS_PER_FLOW, REVISIONS,
-    best_effort, compare_and_swap, flag, instant_ns, next_stamp, required, set_optional, text,
+    best_effort, compare_and_swap, flag, int, new_id, next_stamp, put_doc, required, rfc3339,
+    set_optional, text,
 };
 
 fn to_revision(stored: &Versioned<Value>) -> Result<FlowRevision> {
     // A revision's graph was written by a successful serialization, so a
-    // decode failure means the document is corrupt: surface it rather than
+    // missing one means the document is corrupt: surface it rather than
     // read back a `null` graph that looks empty instead of broken.
-    let graph: Value = serde_json::from_str(required(stored, "graph_json")?)
-        .with_context(|| format!("revision {} graph_json is corrupt", stored.id))?;
+    let graph: Value = stored
+        .doc
+        .get("graph")
+        .filter(|graph| graph.is_object())
+        .cloned()
+        .with_context(|| format!("revision {} graph is corrupt", stored.id))?;
     Ok(FlowRevision {
         id: stored.id.clone(),
         flow_id: required(stored, "flow_id")?.to_string(),
         graph,
         name: required(stored, "name")?.to_string(),
         require_approval: flag(&stored.doc, "require_approval"),
-        created_at: required(stored, "created_at")?.to_string(),
+        created_at: rfc3339(int(&stored.doc, "created_ms")),
     })
 }
 
@@ -68,7 +72,7 @@ impl FlowCatalogDocuments {
             .ok_or(FlowUpdateError::NotFound)?;
         let current = to_flow(&stored).map_err(FlowUpdateError::Store)?;
         if let Some(expected) = expected_updated_at
-            && current.updated_at != expected
+            && super::instant_ms(expected) != int(&stored.doc, "updated_ms")
         {
             return Err(FlowUpdateError::Conflict(Box::new(current)));
         }
@@ -93,15 +97,15 @@ impl FlowCatalogDocuments {
             enabled_override.unwrap_or(current.enabled)
         };
 
-        let graph_json = serde_json::to_string(&graph)
+        let graph_value = serde_json::to_value(&graph)
             .context("Failed to serialize graph")
             .map_err(FlowUpdateError::Store)?;
-        let prior_graph_json = serde_json::to_string(&current.graph)
+        let prior_graph = serde_json::to_value(&current.graph)
             .context("Failed to serialize prior graph for revision capture")
             .map_err(FlowUpdateError::Store)?;
         // Strictly after the current stamp: `updated_at` is the concurrency
         // token and the revision order, so it must never repeat.
-        let now = next_stamp(Some(&current.updated_at));
+        let now = next_stamp(Some(int(&stored.doc, "updated_ms")));
 
         // A previous update that crashed after its swap left its revision
         // pending; the flow names it, so confirm it before moving past it.
@@ -135,20 +139,19 @@ impl FlowCatalogDocuments {
 
         // Pending until the swap below names it: a lost race or a crash in
         // between never shows a revision for an update that did not happen.
-        let revision_id = Uuid::new_v4().to_string();
+        let revision_id = new_id();
         let flow_incarnation = incarnation(&stored.doc).map(str::to_string);
         let mut revision = json!({
             "flow_id": id,
-            "graph_json": prior_graph_json,
+            "graph": prior_graph,
             "name": current.name,
             "require_approval": current.require_approval,
-            "created_at": now,
-            "created_ns": instant_ns(&now),
+            "created_ms": now,
         });
         set_optional(&mut revision, FLOW_INCARNATION, flow_incarnation.as_deref());
         let mut pending = revision.clone();
         pending["pending"] = json!(true);
-        docs.put(REVISIONS, &revision_id, pending, Precondition::Absent)
+        put_doc(docs, REVISIONS, &revision_id, pending, Precondition::Absent)
             .await
             .context("Failed to record flow revision")
             .map_err(FlowUpdateError::Store)?;
@@ -159,10 +162,10 @@ impl FlowCatalogDocuments {
         // the revision's age, so a prune reading it afterwards does not judge
         // it abandoned at all. If a prune already took it (this update
         // stalled past the abandonment age), write it again.
-        let touched_ns = instant_ns(&next_stamp(None));
+        let touched_ms = next_stamp(None);
         let touched = compare_and_swap(docs, REVISIONS, &revision_id, |doc| {
             let mut next = doc.clone();
-            next[TOUCHED] = json!(touched_ns);
+            next[TOUCHED] = json!(touched_ms);
             Some(next)
         })
         .await
@@ -171,26 +174,25 @@ impl FlowCatalogDocuments {
         if touched.is_none() {
             let mut again = revision.clone();
             again["pending"] = json!(true);
-            again[TOUCHED] = json!(touched_ns);
-            docs.put(REVISIONS, &revision_id, again, Precondition::None)
+            again[TOUCHED] = json!(touched_ms);
+            put_doc(docs, REVISIONS, &revision_id, again, Precondition::None)
                 .await
                 .context("Failed to record flow revision")
                 .map_err(FlowUpdateError::Store)?;
         }
 
-        let observed = current.updated_at.clone();
+        let observed = int(&stored.doc, "updated_ms");
         let swapped = compare_and_swap(docs, DEFINITIONS, id, |doc| {
             // Same stamp *and* same incarnation: a flow removed and created
             // again under this id is a different flow.
-            if text(doc, "updated_at") != Some(observed.as_str())
-                || incarnation(doc) != flow_incarnation.as_deref()
+            if int(doc, "updated_ms") != observed || incarnation(doc) != flow_incarnation.as_deref()
             {
                 return None;
             }
             let mut next = doc.clone();
             next["name"] = json!(name);
-            next["graph_json"] = json!(graph_json);
-            next["updated_at"] = json!(now);
+            next["graph"] = graph_value.clone();
+            next["updated_ms"] = json!(now);
             next["require_approval"] = json!(require_approval);
             next["enabled"] = json!(new_enabled);
             next["last_revision_id"] = json!(revision_id);
@@ -265,9 +267,9 @@ impl FlowCatalogDocuments {
             let Some(current) = docs.get(REVISIONS, &candidate.id).await? else {
                 continue;
             };
-            let cutoff = instant_ns(&next_stamp(None)) - ABANDONED_AFTER_NS;
+            let cutoff = next_stamp(None) - ABANDONED_AFTER_MS;
             let still_abandoned =
-                flag(&current.doc, "pending") && last_activity_ns(&current.doc) < cutoff;
+                flag(&current.doc, "pending") && last_activity_ms(&current.doc) < cutoff;
             // An update may have named it since the partition read the
             // definition; a named revision is never abandoned.
             let named = still_abandoned
@@ -374,16 +376,16 @@ impl FlowCatalogDocuments {
 
 /// How long a pending revision may wait for its update before pruning
 /// treats it as abandoned.
-const ABANDONED_AFTER_NS: i64 = 3_600 * 1_000_000_000;
+const ABANDONED_AFTER_MS: i64 = 3_600 * 1_000;
 
 /// The field an update stamps on its pending revision just before its swap.
-const TOUCHED: &str = "touched_ns";
+const TOUCHED: &str = "touched_ms";
 
 /// When a pending revision last showed signs of its update: written, or
 /// touched before the swap.
-fn last_activity_ns(doc: &Value) -> i64 {
+fn last_activity_ms(doc: &Value) -> i64 {
     let at = |field: &str| doc.get(field).and_then(Value::as_i64).unwrap_or(0);
-    at("created_ns").max(at(TOUCHED))
+    at("created_ms").max(at(TOUCHED))
 }
 
 /// Whether a revision is visible: confirmed, or the one the flow names.
@@ -420,8 +422,7 @@ async fn confirm_or_restore(
     id: &str,
     revision: &Value,
 ) -> Result<()> {
-    docs.put(REVISIONS, id, revision.clone(), Precondition::None)
-        .await?;
+    put_doc(docs, REVISIONS, id, revision.clone(), Precondition::None).await?;
     Ok(())
 }
 
@@ -437,7 +438,7 @@ async fn delete_unchanged(docs: &Arc<dyn DocumentStore>, stored: &Versioned<Valu
 
 fn newest_first(flow_id: &str) -> Query {
     Query::filter(Filter::eq("flow_id", flow_id))
-        .sort(Sort::desc("created_ns"))
+        .sort(Sort::desc("created_ms"))
         .sort(Sort::desc("_id"))
 }
 

@@ -22,7 +22,27 @@ pub(crate) fn fixtures() -> PathBuf {
 /// What the legacy readers saw in [`fixtures`].
 pub(crate) fn expected() -> Value {
     let body = std::fs::read(fixtures().join("expected.json")).expect("expected.json");
-    serde_json::from_slice(&body).expect("expected.json parses")
+    canonical(serde_json::from_slice(&body).expect("expected.json parses"))
+}
+
+/// `value` with every RFC 3339 string rewritten to millisecond precision in
+/// UTC: storage keeps one epoch-millisecond field per instant, so a
+/// comparison with the legacy fixtures is made at that precision.
+pub(crate) fn canonical(value: Value) -> Value {
+    match value {
+        Value::String(text) => match chrono::DateTime::parse_from_rfc3339(&text) {
+            Ok(at) => Value::String(
+                at.with_timezone(&chrono::Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            ),
+            Err(_) => Value::String(text),
+        },
+        Value::Array(items) => Value::Array(items.into_iter().map(canonical).collect()),
+        Value::Object(map) => {
+            Value::Object(map.into_iter().map(|(k, v)| (k, canonical(v))).collect())
+        }
+        other => other,
+    }
 }
 
 /// A document handle under `scope` of a fresh in-memory backend.
@@ -67,7 +87,7 @@ pub(crate) fn tree_digest(dir: &Path) -> BTreeMap<String, String> {
 
 /// The JSON form, for the model types that are not `PartialEq`.
 pub(crate) fn json<T: serde::Serialize>(value: &T) -> Value {
-    serde_json::to_value(value).unwrap()
+    canonical(serde_json::to_value(value).unwrap())
 }
 
 /// `items` sorted by their `key` string, for comparing lists whose order the

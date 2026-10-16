@@ -15,6 +15,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tinyflows_catalog::{Flow, FlowDraft, FlowRevision, FlowRun, FlowSuggestion};
 use tinystoragedrivers_core::{DocumentStore, ErrorKind, Precondition};
 
@@ -25,19 +26,19 @@ use super::runs::set_finished;
 use super::steps::with_steps;
 use super::suggestions::suggestion_doc;
 use super::{
-    DEFINITIONS, DRAFTS, FlowCatalogDocuments, KV, REVISIONS, RUNS, SUGGESTIONS, composite_id,
-    instant_ns, set_optional,
+    DEFINITIONS, DRAFTS, FlowCatalogDocuments, REVISIONS, RUNS, SUGGESTIONS, instant_ms, put_doc,
+    set_optional,
 };
 
 /// Writes `doc` at `collection/id` only if absent. `Ok(false)` when a document
 /// already held the id.
 async fn put_if_absent(
-    docs: &dyn DocumentStore,
+    docs: &Arc<dyn DocumentStore>,
     collection: &str,
     id: &str,
     doc: Value,
 ) -> Result<bool> {
-    match docs.put(collection, id, doc, Precondition::Absent).await {
+    match put_doc(docs, collection, id, doc, Precondition::Absent).await {
         Ok(_) => Ok(true),
         // An absent-precondition put that finds the id taken reports a
         // conflict on some backends and "already exists" on others.
@@ -57,8 +58,7 @@ impl FlowCatalogDocuments {
     /// When the graph cannot be serialized or the backend fails.
     pub async fn import_flow(&self, flow: &Flow) -> Result<bool> {
         let docs = self.docs().await?;
-        let wrote =
-            put_if_absent(docs.as_ref(), DEFINITIONS, &flow.id, flow_doc(flow, None)?).await?;
+        let wrote = put_if_absent(docs, DEFINITIONS, &flow.id, flow_doc(flow, None)?).await?;
         tracing::debug!(target: "flows", flow_id = %flow.id, wrote, "[flows] import: flow");
         Ok(wrote)
     }
@@ -74,15 +74,13 @@ impl FlowCatalogDocuments {
         let flow = self.owner(&revision.flow_id, &revision.id).await?;
         let mut doc = json!({
             "flow_id": revision.flow_id,
-            "graph_json": serde_json::to_string(&revision.graph)
-                .context("Failed to serialize revision graph")?,
+            "graph": revision.graph,
             "name": revision.name,
             "require_approval": revision.require_approval,
-            "created_at": revision.created_at,
-            "created_ns": instant_ns(&revision.created_at),
+            "created_ms": instant_ms(&revision.created_at),
         });
         set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow));
-        let wrote = put_if_absent(docs.as_ref(), REVISIONS, &revision.id, doc).await?;
+        let wrote = put_if_absent(docs, REVISIONS, &revision.id, doc).await?;
         tracing::debug!(target: "flows", revision_id = %revision.id, wrote, "[flows] import: revision");
         Ok(wrote)
     }
@@ -102,10 +100,9 @@ impl FlowCatalogDocuments {
             "flow_id": run.flow_id,
             "thread_id": run.thread_id,
             "status": run.status,
-            "started_at": run.started_at,
-            "started_ns": instant_ns(&run.started_at),
-            "steps_json": "[]",
-            "pending_approvals_json": serde_json::to_string(&run.pending_approvals)
+            "started_ms": instant_ms(&run.started_at),
+            "steps": [],
+            "pending_approvals": serde_json::to_value(&run.pending_approvals)
                 .context("Failed to serialize flow run pending approvals")?,
         });
         doc = with_steps(&doc, &run.steps)?;
@@ -113,7 +110,7 @@ impl FlowCatalogDocuments {
         set_optional(&mut doc, "error", run.error.as_deref());
         set_optional(&mut doc, "graph_hash", run.graph_hash.as_deref());
         set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow));
-        let wrote = put_if_absent(docs.as_ref(), RUNS, &run.id, doc).await?;
+        let wrote = put_if_absent(docs, RUNS, &run.id, doc).await?;
         tracing::debug!(target: "flows", run_id = %run.id, wrote, "[flows] import: run");
         Ok(wrote)
     }
@@ -124,11 +121,13 @@ impl FlowCatalogDocuments {
     ///
     /// When the value cannot be serialized or the backend fails.
     pub async fn import_kv(&self, namespace: &str, key: &str, value: &Value) -> Result<bool> {
-        let docs = self.docs().await?;
-        let raw = serde_json::to_string(value).context("Failed to serialize flow state value")?;
-        let id = composite_id(&[namespace, key]);
-        let doc = json!({ "namespace": namespace, "key": key, "value_json": raw });
-        put_if_absent(docs.as_ref(), KV, &id, doc).await
+        // `tsd.kv` has no insert-if-absent, so the check and the write are two
+        // steps; the import runs once per scope before the catalog is in use.
+        if self.kv_get(namespace, key).await?.is_some() {
+            return Ok(false);
+        }
+        self.kv_set(namespace, key, value).await?;
+        Ok(true)
     }
 
     /// Imports a discovery suggestion, keeping its status and creation time.
@@ -141,9 +140,9 @@ impl FlowCatalogDocuments {
         let doc = suggestion_doc(
             suggestion,
             suggestion.status.as_str(),
-            &suggestion.created_at,
+            instant_ms(&suggestion.created_at),
         )?;
-        put_if_absent(docs.as_ref(), SUGGESTIONS, &suggestion.id, doc).await
+        put_if_absent(docs, SUGGESTIONS, &suggestion.id, doc).await
     }
 
     /// Imports an authoring draft under its own id, keeping its timestamps.
@@ -154,7 +153,7 @@ impl FlowCatalogDocuments {
     pub async fn import_draft(&self, draft: &FlowDraft) -> Result<bool> {
         check_id(&draft.id)?;
         let docs = self.docs().await?;
-        put_if_absent(docs.as_ref(), DRAFTS, &draft.id, draft_doc(draft)?).await
+        put_if_absent(docs, DRAFTS, &draft.id, draft_doc(draft)?).await
     }
 
     /// The stored definition `flow_id` that record `record_id` hangs off.
