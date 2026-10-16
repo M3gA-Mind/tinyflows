@@ -163,7 +163,11 @@ pub enum ManifestCandidate {
     /// Tool slug resolved from runtime data.
     DynamicTool { node_id: String },
     /// Host-native tool call.
-    NativeTool { node_id: String, tool_name: String, args: serde_json::Value },
+    NativeTool {
+        node_id: String,
+        tool_name: String,
+        args: serde_json::Value,
+    },
     /// Connector action.
     ConnectorTool { node_id: String, slug: String },
     /// Agent with an inner harness turn.
@@ -182,8 +186,7 @@ pub struct ManifestClass {
 }
 
 /// Scope-bound callback address used to classify manifest candidates.
-pub const APPROVAL_MANIFEST_HOST_INTERFACE: &str =
-    "ai.tinyhumans.tinyflows.ApprovalManifestHost";
+pub const APPROVAL_MANIFEST_HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.ApprovalManifestHost";
 
 /// Stable member name on [`APPROVAL_MANIFEST_HOST_INTERFACE`].
 pub const CLASSIFY_MANIFEST_CANDIDATES: &str = "ClassifyManifestCandidates";
@@ -210,7 +213,6 @@ pub struct ApprovalManifestRequest {
     /// Scope-bound callback implemented by the host.
     pub host: CallbackAddress,
 }
-
 
 /// Callback members accepted by the generic document adapter.
 pub mod storage {

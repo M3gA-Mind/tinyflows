@@ -5,13 +5,14 @@ use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
-    self, ApprovalManifestRequest, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApplyGraphOpsError,
-    CatalogStorage, ClassifyManifestCandidatesRequest, CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft,
-    FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest,
-    ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest,
-    PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse,
-    PutWorkflowResult, RunIdRequest, SetEnabledRequest, SetSuggestionStatusRequest,
-    UpdateDraftRequest, UpsertSuggestionsRequest, Workflow, WorkflowRevision, WorkflowSummary,
+    self, ApplyGraphOpsError, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest,
+    CatalogStorage, ClassifyManifestCandidatesRequest, CreateDraftRequest, DeleteWorkflowResult,
+    DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest,
+    ListRevisionsRequest, ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult,
+    PromoteDraftRequest, PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest,
+    PutWorkflowResponse, PutWorkflowResult, RunIdRequest, SetEnabledRequest,
+    SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest, Workflow,
+    WorkflowRevision, WorkflowSummary,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -128,13 +129,11 @@ impl CatalogService {
             &graph,
             &request.native_prefix,
         );
-        let callback = self
-            .connection
-            .proxy(
-                &request.host.destination,
-                &request.host.object_path,
-                catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
-            )?;
+        let callback = self.connection.proxy(
+            &request.host.destination,
+            &request.host.object_path,
+            catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
+        )?;
         let classes: catalog::ClassifyManifestCandidatesResponse = callback
             .call(
                 catalog::CLASSIFY_MANIFEST_CANDIDATES,
@@ -146,7 +145,8 @@ impl CatalogService {
         if classes.len() != candidates.len() {
             return Err(Error::failed(format!(
                 "manifest classifier returned {} classifications for {} candidates",
-                classes.len(), candidates.len()
+                classes.len(),
+                candidates.len()
             )));
         }
         for (index, (candidate, class)) in candidates.iter().zip(&classes).enumerate() {
@@ -370,7 +370,9 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
-    async fn node_kinds(&self) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
+    async fn node_kinds(
+        &self,
+    ) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
         Ok(CatalogService::node_kinds_impl(self).await)
     }
 

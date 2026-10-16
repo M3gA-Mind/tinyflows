@@ -85,8 +85,10 @@ fn manifest() -> TbSlice {
                 },
                 Dependency {
                     interface: InterfaceVersion::consumed(
-                        InterfaceName::new(tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE)
-                            .expect("static interface"),
+                        InterfaceName::new(
+                            tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
+                        )
+                        .expect("static interface"),
                         version.clone(),
                     ),
                     optional: true,

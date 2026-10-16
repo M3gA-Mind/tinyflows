@@ -34,12 +34,19 @@ impl Authoring {
             "auto" => tinyflows_catalog::import::n8n::looks_like_n8n(&request.graph),
             "n8n" => true,
             "native" => false,
-            other => return Err(Error::failed(format!("unsupported import format '{other}'"))),
+            other => {
+                return Err(Error::failed(format!(
+                    "unsupported import format '{other}'"
+                )));
+            }
         };
         let (graph, warnings) = if is_n8n {
             let imported = tinyflows_catalog::import::n8n::map_n8n_workflow(&request.graph)
                 .map_err(Error::failed)?;
-            (serde_json::to_value(imported.graph).map_err(Error::failed)?, imported.warnings)
+            (
+                serde_json::to_value(imported.graph).map_err(Error::failed)?,
+                imported.warnings,
+            )
         } else {
             (request.graph, Vec::new())
         };

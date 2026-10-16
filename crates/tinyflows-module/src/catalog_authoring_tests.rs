@@ -2,7 +2,7 @@ use super::*;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tinyflows_bus::catalog::{
-    self, ApprovalManifestRequest, ApplyGraphOpsRequest, ClassifyManifestCandidatesRequest,
+    self, ApplyGraphOpsRequest, ApprovalManifestRequest, ClassifyManifestCandidatesRequest,
     ManifestCandidate, ManifestClass,
 };
 
@@ -51,7 +51,10 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
     let contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> =
         proxy.call(catalog::members::NODE_KINDS, ()).await?;
     assert_eq!(contracts.len(), tinyflows_bus::node_kinds::NODE_KINDS.len());
-    let http = contracts.iter().find(|contract| contract.kind == "http_request").unwrap();
+    let http = contracts
+        .iter()
+        .find(|contract| contract.kind == "http_request")
+        .unwrap();
     assert!(!http.config_fields.is_empty());
     assert_eq!(http.ports.outputs, ["main"]);
     assert_eq!(http.example["kind"], "http_request");
@@ -77,7 +80,8 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
 }
 
 #[tokio::test]
-async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure() -> tinybus::Result<()> {
+async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure()
+-> tinybus::Result<()> {
     let (_server, client) = connections().await;
     let proxy = client.proxy(catalog::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
     let request = ApplyGraphOpsRequest {
@@ -99,18 +103,43 @@ async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure()
 }
 
 #[tokio::test]
-async fn approval_manifest_uses_host_classification_and_preserves_candidate_order() -> tinybus::Result<()> {
+async fn approval_manifest_uses_host_classification_and_preserves_candidate_order()
+-> tinybus::Result<()> {
     let (_server, client) = connections().await;
     let seen = Arc::new(Mutex::new(Vec::new()));
     let classes = vec![
-        Some(ManifestClass { name: "Network".into(), blocked: false, skip: false }),
-        Some(ManifestClass { name: "Write".into(), blocked: false, skip: false }),
-        Some(ManifestClass { name: "Write".into(), blocked: false, skip: false }),
-        Some(ManifestClass { name: "Read".into(), blocked: false, skip: true }),
+        Some(ManifestClass {
+            name: "Network".into(),
+            blocked: false,
+            skip: false,
+        }),
+        Some(ManifestClass {
+            name: "Write".into(),
+            blocked: false,
+            skip: false,
+        }),
+        Some(ManifestClass {
+            name: "Write".into(),
+            blocked: false,
+            skip: false,
+        }),
+        Some(ManifestClass {
+            name: "Read".into(),
+            blocked: false,
+            skip: true,
+        }),
         None,
         None,
     ];
-    client.serve_at("/test/approval".try_into()?, Classifier { classes, seen: seen.clone() }).await?;
+    client
+        .serve_at(
+            "/test/approval".try_into()?,
+            Classifier {
+                classes,
+                seen: seen.clone(),
+            },
+        )
+        .await?;
     client.request_name("test.ApprovalHost").await?;
     let graph = json!({"nodes":[
         {"id":"http","name":"HTTP","kind":"http_request","config":{"url":"https://example.com"}},
@@ -121,45 +150,77 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
         {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"agent-1"}}
     ],"edges":[]});
     let proxy = client.proxy(catalog::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
-    let entries: Vec<Value> = proxy.call(catalog::members::APPROVAL_MANIFEST, (ApprovalManifestRequest {
-        graph,
-        native_prefix: "oh:".into(),
-        host: catalog::CallbackAddress { destination: "test.ApprovalHost".into(), object_path: "/test/approval".into() },
-    },)).await?;
+    let entries: Vec<Value> = proxy
+        .call(
+            catalog::members::APPROVAL_MANIFEST,
+            (ApprovalManifestRequest {
+                graph,
+                native_prefix: "oh:".into(),
+                host: catalog::CallbackAddress {
+                    destination: "test.ApprovalHost".into(),
+                    object_path: "/test/approval".into(),
+                },
+            },),
+        )
+        .await?;
     let candidates = seen.lock().unwrap().clone();
     assert_eq!(candidates.len(), 6);
     assert!(matches!(candidates[0], ManifestCandidate::Http { .. }));
-    assert!(matches!(candidates[3], ManifestCandidate::NativeTool { .. }));
+    assert!(matches!(
+        candidates[3],
+        ManifestCandidate::NativeTool { .. }
+    ));
     assert_eq!(entries.len(), 4);
     assert_eq!(entries[0]["node_id"], "http");
     assert_eq!(entries[1]["node_id"], "code");
     assert_eq!(entries[2]["node_id"], "connector");
     assert_eq!(entries[3]["kind"], "dynamic");
-    assert!(!entries.iter().any(|entry| entry["tool_name"] == "web_search"));
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry["tool_name"] == "web_search")
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transport() -> tinybus::Result<()> {
+async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transport()
+-> tinybus::Result<()> {
     let (_server, client) = connections().await;
     let seen = Arc::new(Mutex::new(Vec::new()));
-    client.serve_at("/test/approval".try_into()?, Classifier {
-        classes: Vec::new(), seen,
-    }).await?;
+    client
+        .serve_at(
+            "/test/approval".try_into()?,
+            Classifier {
+                classes: Vec::new(),
+                seen,
+            },
+        )
+        .await?;
     client.request_name("test.ApprovalHost").await?;
     let proxy = client.proxy(catalog::BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)?;
     let request = ApprovalManifestRequest {
         graph: json!({"nodes":[{"id":"code","name":"Code","kind":"code"}],"edges":[]}),
         native_prefix: "oh:".into(),
-        host: catalog::CallbackAddress { destination: "test.ApprovalHost".into(), object_path: "/test/approval".into() },
+        host: catalog::CallbackAddress {
+            destination: "test.ApprovalHost".into(),
+            object_path: "/test/approval".into(),
+        },
     };
-    let malformed: tinybus::Result<Vec<Value>> = proxy.call(catalog::members::APPROVAL_MANIFEST, (request.clone(),)).await;
+    let malformed: tinybus::Result<Vec<Value>> = proxy
+        .call(catalog::members::APPROVAL_MANIFEST, (request.clone(),))
+        .await;
     assert!(malformed.is_err());
     let unavailable = ApprovalManifestRequest {
-        host: catalog::CallbackAddress { destination: "test.MissingApprovalHost".into(), object_path: "/missing".into() },
+        host: catalog::CallbackAddress {
+            destination: "test.MissingApprovalHost".into(),
+            object_path: "/missing".into(),
+        },
         ..request
     };
-    let transport: tinybus::Result<Vec<Value>> = proxy.call(catalog::members::APPROVAL_MANIFEST, (unavailable,)).await;
+    let transport: tinybus::Result<Vec<Value>> = proxy
+        .call(catalog::members::APPROVAL_MANIFEST, (unavailable,))
+        .await;
     assert!(transport.is_err());
     Ok(())
 }
@@ -167,7 +228,11 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
 #[tokio::test]
 async fn import_graph_normalizes_native_and_n8n_without_persisting() -> tinybus::Result<()> {
     let (_server, client) = connections().await;
-    let proxy = client.proxy(tinyflows_bus::BUS_NAME, tinyflows_bus::OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        tinyflows_bus::OBJECT_PATH,
+        tinyflows_bus::INTERFACE,
+    )?;
     let native: tinyflows_bus::ImportGraphResult = proxy.call(tinyflows_bus::methods::IMPORT_GRAPH, (tinyflows_bus::ImportGraphRequest {
         graph: json!({"nodes":[{"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"manual"}}],"edges":[]}),
         format: Some("native".into()),

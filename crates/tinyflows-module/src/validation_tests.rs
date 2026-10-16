@@ -17,7 +17,9 @@ async fn valid_candidate_returns_migrated_graph_without_errors() {
 
 #[tokio::test]
 async fn unparseable_candidate_returns_structured_failure_without_graph() {
-    let report = validate_graph(json!({"nodes": "invalid"}), None).await.unwrap();
+    let report = validate_graph(json!({"nodes": "invalid"}), None)
+        .await
+        .unwrap();
     assert!(!report.is_valid());
     assert!(report.graph.is_none());
     assert_eq!(report.errors.len(), 1);
@@ -71,7 +73,9 @@ async fn unsupported_engine_topology_is_reported_after_structural_validation() {
         ("c", "main", "merge"),
     ]
     .map(|(from, port, to)| json!({"from_node":from,"from_port":port,"to_node":to}));
-    let report = validate_graph(json!({"nodes":nodes,"edges":edges}), None).await.unwrap();
+    let report = validate_graph(json!({"nodes":nodes,"edges":edges}), None)
+        .await
+        .unwrap();
     assert!(!report.is_valid());
     assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
     assert_eq!(

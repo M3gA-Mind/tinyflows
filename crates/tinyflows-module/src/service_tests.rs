@@ -171,39 +171,50 @@ async fn validate_graph_resolves_saved_children_and_skips_unavailable_children()
         {"from_node":"a","to_node":"merge"},
         {"from_node":"c","to_node":"merge"}
     ]});
-    client.serve_at("/saved_workflows".try_into()?, WorkflowCallback(Some(child))).await?;
+    client
+        .serve_at(
+            "/saved_workflows".try_into()?,
+            WorkflowCallback(Some(child)),
+        )
+        .await?;
     client.request_name("test.AuthoringHost").await?;
     let graph = json!({"nodes":[
         {"id":"start","name":"Start","kind":"trigger"},
         {"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow_id":"saved-child"}}
     ],"edges":[{"from_node":"start","to_node":"child"}]});
-    let report: GraphValidation = proxy.call(
-        tinyflows_bus::methods::VALIDATE_GRAPH,
-        (tinyflows_bus::ValidateGraphRequest {
-            graph: graph.clone(),
-            host: Some(tinyflows_bus::AuthoringHost {
-                bus_name: "test.AuthoringHost".into(),
-                object_path: "/saved_workflows".into(),
-            }),
-        },),
-    ).await?;
+    let report: GraphValidation = proxy
+        .call(
+            tinyflows_bus::methods::VALIDATE_GRAPH,
+            (tinyflows_bus::ValidateGraphRequest {
+                graph: graph.clone(),
+                host: Some(tinyflows_bus::AuthoringHost {
+                    bus_name: "test.AuthoringHost".into(),
+                    object_path: "/saved_workflows".into(),
+                }),
+            },),
+        )
+        .await?;
     assert!(!report.errors.is_empty());
     assert_eq!(report.errors[0].code, "incompatible_referenced_workflow");
 
     let (_server2, client2) = authoring_connections().await?;
-    client2.serve_at("/saved_workflows".try_into()?, WorkflowCallback(None)).await?;
+    client2
+        .serve_at("/saved_workflows".try_into()?, WorkflowCallback(None))
+        .await?;
     client2.request_name("test.AuthoringHost").await?;
     let proxy2 = client2.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
-    let skipped: GraphValidation = proxy2.call(
-        tinyflows_bus::methods::VALIDATE_GRAPH,
-        (tinyflows_bus::ValidateGraphRequest {
-            graph,
-            host: Some(tinyflows_bus::AuthoringHost {
-                bus_name: "test.AuthoringHost".into(),
-                object_path: "/saved_workflows".into(),
-            }),
-        },),
-    ).await?;
+    let skipped: GraphValidation = proxy2
+        .call(
+            tinyflows_bus::methods::VALIDATE_GRAPH,
+            (tinyflows_bus::ValidateGraphRequest {
+                graph,
+                host: Some(tinyflows_bus::AuthoringHost {
+                    bus_name: "test.AuthoringHost".into(),
+                    object_path: "/saved_workflows".into(),
+                }),
+            },),
+        )
+        .await?;
     assert!(skipped.is_valid(), "{:?}", skipped.errors);
     Ok(())
 }

@@ -345,7 +345,9 @@ fn authoring_catalog_contract_types_round_trip_and_match_literal_wire_shapes() {
         skip: false,
     });
     wire_round_trip(ClassifyManifestCandidatesRequest {
-        candidates: vec![ManifestCandidate::DynamicTool { node_id: "dynamic".into() }],
+        candidates: vec![ManifestCandidate::DynamicTool {
+            node_id: "dynamic".into(),
+        }],
     });
     wire_round_trip(ApprovalManifestRequest {
         graph: json!({"nodes":[],"edges":[]}),

@@ -350,4 +350,3 @@ pub fn render_node_kinds_required(contracts: &[NodeKindContract]) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
-
