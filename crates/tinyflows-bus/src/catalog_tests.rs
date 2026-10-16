@@ -40,7 +40,18 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
     let workflow = workflow();
     let storage = storage();
     wire_round_trip(DocEnsureRequest {
-        spec: json!({"name":"flows_definitions"}),
+        spec: CatalogCollectionSpec {
+            name: "flows_definitions".into(),
+            indexes: vec![CatalogIndexSpec {
+                name: "by_enabled".into(),
+                fields: vec!["enabled".into(), "created_ns".into()],
+                unique: false,
+            }],
+            ttl_field: None,
+            search: Some(CatalogSearchSpec {
+                fields: vec!["name".into()],
+            }),
+        },
     });
     wire_round_trip(DocGetRequest {
         collection: "flows_definitions".into(),
@@ -50,20 +61,98 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
         collection: "flows_definitions".into(),
         id: "flow-1".into(),
         doc: json!({"name":"Example"}),
-        precondition: json!({"kind":"absent"}),
+        precondition: CatalogDocumentPrecondition::Absent,
     });
     wire_round_trip(DocDeleteRequest {
         collection: "flows_definitions".into(),
         id: "flow-1".into(),
-        precondition: json!({"kind":"version","version":1}),
+        precondition: CatalogDocumentPrecondition::Version(1),
     });
     wire_round_trip(DocQueryRequest {
         collection: "flows_definitions".into(),
-        query: json!({"filter":{"kind":"all"}}),
+        query: CatalogQuery {
+            filter: CatalogFilter::All,
+            sort: vec![CatalogSort {
+                field: "created_ns".into(),
+                direction: CatalogSortDirection::Desc,
+            }],
+            limit: Some(25),
+            cursor: Some(CatalogDocumentCursor("opaque-position".into())),
+        },
     });
     wire_round_trip(DocDeleteWhereRequest {
         collection: "flows_runs".into(),
-        filter: json!({"flow_id":"flow-1"}),
+        filter: CatalogFilter::Eq {
+            field: "flow_id".into(),
+            value: json!("flow-1"),
+        },
+    });
+    wire_round_trip(CatalogDocumentPrecondition::None);
+    wire_round_trip(CatalogDocumentPrecondition::Version(8));
+    wire_round_trip(CatalogVersionedDocument {
+        id: "flow-1".into(),
+        version: 7,
+        doc: json!({"name":"Example"}),
+    });
+    wire_round_trip(CatalogDocumentCursor("cursor-token".into()));
+    for filter in [
+        CatalogFilter::All,
+        CatalogFilter::Eq {
+            field: "f".into(),
+            value: json!(1),
+        },
+        CatalogFilter::Ne {
+            field: "f".into(),
+            value: json!(1),
+        },
+        CatalogFilter::In {
+            field: "f".into(),
+            values: vec![json!(1), json!(2)],
+        },
+        CatalogFilter::Range {
+            field: "f".into(),
+            gt: Some(json!(1)),
+            gte: None,
+            lt: None,
+            lte: Some(json!(4)),
+        },
+        CatalogFilter::Exists {
+            field: "f".into(),
+            exists: true,
+        },
+        CatalogFilter::And {
+            filters: vec![CatalogFilter::All],
+        },
+        CatalogFilter::Or {
+            filters: vec![CatalogFilter::All],
+        },
+        CatalogFilter::Not {
+            filter: Box::new(CatalogFilter::All),
+        },
+    ] {
+        wire_round_trip(filter);
+    }
+    wire_round_trip(CatalogSortDirection::Asc);
+    wire_round_trip(CatalogSortDirection::Desc);
+    wire_round_trip(CatalogSort {
+        field: "_id".into(),
+        direction: CatalogSortDirection::Asc,
+    });
+    wire_round_trip(CatalogDocumentPage {
+        items: vec![CatalogVersionedDocument {
+            id: "flow-1".into(),
+            version: 1,
+            doc: json!({}),
+        }],
+        next: None,
+    });
+    wire_round_trip(CatalogIndexSpec {
+        name: "by_id".into(),
+        fields: vec!["_id".into()],
+        unique: true,
+    });
+    wire_round_trip(CatalogSearchSpec {
+        fields: vec!["name".into()],
     });
     wire_round_trip(CatalogStorageFailure {
         kind: "conflict".into(),
@@ -215,11 +304,67 @@ fn catalog_and_storage_member_json_shapes_are_pinned() {
         json!({"collection":"flows_definitions","id":"flow-1"})
     );
     assert_eq!(
-        serde_json::to_value(CatalogStorageReply::Value {
-            value: json!({"transactions":true}),
+        serde_json::to_value(DocEnsureRequest {
+            spec: CatalogCollectionSpec {
+                name: "flows_definitions".into(),
+                indexes: vec![CatalogIndexSpec {
+                    name: "by_enabled".into(),
+                    fields: vec!["enabled".into(), "created_ns".into()],
+                    unique: false,
+                }],
+                ttl_field: None,
+                search: None,
+            },
         })
         .unwrap(),
-        json!({"value":{"transactions":true}})
+        json!({"spec":{"name":"flows_definitions","indexes":[{"name":"by_enabled","fields":["enabled","created_ns"],"unique":false}]}})
+    );
+    assert_eq!(
+        serde_json::to_value(DocPutRequest {
+            collection: "flows_definitions".into(),
+            id: "flow-1".into(),
+            doc: json!({"name":"Example"}),
+            precondition: CatalogDocumentPrecondition::Version(7),
+        })
+        .unwrap(),
+        json!({"collection":"flows_definitions","id":"flow-1","doc":{"name":"Example"},"precondition":{"kind":"version","version":7}})
+    );
+    assert_eq!(
+        serde_json::to_value(DocQueryRequest {
+            collection: "flows_definitions".into(),
+            query: CatalogQuery {
+                filter: CatalogFilter::Eq {
+                    field: "flow_id".into(),
+                    value: json!("f1")
+                },
+                sort: vec![CatalogSort {
+                    field: "created_ns".into(),
+                    direction: CatalogSortDirection::Desc
+                }],
+                limit: Some(20),
+                cursor: None,
+            },
+        })
+        .unwrap(),
+        json!({"collection":"flows_definitions","query":{"filter":{"op":"eq","field":"flow_id","value":"f1"},"sort":[{"field":"created_ns","direction":"desc"}],"limit":20}})
+    );
+    assert_eq!(
+        serde_json::to_value(DocDeleteWhereRequest {
+            collection: "flows_runs".into(),
+            filter: CatalogFilter::Eq {
+                field: "flow_id".into(),
+                value: json!("f1")
+            },
+        })
+        .unwrap(),
+        json!({"collection":"flows_runs","filter":{"op":"eq","field":"flow_id","value":"f1"}})
+    );
+    assert_eq!(
+        serde_json::to_value(CatalogStorageReply::Value {
+            value: json!({"id":"flow-1","version":7,"doc":{"name":"Example"}}),
+        })
+        .unwrap(),
+        json!({"value":{"id":"flow-1","version":7,"doc":{"name":"Example"}}})
     );
     assert_eq!(
         serde_json::to_value(CatalogStorageReply::Error {

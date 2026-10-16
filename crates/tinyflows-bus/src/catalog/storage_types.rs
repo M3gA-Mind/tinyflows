@@ -3,11 +3,157 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Document write precondition used by the catalog storage callback.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", content = "version", rename_all = "snake_case")]
+pub enum CatalogDocumentPrecondition {
+    /// Unconditional upsert.
+    #[default]
+    None,
+    /// Insert only when the document is absent.
+    Absent,
+    /// Compare-and-swap against this observed document version.
+    Version(u64),
+}
+
+/// A stored document and its storage version.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct CatalogVersionedDocument {
+    /// Document id.
+    pub id: String,
+    /// Storage version.
+    pub version: u64,
+    /// Document JSON object.
+    pub doc: Value,
+}
+
+/// Cursor returned by a paged document query.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct CatalogDocumentCursor(pub String);
+
+/// Stable filter vocabulary accepted by document queries and deletes.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum CatalogFilter {
+    /// Match every document.
+    #[default]
+    All,
+    /// Match when the dotted path equals this JSON value.
+    Eq { field: String, value: Value },
+    /// Match when the dotted path is absent or differs from this value.
+    Ne { field: String, value: Value },
+    /// Match when the dotted path equals any supplied value.
+    In { field: String, values: Vec<Value> },
+    /// Match when the path lies inside the inclusive/exclusive bounds.
+    Range {
+        field: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gt: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gte: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lt: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lte: Option<Value>,
+    },
+    /// Match when the path is present or absent.
+    Exists { field: String, exists: bool },
+    /// Match when every child filter matches.
+    And { filters: Vec<CatalogFilter> },
+    /// Match when any child filter matches.
+    Or { filters: Vec<CatalogFilter> },
+    /// Match when the child filter does not match.
+    Not { filter: Box<CatalogFilter> },
+}
+
+/// Sort direction for a catalog document query.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogSortDirection {
+    /// Smallest values first.
+    #[default]
+    Asc,
+    /// Largest values first.
+    Desc,
+}
+
+/// One stable sort key for a catalog document query.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CatalogSort {
+    /// Dotted field path or `_id`.
+    pub field: String,
+    /// Sort direction (ascending when omitted).
+    #[serde(default)]
+    pub direction: CatalogSortDirection,
+}
+
+/// Query expression accepted by `DocQuery`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct CatalogQuery {
+    /// Filter to apply.
+    #[serde(default)]
+    pub filter: CatalogFilter,
+    /// Ordered sort keys.
+    #[serde(default)]
+    pub sort: Vec<CatalogSort>,
+    /// Maximum page size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    /// Opaque continuation cursor returned by the prior page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<CatalogDocumentCursor>,
+}
+
+/// One page returned by `DocQuery`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct CatalogDocumentPage {
+    /// Documents in query order.
+    pub items: Vec<CatalogVersionedDocument>,
+    /// Cursor for the next page, if any.
+    pub next: Option<CatalogDocumentCursor>,
+}
+
+/// Secondary-index declaration accepted by `DocEnsure`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CatalogIndexSpec {
+    /// Index name.
+    pub name: String,
+    /// Dotted fields in key order.
+    pub fields: Vec<String>,
+    /// Whether duplicate key values are rejected.
+    #[serde(default)]
+    pub unique: bool,
+}
+
+/// Full-text fields declared by `DocEnsure`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CatalogSearchSpec {
+    /// Dotted searchable fields.
+    pub fields: Vec<String>,
+}
+
+/// Collection shape passed to `DocEnsure`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CatalogCollectionSpec {
+    /// Collection name.
+    pub name: String,
+    /// Secondary indexes.
+    #[serde(default)]
+    pub indexes: Vec<CatalogIndexSpec>,
+    /// Optional expiry timestamp field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_field: Option<String>,
+    /// Optional full-text search declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<CatalogSearchSpec>,
+}
+
 /// Request body for `DocEnsure`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DocEnsureRequest {
-    /// Collection and index declaration, encoded in the storage driver's JSON shape.
-    pub spec: Value,
+    /// Collection and index declaration.
+    pub spec: CatalogCollectionSpec,
 }
 
 /// Request body for `DocGet`.
@@ -29,7 +175,7 @@ pub struct DocPutRequest {
     /// Document content.
     pub doc: Value,
     /// Storage-driver precondition in its stable JSON shape.
-    pub precondition: Value,
+    pub precondition: CatalogDocumentPrecondition,
 }
 
 /// Request body for `DocDelete`.
@@ -40,25 +186,25 @@ pub struct DocDeleteRequest {
     /// Document id.
     pub id: String,
     /// Storage-driver precondition in its stable JSON shape.
-    pub precondition: Value,
+    pub precondition: CatalogDocumentPrecondition,
 }
 
 /// Request body for `DocQuery`.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DocQueryRequest {
     /// Allowlisted catalog collection.
     pub collection: String,
-    /// Filter, sort and pagination in the storage driver's JSON shape.
-    pub query: Value,
+    /// Filter, sort and pagination.
+    pub query: CatalogQuery,
 }
 
 /// Request body for `DocDeleteWhere`.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct DocDeleteWhereRequest {
     /// Allowlisted catalog collection.
     pub collection: String,
-    /// Filter in the storage driver's JSON shape.
-    pub filter: Value,
+    /// Filter.
+    pub filter: CatalogFilter,
 }
 
 /// Error returned by a storage callback; `kind` is a stable storage error tag.

@@ -8,8 +8,11 @@ mod storage_types;
 mod types;
 
 pub use storage_types::{
-    CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest, DocDeleteWhereRequest,
-    DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
+    CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentPage, CatalogDocumentPrecondition,
+    CatalogFilter, CatalogIndexSpec, CatalogQuery, CatalogSearchSpec, CatalogSort,
+    CatalogSortDirection, CatalogStorageFailure, CatalogStorageReply, CatalogVersionedDocument,
+    DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest,
+    DocQueryRequest,
 };
 
 pub use types::{
@@ -59,13 +62,13 @@ pub mod members {
 
 /// Callback members accepted by the generic document adapter.
 pub mod storage {
-    /// `(DocGetRequest) -> {value: driver Versioned<Value>}`.
+    /// `(DocGetRequest) -> {value: Option<CatalogVersionedDocument>}`.
     pub const GET: &str = "DocGet";
-    /// `(DocPutRequest) -> {value: driver Version}`.
+    /// `(DocPutRequest) -> {value: u64}`.
     pub const PUT: &str = "DocPut";
     /// `(DocDeleteRequest) -> {value: bool}`.
     pub const DELETE: &str = "DocDelete";
-    /// `(DocQueryRequest) -> {value: driver Page<Versioned<Value>>}`.
+    /// `(DocQueryRequest) -> {value: CatalogDocumentPage}`.
     pub const QUERY: &str = "DocQuery";
     /// `(DocEnsureRequest) -> {value: null}`.
     pub const ENSURE: &str = "DocEnsure";

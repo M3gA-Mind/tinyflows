@@ -130,7 +130,7 @@ impl DocumentStore for Documents {
         self.call(
             storage::ENSURE,
             DocEnsureRequest {
-                spec: serde_json::to_value(spec)?,
+                spec: serde_json::from_value(serde_json::to_value(spec)?)?,
             },
         )
         .await
@@ -160,7 +160,7 @@ impl DocumentStore for Documents {
                 collection: collection.into(),
                 id: id.into(),
                 doc,
-                precondition: serde_json::to_value(precondition)?,
+                precondition: serde_json::from_value(serde_json::to_value(precondition)?)?,
             },
         )
         .await
@@ -172,7 +172,7 @@ impl DocumentStore for Documents {
             DocDeleteRequest {
                 collection: collection.into(),
                 id: id.into(),
-                precondition: serde_json::to_value(precondition)?,
+                precondition: serde_json::from_value(serde_json::to_value(precondition)?)?,
             },
         )
         .await
@@ -183,7 +183,7 @@ impl DocumentStore for Documents {
             storage::QUERY,
             DocQueryRequest {
                 collection: collection.into(),
-                query: serde_json::to_value(query)?,
+                query: serde_json::from_value(serde_json::to_value(query)?)?,
             },
         )
         .await
@@ -201,7 +201,7 @@ impl DocumentStore for Documents {
             storage::DELETE_WHERE,
             DocDeleteWhereRequest {
                 collection: collection.into(),
-                filter: serde_json::to_value(filter)?,
+                filter: serde_json::from_value(serde_json::to_value(filter)?)?,
             },
         )
         .await

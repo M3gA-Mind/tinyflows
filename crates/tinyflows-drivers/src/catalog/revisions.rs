@@ -88,6 +88,7 @@ impl FlowCatalogDocuments {
         let next_revision = current_revision.checked_add(1).ok_or_else(|| {
             FlowUpdateError::Store(anyhow::anyhow!("workflow revision number overflow"))
         })?;
+        let observed_revision = stored.doc.get("revision").and_then(Value::as_u64);
 
         // R-m2: whether it was automatic comes from the row just read, which
         // is the one the swap below is keyed on.
@@ -200,6 +201,7 @@ impl FlowCatalogDocuments {
             // again under this id is a different flow.
             if text(doc, "updated_at") != Some(observed.as_str())
                 || incarnation(doc) != flow_incarnation.as_deref()
+                || doc.get("revision").and_then(Value::as_u64) != observed_revision
             {
                 return None;
             }
@@ -361,33 +363,6 @@ impl FlowCatalogDocuments {
         }
         reclaim(docs, REVISIONS, &orphans).await;
         Ok(revisions)
-    }
-
-    /// Counts visible prior snapshots for `flow_id`, bounded by the per-flow
-    /// retention cap. This is used to bootstrap a legacy sequence, not as the
-    /// latest revision number after a sequence has been persisted.
-    pub async fn retained_history_count(&self, flow_id: &str) -> Result<u64> {
-        Ok(self
-            .list_revisions(flow_id, MAX_REVISIONS_PER_FLOW)
-            .await?
-            .len() as u64)
-    }
-
-    /// Returns the latest committed graph revision, bootstrapping legacy
-    /// definitions from their currently visible retained history.
-    pub async fn latest_revision_number(&self, flow_id: &str) -> Result<Option<u64>> {
-        let docs = self.docs().await?;
-        let Some(stored) = docs.get(DEFINITIONS, flow_id).await? else {
-            return Ok(None);
-        };
-        let revision = match stored.doc.get("revision").and_then(Value::as_u64) {
-            Some(revision) => revision.max(1),
-            None => self
-                .retained_history_count(flow_id)
-                .await?
-                .saturating_add(1),
-        };
-        Ok(Some(revision))
     }
 
     /// One revision of `flow_id` by id, or `None`.

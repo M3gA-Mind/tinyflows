@@ -103,7 +103,7 @@ that possible:
 
 Decision: the module does not own a SQLite backend. Schedule contract v2
 already removed it. The catalog and run checkpoints use the document port
-(`CatalogStorage`: get/put/delete/query over scoped collections), backed on the
+(`CatalogStorage`: ensure/get/put/delete/query/delete-where over scoped collections), backed on the
 host by `tinystoragedrivers` (sqlite, file, mongodb) selected by
 `OPENHUMAN_STORAGE_URL`. `tinyflows-drivers` keeps the document-port
 implementation of the catalog stores; `tinyflows-import` stays the one-shot
@@ -120,13 +120,16 @@ returns a structured conflict with the current workflow. Create enforces the
 generic automatic-trigger and outbound-approval safeguards and reports whether
 it born-disabled the workflow or forced approval. New and duplicated workflows
 start at revision 1; only a committed graph update advances the number. Existing
-documents without the sequence bootstrap from their visible retained history
-on the next update, then keep a durable counter that does not reset when old
-snapshots are pruned. List rows include the latest revision, status, trigger
-kind, node count, update time and skipped corrupt-row count; revisions are
-served by id and history order. The CatalogStorage port advertises only ensure,
-get, put, delete, query and delete-where: the current catalog driver does not
-use transaction batches or collection counts.
+documents without the sequence report one plus their visible retained history;
+any older, already-pruned history cannot be reconstructed. The next successful
+graph update persists the following number. Once persisted, the durable counter
+does not reset when old snapshots are pruned. Imported history advances the
+sequence once per newly imported snapshot. List rows
+include the latest revision, status, trigger kind, node count, update time and
+skipped corrupt-row count; revisions are served by id and history order. The
+CatalogStorage port advertises only ensure, get, put, delete, query and
+delete-where: the current catalog driver does not use transaction batches or
+collection counts.
 
 ## Slice plan
 
