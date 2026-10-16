@@ -236,7 +236,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
     assert_eq!(candidates.len(), 7);
     assert!(matches!(candidates[0], ManifestCandidate::Http { .. }));
     assert!(matches!(
-        candidates[3],
+        candidates[4],
         ManifestCandidate::NativeTool { .. }
     ));
     assert_eq!(entries.len(), 5);
