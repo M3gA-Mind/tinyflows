@@ -228,3 +228,6 @@ pub const DOCUMENT_METHOD: &str = "Document";
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "wire_tests.rs"]
+mod wire_tests;
