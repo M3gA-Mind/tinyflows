@@ -4,8 +4,8 @@ use super::*;
 use serde_json::json;
 use tinyflows_bus::schedule::{self, members};
 
-async fn proxy() -> (tinybus::Proxy, Connection) {
-    let (_server, host, _) = connections().await;
+async fn proxy() -> (tinybus::Proxy, Connection, Connection) {
+    let (server, host, _) = connections().await;
     let proxy = host
         .proxy(
             schedule::BUS_NAME,
@@ -13,14 +13,12 @@ async fn proxy() -> (tinybus::Proxy, Connection) {
             schedule::INTERFACE,
         )
         .unwrap();
-    // Keep the server connection alive for the duration of the test.
-    std::mem::forget(_server);
-    (proxy, host)
+    (proxy, host, server)
 }
 
 #[tokio::test]
 async fn schedule_maths_members_match_the_in_process_functions() {
-    let (proxy, _host) = proxy().await;
+    let (proxy, _host, _server) = proxy().await;
     let every = json!({"kind":"every","every_ms":600000});
     let next: chrono::DateTime<chrono::Utc> = proxy
         .call(
@@ -74,7 +72,7 @@ async fn schedule_maths_members_match_the_in_process_functions() {
 
 #[tokio::test]
 async fn validation_members_enforce_the_cadence_floor_only_for_agents() {
-    let (proxy, _host) = proxy().await;
+    let (proxy, _host, _server) = proxy().await;
     let request = |agent: bool| json!({"schedule":{"kind":"every","every_ms":60000},"now":"2026-01-01T00:00:00Z","agent":agent});
     proxy
         .call::<()>(members::VALIDATE_SCHEDULE, &(request(false),))
@@ -117,7 +115,7 @@ async fn validation_members_enforce_the_cadence_floor_only_for_agents() {
 
 #[tokio::test]
 async fn delivery_and_output_members_apply_host_independent_policy() {
-    let (proxy, _host) = proxy().await;
+    let (proxy, _host, _server) = proxy().await;
     let origin = json!({"kind":"web","thread_id":"t1"});
     let with_origin: DeliveryConfig = proxy
         .call(members::DEFAULT_DELIVERY, &(Some(origin.clone()),))
@@ -161,7 +159,7 @@ async fn delivery_and_output_members_apply_host_independent_policy() {
 
 #[tokio::test]
 async fn check_patch_refuses_retargeting_a_flow_schedule_job() {
-    let (proxy, _host) = proxy().await;
+    let (proxy, _host, _server) = proxy().await;
     let job = json!({"id":"flow:f","expression":"","schedule":{"kind":"every","every_ms":60000},"command":"f","prompt":null,"name":null,"job_type":"flow","session_target":"isolated","model":null,"agent_id":null,"enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,"created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z","last_run":null,"last_status":null,"last_output":null});
     proxy
         .call::<()>(
@@ -182,7 +180,7 @@ async fn check_patch_refuses_retargeting_a_flow_schedule_job() {
 
 #[tokio::test]
 async fn store_admission_cap_and_import_operations_are_served() {
-    let (proxy, host) = proxy().await;
+    let (proxy, host, _server) = proxy().await;
     host.serve_at(
         "/test/Documents".try_into().unwrap(),
         document_callbacks::Documents {
@@ -283,7 +281,7 @@ async fn store_admission_cap_and_import_operations_are_served() {
 
 #[tokio::test]
 async fn the_served_surface_is_exactly_the_advertised_member_set() {
-    let (proxy, _host) = proxy().await;
+    let (proxy, _host, _server) = proxy().await;
     // Every advertised member must at least be dispatched (not "unknown member").
     for name in schedule::METHODS {
         let result = proxy.call::<Value>(name, &(json!({}),)).await;
