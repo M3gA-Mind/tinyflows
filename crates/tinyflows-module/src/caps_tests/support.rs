@@ -1,10 +1,10 @@
 use super::*;
 
+use serde_json::json;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
-use serde_json::json;
 use tinybus::Connection;
 use tinyflows_bus::runs::{
     self, AgentDefinition, AgentEventsRequest, AgentEventsResponse, AgentProgressEvent,
