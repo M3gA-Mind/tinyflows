@@ -6,21 +6,22 @@
 //! replaces the `jobs.db` store of the retired `tinyflows-sqlite`, whose data
 //! `tinyflows-import` brings across.
 //!
-//! # Layout
+//! # Layout (storage schema v2, owner `cron`)
 //!
 //! | Collection | Document id | Holds |
 //! | --- | --- | --- |
-//! | `cron_jobs` | job id (`flow:<flow_id>` for a flow-schedule job) | one job |
-//! | `cron_runs` | zero-padded run number | one run of one job |
-//! | `cron_counters` | `runs` | the next run number |
+//! | `cron.jobs` | job id (`flow:<flow_id>` for a flow-schedule job, else a ULID) | one job |
+//! | `cron.runs` | zero-padded run number | one run of one job |
+//! | `cron.admission` | `ledger` | the shared admission ledger (cap and members) |
 //!
-//! A job's `schedule`, `delivery` and `origin` are JSON strings, so a MongoDB
-//! backend never meets keys a caller chose. Optional fields are left out
-//! rather than stored as `null`. Instants are kept twice: RFC 3339 text for
-//! reading back, and epoch integers for ordering and range filters:
-//! `created_ms`, `next_run_ms` plus `next_run_ns`, and `started_ns`
-//! (nanoseconds, so jobs due and runs started within one millisecond still
-//! order by their real instant).
+//! Run numbers come from `tsd.counters` (owner `cron`, name `runs`), occurrence
+//! claims are `tsd.leases` (owner `cron`, key `Key::of([job_id, occurrence_ms])`)
+//! and a job's creation time is the document's `created_ms` metadata. A job's
+//! `schedule`, `delivery`, `origin` and `policy` are real objects. Optional
+//! fields are left out rather than stored as `null`. Every other instant is one
+//! epoch-millisecond field: `next_run_ms`, `last_run_ms`, `started_ms`,
+//! `finished_ms`; a one-shot schedule carries `at_ms`. Jobs due and runs
+//! started within one millisecond order by id and run number.
 //!
 //! # Concurrency
 //!
@@ -32,8 +33,9 @@
 //! the job documents do not participate in admission and are unsupported once
 //! a policy is installed.
 //!
-//! [`CronDocuments::claim_due_job`] captures a job incarnation, exact scheduled
-//! occurrence and random lease token before dispatch. Renewal, release and
+//! [`CronDocuments::claim_due_job`] captures a job incarnation, the scheduled
+//! occurrence and a random lease token (the holder of a `tsd.leases` record
+//! for that occurrence) before dispatch. Renewal, release and
 //! [`CronDocuments::complete_claim`] reject stale tokens, expired leases and
 //! edited/canceled/re-created jobs. Completion records the incarnation-bound
 //! run and advances the schedule atomically. Expired claims can be recovered:
@@ -58,13 +60,16 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use serde_json::Value;
-use tinystoragedrivers_core::{CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned};
+use tinystoragedrivers_core::{
+    CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned, primitives,
+};
 
 mod admission;
 mod claims;
 mod codec;
 mod import;
 mod jobs;
+mod migrate;
 mod patch;
 mod policy;
 mod removal;
@@ -75,17 +80,27 @@ mod test_support;
 
 pub use claims::ClaimedOccurrence;
 pub use import::ImportedJob;
+pub use migrate::{import_legacy_cron_counters, storage_schema};
 
 pub use tinyflows_schedule::{
     AgentJobSpec, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER, truncate_cron_output,
 };
 
 /// Collection holding one document per job.
-pub const JOBS: &str = "cron_jobs";
+pub const JOBS: &str = "cron.jobs";
 /// Collection holding one document per run.
-pub const RUNS: &str = "cron_runs";
-/// Collection holding the run-number counter.
-pub const COUNTERS: &str = "cron_counters";
+pub const RUNS: &str = "cron.runs";
+/// Collection holding the admission ledger.
+pub const ADMISSION: &str = "cron.admission";
+
+/// The body version of every `cron.*` collection (`cron_*` was version 1).
+pub(crate) const SCHEMA_VERSION: u32 = 2;
+
+/// The `tsd.counters` / `tsd.leases` owner of the cron store.
+pub(crate) const OWNER: &str = "cron";
+
+/// The `tsd.counters` name run numbers are drawn from.
+pub(crate) const RUN_COUNTER: &str = "runs";
 
 /// Compare-and-swap attempts before a contended write gives up.
 const CAS_ATTEMPTS: usize = 32;
@@ -126,20 +141,18 @@ impl CronDocuments {
             CollectionSpec::new(JOBS)
                 .index(IndexSpec::new("by_next_run", ["next_run_ms"]))
                 .index(IndexSpec::new("by_due", ["enabled", "next_run_ms"]))
-                // A new name, not a widened `by_due`: MongoDB refuses to
-                // redefine an existing index's keys under the same name.
-                .index(IndexSpec::new("by_due_ns", ["enabled", "next_run_ns"]))
                 .index(IndexSpec::new("by_name", ["name"]))
                 .index(IndexSpec::new("by_flow", ["job_type", "command"])),
             CollectionSpec::new(RUNS)
-                .index(IndexSpec::new("by_job", ["job_id", "started_ns", "seq"])),
-            CollectionSpec::new(COUNTERS),
+                .index(IndexSpec::new("by_job", ["job_id", "started_ms", "seq"])),
+            CollectionSpec::new(ADMISSION),
         ]
     }
 
-    /// Declares [`Self::collections`] (idempotent). Every method calls it.
+    /// Declares [`Self::collections`] and the `tsd` primitives it uses
+    /// (idempotent). Every method calls it.
     pub async fn ensure(&self) -> Result<()> {
-        for spec in Self::collections() {
+        for spec in Self::collections().into_iter().chain(primitives::collection_specs()) {
             self.docs
                 .ensure_collection(&spec)
                 .await
@@ -168,7 +181,7 @@ async fn compare_job(
     store: &CronDocuments,
     collection: &str,
     id: &str,
-    change: impl Fn(&Value) -> Result<Option<Value>>,
+    change: impl Fn(&Versioned<Value>) -> Result<Option<Value>>,
 ) -> Result<Option<Versioned<Value>>> {
     for _ in 0..CAS_ATTEMPTS {
         let Some(stored) = store
@@ -179,7 +192,7 @@ async fn compare_job(
         else {
             return Ok(None);
         };
-        let Some(next) = change(&stored.doc)? else {
+        let Some(next) = change(&stored)? else {
             return Ok(None);
         };
         match store
@@ -195,6 +208,7 @@ async fn compare_job(
                     id: id.into(),
                     version: *version,
                     doc: next,
+                    meta: stored.meta,
                 }));
             }
             Err(error) if admission::conflict(&error) => {}
