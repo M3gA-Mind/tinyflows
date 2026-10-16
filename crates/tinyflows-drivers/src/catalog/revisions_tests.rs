@@ -342,6 +342,7 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
     )
     .await
     .unwrap();
+    assert_eq!(store.revision_count(&flow.id).await.unwrap(), 0);
     assert!(store.list_revisions(&flow.id, 10).await.unwrap().is_empty());
     assert!(
         store
@@ -365,6 +366,7 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
         .unwrap();
     let listed = store.list_revisions(&flow.id, 10).await.unwrap();
     assert_eq!(listed.len(), 1);
+    assert_eq!(store.revision_count(&flow.id).await.unwrap(), listed.len() as u64);
     assert_eq!(listed[0].name, "v1");
     assert!(
         docs.get(REVISIONS, "orphan").await.unwrap().is_none(),
