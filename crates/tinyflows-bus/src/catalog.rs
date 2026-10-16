@@ -269,3 +269,7 @@ mod tests;
 #[cfg(test)]
 #[path = "catalog/extended_types_tests.rs"]
 mod extended_tests;
+
+#[cfg(test)]
+#[path = "catalog_authoring_tests.rs"]
+mod authoring_tests;
