@@ -2099,6 +2099,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "tinyflows",
+ "tinyflows-bus",
  "tinyflows-catalog",
  "tinyflows-drivers",
  "tinyflows-schedule",

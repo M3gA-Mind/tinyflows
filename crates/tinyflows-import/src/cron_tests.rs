@@ -1,4 +1,5 @@
 use super::*;
+use tinyflows_bus::schedule::types::{CronJob, JobType};
 use crate::test_support::{docs, expected, fixtures, json, tree_digest};
 use serde_json::Value;
 use tinystoragedrivers_sqlite::rusqlite::Connection;

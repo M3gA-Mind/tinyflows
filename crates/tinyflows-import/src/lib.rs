@@ -56,6 +56,8 @@ mod checkpoints;
 #[cfg(feature = "schedule")]
 mod cron;
 mod legacy_db;
+#[cfg(feature = "schedule-read")]
+mod legacy_cron;
 mod report;
 #[cfg(feature = "catalog")]
 mod state;
@@ -71,6 +73,8 @@ pub use catalog::import_flow_catalog;
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "schedule")]
 pub use cron::import_cron;
+#[cfg(feature = "schedule-read")]
+pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};
 #[cfg(feature = "catalog")]
 pub use state::import_file_state;
