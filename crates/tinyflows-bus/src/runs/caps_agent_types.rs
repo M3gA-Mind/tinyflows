@@ -267,7 +267,13 @@ pub enum StopReason {
     /// A host-defined budget limit stopped the loop.
     LimitStop { limit: String },
     /// Host paused the run; module run management must preserve its token.
-    Paused { token: Option<String>, reason: String, payload: Value },
+    Paused {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token: Option<String>,
+        reason: String,
+        #[serde(default, skip_serializing_if = "Value::is_null")]
+        payload: Value,
+    },
 }
 
 /// Agent usage totals.
