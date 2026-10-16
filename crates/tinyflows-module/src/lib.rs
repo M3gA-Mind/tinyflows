@@ -6,6 +6,8 @@ mod service;
 mod validation;
 
 mod exports;
+mod catalog_documents;
+mod catalog_service;
 mod schedule_callbacks;
 mod schedule_service;
 

@@ -346,6 +346,13 @@ impl FlowCatalogDocuments {
         Ok(revisions)
     }
 
+    /// Counts the prior snapshots for `flow_id`; the current definition is
+    /// revision one even before it has any history.
+    pub async fn revision_count(&self, flow_id: &str) -> Result<u64> {
+        let docs = self.docs().await?;
+        docs.count(REVISIONS, &Filter::eq("flow_id", flow_id)).await
+    }
+
     /// One revision of `flow_id` by id, or `None`.
     pub async fn revision_by_id(
         &self,
