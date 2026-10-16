@@ -88,12 +88,15 @@ fn revision(source: &SourceRecord) -> Option<TargetRecord> {
     let Some(mut record) = parsed_object(&source.body, "record_json") else {
         return Some(carried(REVISIONS, source));
     };
-    let workflow_id = source
+    let Some(workflow_id) = source
         .body
         .get("workflow_id")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .or_else(|| str_field(&record, "id").map(str::to_owned))?;
+        .or_else(|| str_field(&record, "id").map(str::to_owned))
+    else {
+        return Some(carried(REVISIONS, source));
+    };
     let superseded = source
         .body
         .get("superseded_at")
