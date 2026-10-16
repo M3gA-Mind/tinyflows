@@ -12,13 +12,13 @@ use tinyflows_schedule::{
     validate_schedule,
 };
 use tinystoragedrivers_core::{
-    DocumentStoreExt, Filter, Key, Query, Sort, Versioned, WriteResult,
+    DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult,
 };
 use uuid::Uuid;
 
 use super::codec::{INCARNATION, doc_to_job, incarnation, job_to_doc, set_next_run, text};
 use super::patch::apply_patch;
-use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, monotonic_ms, storage_error};
+use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, new_id, storage_error};
 
 /// The document id of `flow_id`'s schedule job. Deterministic, so writing it
 /// only if absent makes registration idempotent across processes.
@@ -47,7 +47,7 @@ fn new_job(job_type: JobType, schedule: Schedule, now: DateTime<Utc>) -> Result<
     Ok(CronJob {
         claim_generation: 0,
         policy: Default::default(),
-        id: Key::ulid_at(monotonic_ms()).as_str().to_owned(),
+        id: new_id(),
         expression: schedule_cron_expression(&schedule).unwrap_or_default(),
         next_run: next_run_for_schedule(&schedule, now)?,
         schedule,
