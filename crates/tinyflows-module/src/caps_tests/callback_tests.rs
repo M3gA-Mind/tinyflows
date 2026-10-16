@@ -1,6 +1,7 @@
 use super::*;
 
 use std::collections::BTreeMap;
+use serde_json::json;
 use tinyflows::{
     caps::{
         AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunRequest, AgentRunner,
@@ -10,7 +11,7 @@ use tinyflows::{
     },
     model::AgentDefinition,
 };
-use tinyflows_bus::runs::{self, CapsHost};
+use tinyflows_bus::runs;
 
 fn ports(connection: Connection, path: &str) -> CapsHostPorts {
     CapsHostPorts {
