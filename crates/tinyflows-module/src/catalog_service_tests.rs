@@ -6,7 +6,9 @@ use tinyflows_bus::catalog::{
     self, CallbackAddress, CatalogStorage, GetRevisionRequest, ListRevisionsRequest,
     PutWorkflowRequest, PutWorkflowResponse,
 };
-use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
+use tinystoragedrivers_core::{
+    CollectionSpec, DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend,
+};
 
 struct HostDocuments(Arc<dyn DocumentStore>);
 
@@ -116,21 +118,29 @@ async fn connections() -> (Connection, Connection) {
 }
 
 async fn scope(host: &Connection, name: &str) -> CatalogStorage {
+    scope_with_documents(host, name).await.0
+}
+
+async fn scope_with_documents(
+    host: &Connection,
+    name: &str,
+) -> (CatalogStorage, Arc<dyn DocumentStore>) {
     let scope = Scope::new(name).unwrap();
     let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
+    let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{name}");
-    host.serve_at(
-        path.parse().unwrap(),
-        HostDocuments(scoped.documents().clone()),
-    )
-    .await
-    .unwrap();
-    CatalogStorage {
-        callback: CallbackAddress {
-            destination: "test.CatalogStorage".into(),
-            object_path: path,
+    host.serve_at(path.parse().unwrap(), HostDocuments(docs.clone()))
+        .await
+        .unwrap();
+    (
+        CatalogStorage {
+            callback: CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
         },
-    }
+        docs,
+    )
 }
 
 fn put_proxy(host: &Connection) -> tinybus::Result<tinybus::Proxy> {
@@ -314,4 +324,26 @@ async fn catalog_create_reports_disabled_and_forced_approval_safety_rules() {
     assert!(result.approval_forced);
     assert!(!result.workflow.enabled);
     assert!(result.workflow.require_approval);
+}
+
+#[tokio::test]
+async fn catalog_list_reports_corrupt_rows_it_skips() {
+    let (_server, host) = connections().await;
+    let (storage, docs) = scope_with_documents(&host, "corrupt").await;
+    docs.ensure_collection(&CollectionSpec::new("flows_definitions"))
+        .await
+        .unwrap();
+    docs.put(
+        "flows_definitions",
+        "broken-flow",
+        json!({"name":"Broken","graph_json":"not-json","created_at":"2026-01-01T00:00:00Z"}),
+        Precondition::Absent,
+    )
+    .await
+    .unwrap();
+
+    let proxy = put_proxy(&host).unwrap();
+    let result: ListWorkflowsResult = proxy.call("ListWorkflows", &(storage,)).await.unwrap();
+    assert!(result.workflows.is_empty());
+    assert_eq!(result.skipped_rows, 1);
 }
