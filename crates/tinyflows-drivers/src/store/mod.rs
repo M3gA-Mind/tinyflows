@@ -468,11 +468,11 @@ impl WorkflowStore for DriverWorkflowStore {
         workflow_id: &str,
     ) -> Result<Box<dyn ProposalDecisionGuard>, WorkflowError> {
         let (inner, id) = (Arc::clone(&self.inner), workflow_id.to_string());
-        let token = self.block(async move { inner.acquire_decision_lease(&id).await })?;
+        let held = self.block(async move { inner.acquire_decision_lease(&id).await })?;
         Ok(Box::new(locks::DecisionLease::new(
             self.clone(),
             workflow_id.to_string(),
-            token,
+            held,
         )))
     }
 }
