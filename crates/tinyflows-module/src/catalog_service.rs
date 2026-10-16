@@ -5,7 +5,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
-    self, CatalogStorage, CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft,
+    self, ApprovalManifestRequest, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApplyGraphOpsError,
+    CatalogStorage, ClassifyManifestCandidatesRequest, CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft,
     FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest,
     ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest,
     PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse,
@@ -66,6 +67,106 @@ fn graph(raw: Value) -> Result<tinyflows::model::WorkflowGraph> {
 }
 
 impl CatalogService {
+    async fn node_kinds(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
+        tinyflows_bus::node_kinds::all_contracts()
+    }
+
+    async fn apply_graph_ops(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
+        let graph = match tinyflows::migrate::deserialize_graph(request.graph) {
+            Ok(graph) => graph,
+            Err(details) => {
+                return ApplyGraphOpsResult {
+                    graph: None,
+                    error: Some(ApplyGraphOpsError {
+                        index: 0,
+                        op: "decode_graph".into(),
+                        details,
+                    }),
+                };
+            }
+        };
+        let mut ops = Vec::with_capacity(request.ops.len());
+        for (index, raw) in request.ops.into_iter().enumerate() {
+            match serde_json::from_value::<tinyflows::graph_ops::GraphOp>(raw) {
+                Ok(op) => ops.push(op),
+                Err(error) => {
+                    return ApplyGraphOpsResult {
+                        graph: None,
+                        error: Some(ApplyGraphOpsError {
+                            index,
+                            op: "decode_operation".into(),
+                            details: error.to_string(),
+                        }),
+                    };
+                }
+            }
+        }
+        match tinyflows::graph_ops::apply_ops(&graph, &ops) {
+            Ok(graph) => ApplyGraphOpsResult {
+                graph: serde_json::to_value(graph).ok(),
+                error: None,
+            },
+            Err(error) => ApplyGraphOpsResult {
+                graph: None,
+                error: Some(ApplyGraphOpsError {
+                    index: error.index,
+                    op: error.op.into(),
+                    details: error.kind.to_string(),
+                }),
+            },
+        }
+    }
+
+    async fn approval_manifest(
+        &self,
+        request: ApprovalManifestRequest,
+    ) -> tinybus::Result<Vec<Value>> {
+        let graph = tinyflows::migrate::deserialize_graph(request.graph).map_err(Error::failed)?;
+        let candidates = tinyflows_catalog::approval_manifest::manifest_candidates(
+            &graph,
+            &request.native_prefix,
+        );
+        let callback = self
+            .connection
+            .proxy(
+                &request.host.destination,
+                &request.host.object_path,
+                catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
+            )?;
+        let classes: catalog::ClassifyManifestCandidatesResponse = callback
+            .call(
+                catalog::CLASSIFY_MANIFEST_CANDIDATES,
+                (ClassifyManifestCandidatesRequest {
+                    candidates: candidates.clone(),
+                },),
+            )
+            .await?;
+        if classes.len() != candidates.len() {
+            return Err(Error::failed(format!(
+                "manifest classifier returned {} classifications for {} candidates",
+                classes.len(), candidates.len()
+            )));
+        }
+        for (index, (candidate, class)) in candidates.iter().zip(&classes).enumerate() {
+            let requires_class = matches!(
+                candidate,
+                catalog::ManifestCandidate::Http { .. }
+                    | catalog::ManifestCandidate::Code { .. }
+                    | catalog::ManifestCandidate::NativeTool { .. }
+                    | catalog::ManifestCandidate::ConnectorTool { .. }
+            );
+            if requires_class != class.is_some() {
+                return Err(Error::failed(format!(
+                    "manifest classifier returned malformed classification at candidate {index}"
+                )));
+            }
+        }
+        Ok(tinyflows_catalog::approval_manifest::assemble_manifest(
+            &candidates,
+            &classes,
+        ))
+    }
+
     async fn store(&self, storage: CatalogStorage) -> Result<FlowCatalogDocuments> {
         let docs =
             super::catalog_documents::Documents::new(self.connection.clone(), storage.callback)

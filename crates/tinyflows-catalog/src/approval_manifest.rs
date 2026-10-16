@@ -11,61 +11,7 @@ use std::collections::HashSet;
 
 use serde_json::{Value, json};
 use tinyflows::model::{NodeKind, WorkflowGraph};
-
-/// One node that may prompt, as read from the graph.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ManifestCandidate {
-    /// An `http_request` node.
-    Http {
-        /// Node id.
-        node_id: String,
-        /// Configured URL, or a generic label.
-        url: String,
-    },
-    /// A `code` node.
-    Code {
-        /// Node id.
-        node_id: String,
-    },
-    /// A `tool_call` whose slug is an `=` expression: unknowable at save time.
-    DynamicTool {
-        /// Node id.
-        node_id: String,
-    },
-    /// A `tool_call` of a host-native tool (slug carries the native prefix).
-    NativeTool {
-        /// Node id.
-        node_id: String,
-        /// Tool name with the prefix stripped.
-        tool_name: String,
-        /// The node's `args` (may hold unresolved bindings).
-        args: Value,
-    },
-    /// A `tool_call` of a connector action.
-    ConnectorTool {
-        /// Node id.
-        node_id: String,
-        /// The action slug.
-        slug: String,
-    },
-    /// An `agent` node with an `agent_ref`: a full turn whose inner calls cannot
-    /// be enumerated.
-    Agent {
-        /// Node id.
-        node_id: String,
-    },
-}
-
-/// The host's verdict on one gated candidate.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManifestClass {
-    /// Wire name of the class (e.g. `Network`), reported as `class`.
-    pub name: String,
-    /// The policy refuses this class outright: reported as `blocked`.
-    pub blocked: bool,
-    /// The runtime never gates this class (a curated read): omit the entry.
-    pub skip: bool,
-}
+pub use tinyflows_bus::catalog::{ManifestCandidate, ManifestClass};
 
 /// Walks `graph` and lists every node that could raise an approval prompt, in
 /// graph order. `native_prefix` is the slug prefix of host-native tools.
