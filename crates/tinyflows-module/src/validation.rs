@@ -4,7 +4,10 @@ use serde_json::Value;
 use tinyflows_bus::{GraphValidation, ValidationError};
 
 /// Migrates candidate JSON without dropping editor fields and locates validation failures.
-pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json::Error> {
+pub(crate) async fn validate_graph(
+    value: Value,
+    resolver: Option<&dyn tinyflows::caps::WorkflowResolver>,
+) -> Result<GraphValidation, serde_json::Error> {
     let migrated = tinyflows::migrate::migrate(value);
     let graph = match migrated
         .as_ref()
@@ -40,6 +43,20 @@ pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json
                 code: error.code.into(),
                 message: error.message,
                 node_id: error.node_id,
+                field: None,
+            })
+            .collect();
+    }
+    if errors.is_empty()
+        && let Some(resolver) = resolver
+    {
+        errors = tinyflows::compat::referenced_workflow_errors_async(&graph, resolver)
+            .await
+            .into_iter()
+            .map(|message| ValidationError {
+                code: "incompatible_referenced_workflow".into(),
+                message,
+                node_id: None,
                 field: None,
             })
             .collect();

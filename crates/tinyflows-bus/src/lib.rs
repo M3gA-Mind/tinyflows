@@ -21,6 +21,7 @@ pub const METHODS: &[&str] = &[
     "AuthoringFailures",
     "UnresolvableToolArgs",
     "BuilderFailures",
+    "ImportGraph",
 ];
 
 /// Context-bound host callback interface. It serves a saved-workflow lookup
@@ -56,6 +57,8 @@ pub mod host {
 pub mod methods {
     /// Migrate, parse, structurally validate and check engine compatibility.
     pub const VALIDATE_GRAPH: &str = "ValidateGraph";
+    /// Normalize native or n8n input and validate it without persistence.
+    pub const IMPORT_GRAPH: &str = "ImportGraph";
     /// Check bindings that omit the required node-output envelope.
     pub const BINDING_FAILURES: &str = "BindingFailures";
     /// Check portable binding, agent prompt/schema, and code-language gates.
@@ -64,6 +67,35 @@ pub mod methods {
     pub const UNRESOLVABLE_TOOL_ARGS: &str = "UnresolvableToolArgs";
     /// Ordered engine and host gates followed by mock argument preflight.
     pub const BUILDER_FAILURES: &str = "BuilderFailures";
+}
+
+/// Request to migrate, validate, and check compatibility of a candidate graph.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ValidateGraphRequest {
+    /// Candidate graph JSON.
+    pub graph: Value,
+    /// Optional scope-bound saved-workflow resolver.
+    pub host: Option<AuthoringHost>,
+}
+
+/// Request to import and validate a graph without persisting it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ImportGraphRequest {
+    /// Source document.
+    pub graph: Value,
+    /// `native`, `n8n`, or `auto` (missing format is `auto`).
+    pub format: Option<String>,
+}
+
+/// Result of best-effort import and engine validation.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ImportGraphResult {
+    /// Migrated graph, present when parsing succeeded.
+    pub graph: Option<Value>,
+    /// Non-fatal importer warnings.
+    pub warnings: Vec<String>,
+    /// Structural and engine compatibility failures.
+    pub errors: Vec<ValidationError>,
 }
 
 /// One structured graph validation failure.

@@ -67,11 +67,11 @@ fn graph(raw: Value) -> Result<tinyflows::model::WorkflowGraph> {
 }
 
 impl CatalogService {
-    async fn node_kinds(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
+    async fn node_kinds_impl(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
         tinyflows_bus::node_kinds::all_contracts()
     }
 
-    async fn apply_graph_ops(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
+    async fn apply_graph_ops_impl(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
         let graph = match tinyflows::migrate::deserialize_graph(request.graph) {
             Ok(graph) => graph,
             Err(details) => {
@@ -117,7 +117,7 @@ impl CatalogService {
         }
     }
 
-    async fn approval_manifest(
+    async fn approval_manifest_impl(
         &self,
         request: ApprovalManifestRequest,
     ) -> tinybus::Result<Vec<Value>> {
@@ -368,6 +368,21 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
+    async fn node_kinds(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
+        CatalogService::node_kinds_impl(self).await
+    }
+
+    async fn apply_graph_ops(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
+        CatalogService::apply_graph_ops_impl(self, request).await
+    }
+
+    async fn approval_manifest(
+        &self,
+        request: ApprovalManifestRequest,
+    ) -> tinybus::Result<Vec<Value>> {
+        CatalogService::approval_manifest_impl(self, request).await
+    }
+
     async fn list_workflows(
         &self,
         storage: CatalogStorage,

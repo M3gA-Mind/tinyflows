@@ -209,25 +209,6 @@ pub struct ApprovalManifestRequest {
     pub host: CallbackAddress,
 }
 
-/// Request to import and validate a graph without persisting it.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct ImportGraphRequest {
-    /// Source document.
-    pub graph: serde_json::Value,
-    /// `native`, `n8n`, or `auto` (missing format is represented by `auto`).
-    pub format: Option<String>,
-}
-
-/// Result of best-effort import and engine validation.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct ImportGraphResult {
-    /// Migrated graph, present when import and parsing succeeded.
-    pub graph: Option<serde_json::Value>,
-    /// Non-fatal importer warnings.
-    pub warnings: Vec<String>,
-    /// Structural and engine compatibility failures.
-    pub errors: Vec<super::ValidationError>,
-}
 
 /// Callback members accepted by the generic document adapter.
 pub mod storage {

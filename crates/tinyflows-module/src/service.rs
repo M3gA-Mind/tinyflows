@@ -11,8 +11,46 @@ struct Authoring {
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Authoring")]
 impl Authoring {
     /// Migrate a candidate and report its structural and engine validation errors.
-    async fn validate_graph(&self, graph: Value) -> Result<GraphValidation> {
-        super::validation::validate_graph(graph).map_err(|error| Error::failed(error.to_string()))
+    async fn validate_graph(
+        &self,
+        request: tinyflows_bus::ValidateGraphRequest,
+    ) -> Result<GraphValidation> {
+        let ports = request.host.map(|host| super::host::HostPorts {
+            connection: self.connection.clone(),
+            host,
+        });
+        super::validation::validate_graph(request.graph, ports.as_ref().map(|p| p as _))
+            .await
+            .map_err(|error| Error::failed(error.to_string()))
+    }
+
+    /// Normalize native/n8n input, validate it, and return warnings without persistence.
+    async fn import_graph(
+        &self,
+        request: tinyflows_bus::ImportGraphRequest,
+    ) -> Result<tinyflows_bus::ImportGraphResult> {
+        let format = request.format.as_deref().unwrap_or("auto").trim();
+        let is_n8n = match format {
+            "auto" => tinyflows_catalog::import::n8n::looks_like_n8n(&request.graph),
+            "n8n" => true,
+            "native" => false,
+            other => return Err(Error::failed(format!("unsupported import format '{other}'"))),
+        };
+        let (graph, warnings) = if is_n8n {
+            let imported = tinyflows_catalog::import::n8n::map_n8n_workflow(&request.graph)
+                .map_err(Error::failed)?;
+            (serde_json::to_value(imported.graph).map_err(Error::failed)?, imported.warnings)
+        } else {
+            (request.graph, Vec::new())
+        };
+        let report = super::validation::validate_graph(graph, None)
+            .await
+            .map_err(|error| Error::failed(error.to_string()))?;
+        Ok(tinyflows_bus::ImportGraphResult {
+            graph: report.graph,
+            warnings,
+            errors: report.errors,
+        })
     }
 
     /// Report the full portable authoring gates, preserving their diagnostic order.
