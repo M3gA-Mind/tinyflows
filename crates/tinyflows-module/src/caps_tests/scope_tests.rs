@@ -1,12 +1,9 @@
 use super::*;
 
 use std::sync::Arc;
-use tinyflows_bus::catalog::{
-    self, CatalogDocumentCursor, CatalogDocumentPage, CatalogDocumentPrecondition,
-    CatalogDocumentQuery, CatalogDocumentValue, CatalogStorageFailure, CatalogStorageReply,
-    DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest,
-    DocQueryRequest,
-};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
+use tinyflows_bus::catalog::{self, CatalogStorage};
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 
@@ -14,59 +11,46 @@ struct DocumentsHost(Arc<dyn DocumentStore>);
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl DocumentsHost {
-    async fn doc_ensure(&self, request: DocEnsureRequest) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(self.0.ensure_collection(&request.spec).await))
+    async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.ensure_collection(&decode(&request["spec"])?).await))
     }
-    async fn doc_get(&self, request: DocGetRequest) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(self.0.get(&request.collection, &request.id).await))
+    async fn doc_get(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.get(text(&request, "collection"), text(&request, "id")).await))
     }
-    async fn doc_put(&self, request: DocPutRequest) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(
-            self.0
-                .put(
-                    &request.collection,
-                    &request.id,
-                    request.doc,
-                    request.precondition,
-                )
-                .await,
-        ))
+    async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.put(
+            text(&request, "collection"), text(&request, "id"), request["doc"].clone(),
+            decode(&request["precondition"])?,
+        ).await))
     }
-    async fn doc_delete(&self, request: DocDeleteRequest) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(
-            self.0
-                .delete(&request.collection, &request.id, request.precondition)
-                .await,
-        ))
+    async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.delete(
+            text(&request, "collection"), text(&request, "id"), decode(&request["precondition"])?,
+        ).await))
     }
-    async fn doc_query(&self, request: DocQueryRequest) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(
-            self.0.query(&request.collection, &request.query).await,
-        ))
+    async fn doc_query(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.query(text(&request, "collection"), &decode(&request["query"])?).await))
     }
-    async fn doc_delete_where(
-        &self,
-        request: DocDeleteWhereRequest,
-    ) -> tinybus::Result<CatalogStorageReply> {
-        Ok(reply(
-            self.0
-                .delete_where(&request.collection, &request.filter)
-                .await,
-        ))
+    async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(reply(self.0.delete_where(text(&request, "collection"), &decode(&request["filter"])?).await))
     }
 }
 
-fn reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> CatalogStorageReply {
+fn text<'a>(value: &'a Value, field: &str) -> &'a str {
+    value[field].as_str().expect("well-formed document callback")
+}
+
+fn decode<T: DeserializeOwned>(value: &Value) -> tinybus::Result<T> {
+    serde_json::from_value(value.clone()).map_err(tinybus::Error::from)
+}
+
+fn reply<T: Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
     match result {
-        Ok(value) => CatalogStorageReply::Value {
-            value: serde_json::to_value(value).unwrap(),
-        },
-        Err(error) => CatalogStorageReply::Error {
-            error: CatalogStorageFailure {
+        Ok(value) => json!({"value": serde_json::to_value(value).unwrap()}),
+        Err(error) => json!({"error":{"kind":error.kind().to_string().replace(' ', "_"),
                 kind: error.kind().to_string().replace(' ', "_"),
                 message: error.to_string(),
-            },
-        },
+        }}),
     }
 }
 
