@@ -462,3 +462,7 @@ pub(super) async fn setup(connection: &Connection) -> Result<()> {
 #[cfg(test)]
 #[path = "catalog_service_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "catalog_extended_service_tests.rs"]
+mod extended_tests;
