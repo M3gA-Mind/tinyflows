@@ -18,54 +18,82 @@
 //! serving several agents gives each one its own handle, and the adaptive
 //! tenants live inside it.
 //!
-//! # Layout
+//! # Layout (storage schema v2, owner `flows`)
 //!
 //! | Collection | Document id | Holds |
 //! | --- | --- | --- |
-//! | `adaptive_counters` | sequence name | the next id of rows and lessons |
-//! | `adaptive_rows` | `ldg_<seq>` | one attempt |
-//! | `adaptive_lessons` | `les_<seq>` | one lesson and its counters |
-//! | `adaptive_evidence` | `(lesson, row)` | one citation |
-//! | `adaptive_scores` | `(bucket, workflow)` | one workflow's counters |
-//! | `adaptive_variants` | `(bucket, variant)` | one lineage edge |
-//! | `adaptive_episodes` | `(bucket, episode)` | one episode |
-//! | `adaptive_steps` | `(bucket, row)` | one attempt's steps |
-//! | `adaptive_workflows` | `(bucket, workflow)` | one vault record |
+//! | `flows.adaptive_rows` | `ldg_<seq>` | one attempt |
+//! | `flows.adaptive_lessons` | `les_<seq>` | one lesson and its counters |
+//! | `flows.adaptive_evidence` | `Key::of([lesson, row])` | one citation |
+//! | `flows.adaptive_scores` | `Key::of([scope_key, workflow])` | one workflow's counters |
+//! | `flows.adaptive_variants` | `Key::of([scope_key, variant])` | one lineage edge |
+//! | `flows.adaptive_episodes` | `Key::of([scope_key, episode])` | one episode |
+//! | `flows.adaptive_steps` | `Key::of([scope_key, row, seq])` | one step of an attempt |
+//! | `flows.adaptive_workflows` | `Key::of([scope_key, workflow])` | one vault record |
 //!
-//! Counters (`$inc` in Mongo) and first-write-wins edges (`$setOnInsert`) are
-//! compare-and-swap and insert-only writes here, so concurrent loops writing
-//! one ledger never lose an increment.
+//! Bodies are bare snake_case objects with the tenant bucket as `scope_key`
+//! (and as a key part where the record is per bucket); every instant is an
+//! epoch-millisecond `*_ms` field. The record types keep their RFC 3339
+//! strings; the conversion is in `convert`. The id sequences of rows and
+//! lessons are `tsd.counters` (owner `flows`, names `adaptive_rows` and
+//! `adaptive_lessons`), so concurrent loops writing one ledger never lose an
+//! increment or share an id. First-write-wins edges (`$setOnInsert` in Mongo)
+//! are insert-only writes.
+//!
+//! [`extend_storage_schema`] declares the collections and their v1 -> v2
+//! steps; [`import_legacy_adaptive_counters`] carries the v1 sequences.
 
+mod convert;
 mod ledger;
+mod migrate;
 mod vault;
 
-use sha2::{Digest, Sha256};
-use tinystoragedrivers_core::StorageError;
+use tinystoragedrivers_core::{CollectionSpec, IndexSpec, StorageError};
 
 pub use ledger::DriverLedger;
+pub use migrate::{extend_storage_schema, import_legacy_adaptive_counters};
 pub use vault::DriverVault;
 
-/// Compare-and-swap attempts before a contended counter update gives up.
-const CAS_ATTEMPTS: usize = 64;
+/// The `tsd.counters` owner of the id sequences.
+pub(crate) const COUNTER_OWNER: &str = "flows";
 
-/// Longest id stored as is; longer ones are hashed.
-const MAX_KEY_LEN: usize = 400;
+/// The v1 sequence collection (`import_legacy_adaptive_counters` reads it).
+pub(crate) const COUNTERS: &str = "adaptive_counters";
+pub(crate) const ROWS: &str = "flows.adaptive_rows";
+pub(crate) const LESSONS: &str = "flows.adaptive_lessons";
+pub(crate) const EVIDENCE: &str = "flows.adaptive_evidence";
+pub(crate) const SCORES: &str = "flows.adaptive_scores";
+pub(crate) const VARIANTS: &str = "flows.adaptive_variants";
+pub(crate) const EPISODES: &str = "flows.adaptive_episodes";
+pub(crate) const STEPS: &str = "flows.adaptive_steps";
+pub(crate) const WORKFLOWS: &str = "flows.adaptive_workflows";
 
-/// A document id for `parts`: length-prefixed so no two tuples collide, and
-/// replaced by its SHA-256 when it would exceed the driver's id limit.
-fn key(parts: &[&str]) -> String {
-    let joined: String = parts
-        .iter()
-        .map(|part| format!("{}:{part}", part.len()))
-        .collect::<Vec<_>>()
-        .join("/");
-    if joined.len() <= MAX_KEY_LEN {
-        joined
-    } else {
-        let digest = Sha256::digest(joined.as_bytes());
-        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-        format!("h:{hex}")
-    }
+/// The body version of every collection here (`adaptive_*` was version 1).
+pub(crate) const SCHEMA_VERSION: u32 = 2;
+
+/// Every collection the stores use, with its indexes.
+pub(crate) fn collections() -> Vec<CollectionSpec> {
+    vec![
+        CollectionSpec::new(ROWS).index(IndexSpec::new(
+            "by_episode",
+            ["scope_key", "episode", "seq"],
+        )),
+        CollectionSpec::new(LESSONS).index(IndexSpec::new("by_scope", ["scope_key", "seq"])),
+        CollectionSpec::new(EVIDENCE).index(IndexSpec::new("by_lesson", ["lesson_id"])),
+        CollectionSpec::new(SCORES),
+        CollectionSpec::new(VARIANTS).index(IndexSpec::new("by_parent", ["scope_key", "parent"])),
+        CollectionSpec::new(EPISODES)
+            .index(IndexSpec::new("by_scope", ["scope_key", "updated_ms"])),
+        CollectionSpec::new(STEPS).index(IndexSpec::new("by_row", ["scope_key", "row_id", "seq"])),
+        CollectionSpec::new(WORKFLOWS)
+            .index(IndexSpec::new("by_scope", ["scope_key", "workflow_id"])),
+    ]
+}
+
+/// A document id for `parts` (`Key::of`: escaped so no two tuples collide,
+/// hashed when it would exceed the driver's id limit).
+fn key(parts: &[&str]) -> Result<String, StorageError> {
+    tinystoragedrivers_core::Key::of(parts.iter().copied()).map(|key| key.as_str().to_owned())
 }
 
 /// Whether `error` means another writer got there first.
