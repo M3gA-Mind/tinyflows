@@ -192,7 +192,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
     ];
     client
         .serve_at(
-            "/test/approval_missing".try_into()?,
+            "/test/approval".try_into()?,
             Classifier {
                 classes,
                 seen: seen.clone(),
@@ -254,7 +254,7 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
     let seen = Arc::new(Mutex::new(Vec::new()));
     client
         .serve_at(
-            "/test/approval".try_into()?,
+            "/test/approval_missing".try_into()?,
             Classifier {
                 classes: Vec::new(),
                 seen,
