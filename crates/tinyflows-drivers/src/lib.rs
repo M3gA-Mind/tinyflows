@@ -46,6 +46,7 @@ mod checkpoint_layout;
 pub mod schedule;
 #[cfg(feature = "engine")]
 mod state_store;
+mod ids;
 pub mod storage;
 #[cfg(feature = "store")]
 pub mod store;

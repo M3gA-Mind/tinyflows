@@ -25,13 +25,6 @@ fn stamps_never_repeat() {
     );
 }
 
-#[test]
-fn new_ids_are_ulids_in_creation_order() {
-    let (a, b) = (new_id(), new_id());
-    assert_eq!(a.len(), 26);
-    assert_ne!(a, b);
-}
-
 #[tokio::test]
 async fn ensure_declares_every_collection_once() {
     let catalog = test_support::catalog();

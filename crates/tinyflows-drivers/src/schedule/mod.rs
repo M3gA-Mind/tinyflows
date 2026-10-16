@@ -59,6 +59,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+pub(crate) use crate::ids::{monotonic_ms, new_id};
 use serde_json::Value;
 use tinystoragedrivers_core::{
     CollectionSpec, DocumentStore, IndexSpec, StorageError, Versioned, primitives,

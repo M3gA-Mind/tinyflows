@@ -183,27 +183,7 @@ pub(crate) fn int(doc: &Value, field: &str) -> i64 {
     doc.get(field).and_then(Value::as_i64).unwrap_or(0)
 }
 
-/// Now in epoch milliseconds, never repeating within the process: creations
-/// in quick succession still get distinct, increasing times, which is what
-/// "oldest first" orders by.
-pub(crate) fn monotonic_ms() -> i64 {
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static LAST: AtomicI64 = AtomicI64::new(0);
-    let now = Utc::now().timestamp_millis();
-    let mut last = LAST.load(Ordering::Relaxed);
-    loop {
-        let next = now.max(last + 1);
-        match LAST.compare_exchange_weak(last, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return next,
-            Err(seen) => last = seen,
-        }
-    }
-}
-
-/// A new entity id: a ULID, sortable by creation time.
-pub(crate) fn new_id() -> String {
-    tinystoragedrivers_core::Key::ulid().as_str().to_owned()
-}
+pub(crate) use crate::ids::{monotonic_ms, new_id};
 
 /// A typed handle on `collection` whose writes declare [`SCHEMA_VERSION`].
 fn repo(docs: &Arc<dyn DocumentStore>, collection: &str) -> Result<Repo<Value>> {
