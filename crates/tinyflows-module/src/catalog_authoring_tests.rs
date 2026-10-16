@@ -162,6 +162,42 @@ async fn apply_graph_ops_is_sequential_and_returns_no_partial_graph_on_failure()
 }
 
 #[tokio::test]
+async fn apply_graph_ops_serves_successful_sequential_edits_without_validation()
+-> tinybus::Result<()> {
+    let (_server, client) = connections().await;
+    let proxy = client.proxy(
+        tinyflows_bus::BUS_NAME,
+        catalog::OBJECT_PATH,
+        catalog::INTERFACE,
+    )?;
+    let request = ApplyGraphOpsRequest {
+        graph: json!({
+            "nodes":[{"id":"start","name":"Start","kind":"trigger"}],
+            "edges":[],
+            "inputs":[{"name":"duplicate"},{"name":"duplicate"}]
+        }),
+        ops: vec![
+            json!({"op":"add_node","node":{"id":"added","name":"Added","kind":"output_parser","config":{}}}),
+            json!({"op":"set_node_name","id":"added","name":"Renamed"}),
+        ],
+    };
+    let result: catalog::ApplyGraphOpsResult = proxy
+        .call(catalog::members::APPLY_GRAPH_OPS, (request,))
+        .await?;
+    assert!(result.error.is_none());
+    let graph = result.graph.expect("successful graph edits return a graph");
+    assert_eq!(graph["nodes"][1]["name"], "Renamed");
+    assert_eq!(graph["inputs"][0]["name"], "duplicate");
+    assert_eq!(graph["inputs"][1]["name"], "duplicate");
+    let graph: tinyflows::model::WorkflowGraph = serde_json::from_value(graph).unwrap();
+    assert!(
+        !tinyflows::validate::validate_all(&graph).is_empty(),
+        "ApplyGraphOps must not add structural validation"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn approval_manifest_uses_host_classification_and_preserves_candidate_order()
 -> tinybus::Result<()> {
     let (_server, client) = connections().await;
@@ -262,13 +298,23 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
 async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transport()
 -> tinybus::Result<()> {
     let (_server, client) = connections().await;
-    let seen = Arc::new(Mutex::new(Vec::new()));
+    let cardinality_seen = Arc::new(Mutex::new(Vec::new()));
     client
         .serve_at(
-            "/test/approval_missing".try_into()?,
+            "/test/approval_cardinality".try_into()?,
             Classifier {
                 classes: Vec::new(),
-                seen,
+                seen: cardinality_seen.clone(),
+            },
+        )
+        .await?;
+    let malformed_seen = Arc::new(Mutex::new(Vec::new()));
+    client
+        .serve_at(
+            "/test/approval_class".try_into()?,
+            Classifier {
+                classes: vec![None],
+                seen: malformed_seen.clone(),
             },
         )
         .await?;
@@ -286,19 +332,13 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
             object_path: "/test/approval".into(),
         },
     };
-    let malformed: tinybus::Result<Vec<Value>> = proxy
+    let cardinality: tinybus::Result<Vec<Value>> = proxy
         .call(catalog::members::APPROVAL_MANIFEST, (request.clone(),))
         .await;
-    assert!(malformed.is_err());
-    client
-        .serve_at(
-            "/test/approval".try_into()?,
-            Classifier {
-                classes: vec![None],
-                seen: Arc::new(Mutex::new(Vec::new())),
-            },
-        )
-        .await?;
+    let cardinality_error = cardinality.unwrap_err().to_string();
+    assert!(cardinality_error.contains("0 classifications for 1 candidates"), "{cardinality_error}");
+    assert_eq!(cardinality_seen.lock().unwrap().len(), 1);
+
     let missing_required_class: tinybus::Result<Vec<Value>> = proxy
         .call(
             catalog::members::APPROVAL_MANIFEST,
@@ -307,12 +347,14 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
                 native_prefix: "oh:".into(),
                 host: catalog::CallbackAddress {
                     destination: "test.ApprovalHost".into(),
-                    object_path: "/test/approval_missing".into(),
+                    object_path: "/test/approval_class".into(),
                 },
             },),
         )
         .await;
-    assert!(missing_required_class.is_err());
+    let malformed_error = missing_required_class.unwrap_err().to_string();
+    assert!(malformed_error.contains("malformed classification at candidate 0"), "{malformed_error}");
+    assert_eq!(malformed_seen.lock().unwrap().len(), 1);
     let unavailable = ApprovalManifestRequest {
         host: catalog::CallbackAddress {
             destination: "test.MissingApprovalHost".into(),
