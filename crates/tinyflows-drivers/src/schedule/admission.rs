@@ -206,7 +206,7 @@ impl CronDocuments {
             Ok(_) => {}
             // A store that cannot set a creation time (a module's document
             // callback) files the job under the time of the import instead.
-            Err(error) if error.kind() == ErrorKind::Unsupported => {
+            Err(error) if matches!(error.kind(), ErrorKind::Unsupported(_)) => {
                 return self
                     .commit_job(id, None, Some(doc), vec![])
                     .await
