@@ -372,6 +372,8 @@ impl CronDocuments {
                     let Some(WriteResult::Put { version }) = results.first() else {
                         anyhow::bail!("cron store: invalid atomic write result");
                     };
+                    // An edit invalidates the claims taken on the old shape.
+                    self.fence_claims(job_id, &stored.doc).await;
                     return doc_to_job(&Versioned {
                         id: job_id.to_string(),
                         version: *version,
