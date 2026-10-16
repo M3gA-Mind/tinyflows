@@ -2009,6 +2009,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "thiserror",
+ "tinyflows-bus",
  "tokio",
  "tracing",
 ]
@@ -2047,6 +2048,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tinyflows",
+ "tinyflows-bus",
  "tokio-util",
  "tracing",
 ]

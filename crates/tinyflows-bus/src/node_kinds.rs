@@ -19,11 +19,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[path = "catalog/contracts/group_01.rs"]
+#[path = "node_kinds/group_01.rs"]
 mod group_01;
-#[path = "catalog/contracts/group_02.rs"]
+#[path = "node_kinds/group_02.rs"]
 mod group_02;
-#[path = "catalog/contracts/group_03.rs"]
+#[path = "node_kinds/group_03.rs"]
 mod group_03;
 
 use group_01::*;

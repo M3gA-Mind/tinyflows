@@ -128,7 +128,10 @@ async fn bus_dispatch_returns_typed_validation_report() {
     let report: GraphValidation = proxy
         .call(
             tinyflows_bus::methods::VALIDATE_GRAPH,
-            &(json!({"nodes": "invalid"}),),
+            &(tinyflows_bus::ValidateGraphRequest {
+                graph: json!({"nodes": "invalid"}),
+                host: None,
+            },),
         )
         .await
         .unwrap();
