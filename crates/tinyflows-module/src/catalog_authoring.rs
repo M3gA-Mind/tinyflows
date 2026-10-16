@@ -54,7 +54,7 @@ pub(super) fn apply_graph_ops(request: ApplyGraphOpsRequest) -> ApplyGraphOpsRes
         }
     }
     ApplyGraphOpsResult {
-        graph: serde_json::to_value(graph).ok(),
+        graph: Some(serde_json::to_value(graph).expect("WorkflowGraph is JSON serializable")),
         error: None,
     }
 }

@@ -29,8 +29,8 @@ pub use types::{
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Catalog";
 /// Catalog object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Catalog";
-/// Version of the served catalog contract. Version 3 adds drafts, suggestions,
-/// run reads, and host-mediated draft promotion.
+/// Version of the served catalog contract. Version 4 adds node contracts,
+/// structural graph edits, and host-classified approval manifests.
 pub const CONTRACT_VERSION: u32 = 4;
 /// Exact members served by the catalog module.
 pub const METHODS: &[&str] = &[
@@ -157,21 +157,43 @@ pub struct ApplyGraphOpsError {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManifestCandidate {
     /// HTTP request node.
-    Http { node_id: String, url: String },
+    Http {
+        /// Graph node id.
+        node_id: String,
+        /// Configured URL or a generic label.
+        url: String,
+    },
     /// Sandboxed code node.
-    Code { node_id: String },
+    Code {
+        /// Graph node id.
+        node_id: String,
+    },
     /// Tool slug resolved from runtime data.
-    DynamicTool { node_id: String },
+    DynamicTool {
+        /// Graph node id.
+        node_id: String,
+    },
     /// Host-native tool call.
     NativeTool {
+        /// Graph node id.
         node_id: String,
+        /// Tool name with the host prefix stripped.
         tool_name: String,
+        /// Tool arguments, which may contain unresolved bindings.
         args: serde_json::Value,
     },
     /// Connector action.
-    ConnectorTool { node_id: String, slug: String },
+    ConnectorTool {
+        /// Graph node id.
+        node_id: String,
+        /// Connector action slug.
+        slug: String,
+    },
     /// Agent with an inner harness turn.
-    Agent { node_id: String },
+    Agent {
+        /// Graph node id.
+        node_id: String,
+    },
 }
 
 /// Host security-policy classification for a manifest candidate.
