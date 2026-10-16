@@ -339,6 +339,16 @@ fn authoring_catalog_contract_types_round_trip_and_match_literal_wire_shapes() {
         json!({"kind":"native_tool","node_id":"send","tool_name":"web_search","args":{"query":"x"}})
     );
     wire_round_trip(candidate);
+    for candidate in [
+        ManifestCandidate::Http { node_id: "http".into(), url: "https://example.com".into() },
+        ManifestCandidate::Code { node_id: "code".into() },
+        ManifestCandidate::DynamicTool { node_id: "dynamic".into() },
+        ManifestCandidate::NativeTool { node_id: "native".into(), tool_name: "search".into(), args: json!({}) },
+        ManifestCandidate::ConnectorTool { node_id: "connector".into(), slug: "mail.send".into() },
+        ManifestCandidate::Agent { node_id: "agent".into() },
+    ] {
+        wire_round_trip(candidate);
+    }
     wire_round_trip(ManifestClass {
         name: "Write".into(),
         blocked: false,
