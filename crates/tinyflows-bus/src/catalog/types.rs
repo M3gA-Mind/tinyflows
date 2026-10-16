@@ -148,7 +148,7 @@ pub enum FlowUpdateError {
         /// Human-readable conflict explanation.
         message: String,
         /// Current workflow snapshot suitable for reload/diff.
-        current: Workflow,
+        current: Box<Workflow>,
     },
     /// The document store could not complete the operation.
     Store { message: String },

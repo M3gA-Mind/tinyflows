@@ -216,7 +216,7 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
     });
     wire_round_trip(FlowUpdateError::VersionConflict {
         message: "changed".into(),
-        current: workflow.clone(),
+        current: Box::new(workflow.clone()),
     });
     wire_round_trip(FlowUpdateError::NotFound {
         message: "missing".into(),
@@ -232,7 +232,7 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
     wire_round_trip(PutWorkflowResponse::Error(
         FlowUpdateError::VersionConflict {
             message: "changed".into(),
-            current: workflow.clone(),
+            current: Box::new(workflow.clone()),
         },
     ));
     wire_round_trip(ListWorkflowsResult {
@@ -403,7 +403,7 @@ fn catalog_and_storage_member_json_shapes_are_pinned() {
         serde_json::to_value(PutWorkflowResponse::Error(
             FlowUpdateError::VersionConflict {
                 message: "changed".into(),
-                current: current.clone(),
+                current: Box::new(current.clone()),
             },
         ))
         .unwrap(),

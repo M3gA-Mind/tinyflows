@@ -255,7 +255,7 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
         tinyflows_catalog::store::FlowUpdateError::Conflict(current) => {
             FlowUpdateError::VersionConflict {
                 message: "This flow changed since you loaded it. Reload to see the latest version, then reapply your change.".into(),
-                current: workflow(*current),
+                current: Box::new(workflow(*current)),
             }
         }
         tinyflows_catalog::store::FlowUpdateError::Store(error) => store_error(error),
