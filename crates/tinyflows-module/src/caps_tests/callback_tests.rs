@@ -92,7 +92,12 @@ async fn every_callback_trait_uses_the_exact_host_object_and_preserves_typed_inp
     assert_eq!(AgentRunner::resolve_workdir(&port, "/workspace", "other").await, WorkdirCheck::Unmanaged);
 
     let calls = calls.lock().unwrap().clone();
-    assert_eq!(calls.iter().filter(|call| call.starts_with("alice:")).count(), 19);
+    let methods: std::collections::HashSet<_> = calls
+        .iter()
+        .map(|call| call.split_once(':').unwrap().1)
+        .collect();
+    assert_eq!(methods, runs::CAPS_METHODS.iter().copied().collect());
+    assert_eq!(calls.iter().filter(|call| call.as_str() == "alice:AgentEvents").count(), 2);
 }
 
 #[tokio::test]

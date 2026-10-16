@@ -44,7 +44,7 @@ fn reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> Cat
     }
 }
 
-async fn storage_callback(host: &Connection, owner: &str) -> (CatalogStorage, FlowCatalogDocuments) {
+pub(super) async fn storage_callback(host: &Connection, owner: &str) -> (CatalogStorage, FlowCatalogDocuments) {
     let scope = Scope::new(owner).unwrap();
     let storage = MemoryStorage::new().for_scope(&scope).unwrap();
     let docs: Arc<dyn DocumentStore> = storage.documents().clone();

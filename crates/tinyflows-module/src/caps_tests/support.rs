@@ -9,12 +9,18 @@ use tinyflows_bus::runs::{
 };
 use tinybus::Connection;
 
+pub(super) struct ToolGate {
+    pub started: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+}
+
 #[derive(Clone)]
 pub(super) struct FakeHost {
     pub owner: String,
     pub calls: Arc<Mutex<Vec<String>>>,
     pub approval_calls: Arc<AtomicUsize>,
     pub fail_approval: bool,
+    pub tool_gate: Option<Arc<ToolGate>>,
 }
 
 impl FakeHost {
@@ -31,6 +37,10 @@ impl FakeHost {
     }
     async fn tool_invoke(&self, slug: String, args: Value, conn: Option<String>) -> tinybus::Result<Value> {
         self.record("ToolInvoke");
+        if let Some(gate) = &self.tool_gate {
+            gate.started.notify_one();
+            gate.release.notified().await;
+        }
         Ok(json!({"owner": self.owner, "slug": slug, "args": args, "conn": conn}))
     }
     async fn http_request(&self, request: Value, conn: Option<String>) -> tinybus::Result<Value> {
@@ -166,9 +176,24 @@ pub(super) async fn serve_caps(host: &Connection, owner: &str, path: &str, fail_
     let calls = Arc::new(Mutex::new(Vec::new()));
     host.serve_at(
         path.parse().unwrap(),
-        FakeHost { owner: owner.into(), calls: calls.clone(), approval_calls: Arc::new(AtomicUsize::new(0)), fail_approval },
+        FakeHost { owner: owner.into(), calls: calls.clone(), approval_calls: Arc::new(AtomicUsize::new(0)), fail_approval, tool_gate: None },
     ).await.unwrap();
     calls
+}
+
+pub(super) async fn serve_caps_with_blocked_tools(host: &Connection, owner: &str, path: &str) -> Arc<ToolGate> {
+    let gate = Arc::new(ToolGate { started: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
+    host.serve_at(
+        path.parse().unwrap(),
+        FakeHost {
+            owner: owner.into(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+            approval_calls: Arc::new(AtomicUsize::new(0)),
+            fail_approval: false,
+            tool_gate: Some(Arc::clone(&gate)),
+        },
+    ).await.unwrap();
+    gate
 }
 
 pub(super) fn caps_host(path: &str) -> CapsHost {
