@@ -1990,7 +1990,7 @@ dependencies = [
 
 [[package]]
 name = "tinyflows"
-version = "0.8.22"
+version = "0.8.23"
 dependencies = [
  "async-trait",
  "font8x8",
