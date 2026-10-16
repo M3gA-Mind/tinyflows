@@ -77,7 +77,10 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
         tinyflows_bus::node_kinds::render_node_kinds_required(std::slice::from_ref(code)),
         "code(config.language, config.source)"
     );
-    assert_eq!(code.clone().with_note("host overlay").notes, ["host overlay"]);
+    assert_eq!(
+        code.clone().with_note("host overlay").notes,
+        ["host overlay"]
+    );
     let unknown: tinybus::Result<Value> = proxy.call("UnknownCatalogMember", ()).await;
     assert!(unknown.is_err());
     Ok(())
@@ -243,7 +246,10 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
             (ApprovalManifestRequest {
                 graph: json!({"nodes":[{"id":"code","name":"Code","kind":"code"}],"edges":[]}),
                 native_prefix: "oh:".into(),
-                host: catalog::CallbackAddress { destination: "test.ApprovalHost".into(), object_path: "/test/approval-missing".into() },
+                host: catalog::CallbackAddress {
+                    destination: "test.ApprovalHost".into(),
+                    object_path: "/test/approval-missing".into(),
+                },
             },),
         )
         .await;

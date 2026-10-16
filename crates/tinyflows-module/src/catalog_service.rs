@@ -5,14 +5,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
-    self, ApplyGraphOpsError, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest,
-    CatalogStorage, ClassifyManifestCandidatesRequest, CreateDraftRequest, DeleteWorkflowResult,
-    DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion, FlowUpdateError, ListAllRunsRequest,
-    ListRevisionsRequest, ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult,
-    PromoteDraftRequest, PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest,
-    PutWorkflowResponse, PutWorkflowResult, RunIdRequest, SetEnabledRequest,
-    SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest, Workflow,
-    WorkflowRevision, WorkflowSummary,
+    self, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest, CatalogStorage,
+    CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion,
+    FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest, ListRunsRequest,
+    ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest, PromoteDraftResponse,
+    PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult, RunIdRequest,
+    SetEnabledRequest, SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest,
+    Workflow, WorkflowRevision, WorkflowSummary,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -68,107 +67,6 @@ fn graph(raw: Value) -> Result<tinyflows::model::WorkflowGraph> {
 }
 
 impl CatalogService {
-    async fn node_kinds_impl(&self) -> Vec<tinyflows_bus::node_kinds::NodeKindContract> {
-        tinyflows_bus::node_kinds::all_contracts()
-    }
-
-    async fn apply_graph_ops_impl(&self, request: ApplyGraphOpsRequest) -> ApplyGraphOpsResult {
-        let graph = match tinyflows::migrate::deserialize_graph(request.graph) {
-            Ok(graph) => graph,
-            Err(details) => {
-                return ApplyGraphOpsResult {
-                    graph: None,
-                    error: Some(ApplyGraphOpsError {
-                        index: 0,
-                        op: "decode_graph".into(),
-                        details,
-                    }),
-                };
-            }
-        };
-        let mut graph = graph;
-        for (index, raw) in request.ops.into_iter().enumerate() {
-            match serde_json::from_value::<tinyflows::graph_ops::GraphOp>(raw) {
-                Ok(op) => match tinyflows::graph_ops::apply_ops(&graph, &[op]) {
-                    Ok(updated) => graph = updated,
-                    Err(error) => {
-                        return ApplyGraphOpsResult {
-                            graph: None,
-                            error: Some(ApplyGraphOpsError {
-                                index,
-                                op: error.op.into(),
-                                details: error.kind.to_string(),
-                            }),
-                        };
-                    }
-                },
-                Err(error) => {
-                    return ApplyGraphOpsResult {
-                        graph: None,
-                        error: Some(ApplyGraphOpsError {
-                            index,
-                            op: "decode_operation".into(),
-                            details: error.to_string(),
-                        }),
-                    };
-                }
-            }
-        }
-        ApplyGraphOpsResult {
-            graph: serde_json::to_value(graph).ok(),
-            error: None,
-        }
-    }
-
-    async fn approval_manifest_impl(
-        &self,
-        request: ApprovalManifestRequest,
-    ) -> tinybus::Result<Vec<Value>> {
-        let graph = tinyflows::migrate::deserialize_graph(request.graph).map_err(Error::failed)?;
-        let candidates = tinyflows_catalog::approval_manifest::manifest_candidates(
-            &graph,
-            &request.native_prefix,
-        );
-        let callback = self.connection.proxy(
-            &request.host.destination,
-            &request.host.object_path,
-            catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
-        )?;
-        let classes: catalog::ClassifyManifestCandidatesResponse = callback
-            .call(
-                catalog::CLASSIFY_MANIFEST_CANDIDATES,
-                (ClassifyManifestCandidatesRequest {
-                    candidates: candidates.clone(),
-                },),
-            )
-            .await?;
-        if classes.len() != candidates.len() {
-            return Err(Error::failed(format!(
-                "manifest classifier returned {} classifications for {} candidates",
-                classes.len(),
-                candidates.len()
-            )));
-        }
-        for (index, (candidate, class)) in candidates.iter().zip(&classes).enumerate() {
-            let requires_class = matches!(
-                candidate,
-                catalog::ManifestCandidate::Http { .. }
-                    | catalog::ManifestCandidate::Code { .. }
-                    | catalog::ManifestCandidate::NativeTool { .. }
-                    | catalog::ManifestCandidate::ConnectorTool { .. }
-            );
-            if requires_class != class.is_some() {
-                return Err(Error::failed(format!(
-                    "manifest classifier returned malformed classification at candidate {index}"
-                )));
-            }
-        }
-        Ok(tinyflows_catalog::approval_manifest::assemble_manifest(
-            &candidates,
-            &classes,
-        ))
-    }
-
     async fn store(&self, storage: CatalogStorage) -> Result<FlowCatalogDocuments> {
         let docs =
             super::catalog_documents::Documents::new(self.connection.clone(), storage.callback)
@@ -373,21 +271,21 @@ impl CatalogService {
     async fn node_kinds(
         &self,
     ) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
-        Ok(CatalogService::node_kinds_impl(self).await)
+        Ok(super::catalog_authoring::node_kinds())
     }
 
     async fn apply_graph_ops(
         &self,
         request: ApplyGraphOpsRequest,
     ) -> tinybus::Result<ApplyGraphOpsResult> {
-        Ok(CatalogService::apply_graph_ops_impl(self, request).await)
+        Ok(super::catalog_authoring::apply_graph_ops(request))
     }
 
     async fn approval_manifest(
         &self,
         request: ApprovalManifestRequest,
     ) -> tinybus::Result<Vec<Value>> {
-        CatalogService::approval_manifest_impl(self, request).await
+        super::catalog_authoring::approval_manifest(&self.connection, request).await
     }
 
     async fn list_workflows(
