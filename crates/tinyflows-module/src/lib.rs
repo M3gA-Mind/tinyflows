@@ -9,7 +9,7 @@ mod catalog_authoring;
 mod catalog_documents;
 mod catalog_extended_ops;
 mod catalog_service;
-mod caps;
+pub mod caps;
 mod exports;
 mod schedule_callbacks;
 mod schedule_service;

@@ -34,22 +34,27 @@ const MAX_AGENT_EVENTS_PAGE: usize = 256;
 const MAX_AGENT_TRANSCRIPT_EVENTS: usize = 10_000;
 
 /// Engine adapters fixed to one host-created callback address and run context.
-pub(super) struct CapsHostPorts {
+pub struct CapsHostPorts {
     connection: Connection,
     address: runs::CallbackAddress,
 }
 
 /// Trusted values supplied by run management, separate from graph and trigger
 /// JSON. `storage` is already bound to the acting owner scope.
-pub(super) struct RunScope {
+pub struct RunScope {
+    /// The trusted flow id used to namespace durable workflow state.
     pub flow_id: String,
+    /// Document callback already bound by the host to the owner scope.
     pub storage: CatalogStorage,
 }
 
 impl CapsHostPorts {
     /// Builds one run's engine bundle. The host callback address must already
     /// be bound to that run's flow, run id, approval policy and owner scope.
-    pub(super) async fn capabilities(
+    /// Builds engine capabilities for one run. The supplied callback and
+    /// storage handles must be the ones created for this run by the trusted
+    /// host; graph and trigger data must never fill these fields.
+    pub async fn capabilities(
         connection: Connection,
         host: CapsHost,
         scope: RunScope,
