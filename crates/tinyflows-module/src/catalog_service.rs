@@ -85,10 +85,22 @@ impl CatalogService {
                 };
             }
         };
-        let mut ops = Vec::with_capacity(request.ops.len());
+        let mut graph = graph;
         for (index, raw) in request.ops.into_iter().enumerate() {
             match serde_json::from_value::<tinyflows::graph_ops::GraphOp>(raw) {
-                Ok(op) => ops.push(op),
+                Ok(op) => match tinyflows::graph_ops::apply_ops(&graph, &[op]) {
+                    Ok(updated) => graph = updated,
+                    Err(error) => {
+                        return ApplyGraphOpsResult {
+                            graph: None,
+                            error: Some(ApplyGraphOpsError {
+                                index,
+                                op: error.op.into(),
+                                details: error.kind.to_string(),
+                            }),
+                        };
+                    }
+                },
                 Err(error) => {
                     return ApplyGraphOpsResult {
                         graph: None,
@@ -101,19 +113,9 @@ impl CatalogService {
                 }
             }
         }
-        match tinyflows::graph_ops::apply_ops(&graph, &ops) {
-            Ok(graph) => ApplyGraphOpsResult {
-                graph: serde_json::to_value(graph).ok(),
-                error: None,
-            },
-            Err(error) => ApplyGraphOpsResult {
-                graph: None,
-                error: Some(ApplyGraphOpsError {
-                    index: error.index,
-                    op: error.op.into(),
-                    details: error.kind.to_string(),
-                }),
-            },
+        ApplyGraphOpsResult {
+            graph: serde_json::to_value(graph).ok(),
+            error: None,
         }
     }
 
