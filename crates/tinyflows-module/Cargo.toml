@@ -28,6 +28,12 @@ tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = ["ma
 tinybus-module = ">=0.1.3, <0.2"
 serde_json.workspace = true
 
+[features]
+default = []
+# Swap the C ABI exports for a Rust `linked_module()` so a host can link the
+# module into its own executable (several linked modules can then coexist).
+static-link = []
+
 [dev-dependencies]
 tempfile = "3"
 tokio.workspace = true
