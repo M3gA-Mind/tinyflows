@@ -288,4 +288,3 @@ async fn read_runs(db: &LegacyDb, report: &mut ImportReport) -> Result<Vec<CronR
     }
     Ok(runs)
 }
-

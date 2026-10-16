@@ -55,9 +55,9 @@ mod catalog;
 mod checkpoints;
 #[cfg(feature = "schedule")]
 mod cron;
-mod legacy_db;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
+mod legacy_db;
 mod report;
 #[cfg(feature = "catalog")]
 mod state;

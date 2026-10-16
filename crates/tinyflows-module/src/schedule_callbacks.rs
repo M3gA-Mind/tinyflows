@@ -46,7 +46,10 @@ impl HostCallbacks {
         // runtime retry work that is still going.
         if matches!(
             member,
-            callbacks::EXECUTE | callbacks::FAILED | callbacks::DELIVER | callbacks::SCHEDULE_TRIGGER
+            callbacks::EXECUTE
+                | callbacks::FAILED
+                | callbacks::DELIVER
+                | callbacks::SCHEDULE_TRIGGER
         ) {
             proxy = proxy.with_timeout(RUN_CALLBACK_TIMEOUT);
         }

@@ -83,7 +83,8 @@ that possible:
 - The wire records live in `tinyflows_bus::schedule::types` (`Schedule`,
   `CronJob`, `CronRun`, `CronJobPatch`, `JobOrigin`, `DeliveryConfig`,
   `DeliveryStatus`, `JobPolicy`, `JobType`, `SessionTarget`, `ActiveHours`,
-  `delivery_mode`), beside `AgentJobSpec`, `ImportedJob`, the callback records
+  `delivery_mode`). `tinyflows_bus::schedule` exports them together with
+  `AgentJobSpec`, `ImportedJob`, the callback records
   `Attempt`/`RunRecord`/`Completion`, `StoreOperation` (the typed `op` enum),
   `TooFrequent` and the constants `MIN_AGENT_JOB_INTERVAL`,
   `MAX_CRON_OUTPUT_BYTES`, `TRUNCATED_OUTPUT_MARKER`. `tinyflows-schedule`

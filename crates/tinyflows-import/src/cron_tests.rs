@@ -1,7 +1,7 @@
 use super::*;
-use tinyflows_bus::schedule::types::JobType;
 use crate::test_support::{docs, expected, fixtures, json, tree_digest};
 use serde_json::Value;
+use tinyflows_bus::schedule::types::JobType;
 use tinystoragedrivers_sqlite::rusqlite::Connection;
 
 fn jobs_db() -> std::path::PathBuf {

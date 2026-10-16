@@ -32,6 +32,24 @@ async fn schedule_maths_members_match_the_in_process_functions() {
         .unwrap();
     assert_eq!(next.to_rfc3339(), "2026-01-01T00:10:00+00:00");
 
+    for at in ["2026-01-01T00:00:00Z", "2025-12-31T00:00:00Z"] {
+        let elapsed = proxy
+            .call::<chrono::DateTime<chrono::Utc>>(
+                members::NEXT_RUN,
+                &(json!({"schedule":{"kind":"at","at":at},"from":"2026-01-01T00:00:00Z"}),),
+            )
+            .await;
+        assert!(elapsed.is_err(), "{at} is not after from");
+    }
+    let future: chrono::DateTime<chrono::Utc> = proxy
+        .call(
+            members::NEXT_RUN,
+            &(json!({"schedule":{"kind":"at","at":"2026-01-02T00:00:00Z"},"from":"2026-01-01T00:00:00Z"}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(future.to_rfc3339(), "2026-01-02T00:00:00+00:00");
+
     let bad: std::result::Result<chrono::DateTime<chrono::Utc>, _> = proxy
         .call(
             members::NEXT_RUN,

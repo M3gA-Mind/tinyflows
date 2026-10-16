@@ -181,6 +181,17 @@ impl ScheduleService {
     }
 
     async fn next_run(&self, request: NextRunRequest) -> Result<chrono::DateTime<chrono::Utc>> {
+        // The contract promises an occurrence strictly after `from`; the
+        // in-process function returns a one-shot's instant unchanged, so an
+        // elapsed `At` is refused here instead of handed back as "next".
+        if let Schedule::At { at } = &request.schedule {
+            if *at <= request.from {
+                return Err(Error::failed(format!(
+                    "one-shot schedule at {at} is not after {}",
+                    request.from
+                )));
+            }
+        }
         maths::next_run_for_schedule(&request.schedule, request.from).map_err(failure)
     }
     async fn validate_schedule(&self, request: ValidateScheduleRequest) -> Result<()> {
