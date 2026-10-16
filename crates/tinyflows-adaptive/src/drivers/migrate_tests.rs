@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use tinystoragedrivers_core::{
     Counters, DocumentStore, DocumentStoreExt, Key, MemoryStorage, MigrateOptions, Owner,
-    Precondition, Registry, Schema, Scope, ScopeClass, ScopedStorage, StorageBackend, primitives,
+    Precondition, Registry, Schema, Scope, ScopeClass, ScopedStorage, StorageBackend,
 };
 
 use super::*;
@@ -169,7 +169,7 @@ async fn scores_variants_episodes_steps_and_workflows_are_re_keyed_with_the_scop
         json!({"scope_key": "t", "row_id": "ldg_0001", "seq": 0, "record": step.to_string()}),
     )
     .await;
-    let wf = serde_json::to_value(conformance_workflow("wf")).unwrap();
+    let wf = serde_json::to_value(crate::workflows::conformance::record("wf")).unwrap();
     seed(
         &storage,
         "adaptive_workflows",
@@ -259,9 +259,4 @@ async fn the_v1_sequences_carry_into_tsd_counters() {
 async fn importing_with_no_v1_counters_only_records_completion() {
     let storage = scoped();
     assert_eq!(import_legacy_adaptive_counters(&storage).await.unwrap(), 0);
-    let _ = primitives::KV;
-}
-
-fn conformance_workflow(id: &str) -> tinyflows::store::types::WorkflowRecord {
-    futures_free_record(id)
 }
