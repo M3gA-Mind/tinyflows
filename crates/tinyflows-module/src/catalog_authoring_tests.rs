@@ -69,6 +69,17 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
         })
     );
     assert!(tinyflows_bus::node_kinds::render_node_kinds_line(&contracts).contains("http_request"));
+    assert_eq!(
+        tinyflows_bus::node_kinds::render_node_kinds_line(std::slice::from_ref(code)),
+        "code [required config.language/config.source] — Run a sandboxed JavaScript or Python snippet."
+    );
+    assert_eq!(
+        tinyflows_bus::node_kinds::render_node_kinds_required(std::slice::from_ref(code)),
+        "code(config.language, config.source)"
+    );
+    assert_eq!(code.clone().with_note("host overlay").notes, ["host overlay"]);
+    let unknown: tinybus::Result<Value> = proxy.call("UnknownCatalogMember", ()).await;
+    assert!(unknown.is_err());
     Ok(())
 }
 
@@ -130,7 +141,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
     ];
     client
         .serve_at(
-            "/test/approval".try_into()?,
+            "/test/approval-missing".try_into()?,
             Classifier {
                 classes,
                 seen: seen.clone(),
@@ -217,6 +228,26 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
         .call(catalog::members::APPROVAL_MANIFEST, (request.clone(),))
         .await;
     assert!(malformed.is_err());
+    client
+        .serve_at(
+            "/test/approval".try_into()?,
+            Classifier {
+                classes: vec![None],
+                seen: Arc::new(Mutex::new(Vec::new())),
+            },
+        )
+        .await?;
+    let missing_required_class: tinybus::Result<Vec<Value>> = proxy
+        .call(
+            catalog::members::APPROVAL_MANIFEST,
+            (ApprovalManifestRequest {
+                graph: json!({"nodes":[{"id":"code","name":"Code","kind":"code"}],"edges":[]}),
+                native_prefix: "oh:".into(),
+                host: catalog::CallbackAddress { destination: "test.ApprovalHost".into(), object_path: "/test/approval-missing".into() },
+            },),
+        )
+        .await;
+    assert!(missing_required_class.is_err());
     let unavailable = ApprovalManifestRequest {
         host: catalog::CallbackAddress {
             destination: "test.MissingApprovalHost".into(),
