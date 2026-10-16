@@ -329,7 +329,7 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
         native_prefix: "oh:".into(),
         host: catalog::CallbackAddress {
             destination: "test.ApprovalHost".into(),
-            object_path: "/test/approval".into(),
+            object_path: "/test/approval_cardinality".into(),
         },
     };
     let cardinality: tinybus::Result<Vec<Value>> = proxy
