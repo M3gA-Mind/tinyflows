@@ -225,7 +225,7 @@ pub(super) async fn promote_draft(
             &(SavePromotedDraftRequest { operation }),
         )
         .await
-        .context("saving promoted workflow through host")?;
+        .map_err(|error| anyhow::anyhow!("saving promoted workflow through host: {error:#}"))?;
     let saved = match saved {
         SavePromotedDraftResponse::Ok(saved) => saved,
         SavePromotedDraftResponse::Error(error) => {
