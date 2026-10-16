@@ -220,7 +220,10 @@ async fn migrating_twice_changes_nothing() {
     migrate(&storage).await;
     migrate(&storage).await;
     let all = docs(&storage)
-        .query_all("flows.adaptive_variants", &tinystoragedrivers_core::Query::all())
+        .query_all(
+            "flows.adaptive_variants",
+            &tinystoragedrivers_core::Query::all(),
+        )
         .await
         .unwrap();
     assert_eq!(all.len(), 1);
@@ -229,8 +232,20 @@ async fn migrating_twice_changes_nothing() {
 #[tokio::test]
 async fn the_v1_sequences_carry_into_tsd_counters() {
     let storage = scoped();
-    seed(&storage, "adaptive_counters", "adaptive_rows", json!({"seq": 41})).await;
-    seed(&storage, "adaptive_counters", "adaptive_lessons", json!({"seq": 6})).await;
+    seed(
+        &storage,
+        "adaptive_counters",
+        "adaptive_rows",
+        json!({"seq": 41}),
+    )
+    .await;
+    seed(
+        &storage,
+        "adaptive_counters",
+        "adaptive_lessons",
+        json!({"seq": 6}),
+    )
+    .await;
 
     assert_eq!(import_legacy_adaptive_counters(&storage).await.unwrap(), 2);
 

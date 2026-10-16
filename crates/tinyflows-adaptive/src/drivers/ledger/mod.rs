@@ -114,7 +114,10 @@ impl DriverLedger {
     pub(super) async fn declared(&self) -> Result<()> {
         self.declared
             .get_or_try_init(|| async {
-                for spec in collections().into_iter().chain(primitives::collection_specs()) {
+                for spec in collections()
+                    .into_iter()
+                    .chain(primitives::collection_specs())
+                {
                     self.docs.ensure_collection(&spec).await.map_err(backend)?;
                 }
                 Ok::<(), LedgerError>(())
@@ -171,7 +174,15 @@ impl DriverLedger {
 
     /// Writes `doc` at `id` only if nothing is there yet.
     pub(super) async fn insert_once(&self, collection: &str, id: &str, doc: Value) -> Result<()> {
-        match put_doc(self.docs.as_ref(), collection, id, doc, Precondition::Absent).await {
+        match put_doc(
+            self.docs.as_ref(),
+            collection,
+            id,
+            doc,
+            Precondition::Absent,
+        )
+        .await
+        {
             Ok(_) => Ok(()),
             Err(error) if is_race(&error) => Ok(()),
             Err(error) => Err(backend(error)),

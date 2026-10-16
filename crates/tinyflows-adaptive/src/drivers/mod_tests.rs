@@ -24,7 +24,10 @@ fn only_a_conflict_is_a_race() {
 #[test]
 fn instants_round_trip_through_milliseconds() {
     use super::convert::{instant_ms, rfc3339};
-    assert_eq!(rfc3339(instant_ms("2026-01-01T00:00:05Z")), "2026-01-01T00:00:05Z");
+    assert_eq!(
+        rfc3339(instant_ms("2026-01-01T00:00:05Z")),
+        "2026-01-01T00:00:05Z"
+    );
     assert_eq!(
         rfc3339(instant_ms("2026-01-01T02:00:05.250+02:00")),
         "2026-01-01T00:00:05.250Z"

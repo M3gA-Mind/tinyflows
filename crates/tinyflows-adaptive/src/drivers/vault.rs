@@ -8,8 +8,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tinyflows::store::types::{WorkflowError, WorkflowRecord};
 use tinystoragedrivers_core::{
-    DocumentStore, DocumentStoreExt, Filter, Precondition, Query, Sort, StorageError,
-    WriteOptions, primitives,
+    DocumentStore, DocumentStoreExt, Filter, Precondition, Query, Sort, StorageError, WriteOptions,
+    primitives,
 };
 use tokio::sync::OnceCell;
 
@@ -64,7 +64,10 @@ impl DriverVault {
     async fn declared(&self) -> Result<(), WorkflowError> {
         self.declared
             .get_or_try_init(|| async {
-                for spec in collections().into_iter().chain(primitives::collection_specs()) {
+                for spec in collections()
+                    .into_iter()
+                    .chain(primitives::collection_specs())
+                {
                     self.docs.ensure_collection(&spec).await.map_err(backend)?;
                 }
                 Ok::<(), WorkflowError>(())
@@ -94,11 +97,12 @@ impl Vault for DriverVault {
             .await
             .map_err(backend)?
         {
-            let record: WorkflowRecord = workflow_from(&stored.doc)
-                .and_then(from_object)
-                .map_err(|e| {
-                    WorkflowError::Engine(format!("stored workflow no longer parses: {e}"))
-                })?;
+            let record: WorkflowRecord =
+                workflow_from(&stored.doc)
+                    .and_then(from_object)
+                    .map_err(|e| {
+                        WorkflowError::Engine(format!("stored workflow no longer parses: {e}"))
+                    })?;
             chosen.insert(record.id.clone(), record);
         }
         Ok(chosen.into_values().collect())

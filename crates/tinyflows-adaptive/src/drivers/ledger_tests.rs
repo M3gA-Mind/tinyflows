@@ -1,8 +1,8 @@
 use super::*;
-use tinystoragedrivers_core::Counters;
 use crate::drivers::key;
 use crate::execute::StepRecord;
 use crate::ledger::{Ledger, Score, conformance};
+use tinystoragedrivers_core::Counters;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 fn memory_docs() -> Arc<dyn DocumentStore> {
@@ -138,7 +138,10 @@ async fn steps_are_one_document_each_in_order() {
     assert_eq!(first.id, key(&["", "ldg_1", "00000000"]).unwrap());
     assert_eq!(first.doc["node_id"], "n00");
     assert_eq!(first.doc["duration_ms"], 1);
-    assert_eq!(first.doc["output"]["file.name"], "n00", "output is verbatim");
+    assert_eq!(
+        first.doc["output"]["file.name"], "n00",
+        "output is verbatim"
+    );
     let back = store.steps("ldg_1").await.unwrap();
     assert_eq!(
         back.iter().map(|s| s.node_id.as_str()).collect::<Vec<_>>(),
@@ -172,8 +175,14 @@ async fn rows_and_episodes_are_stored_flat_with_ms_times() {
     assert_eq!(row.doc["at_ms"], 1_767_225_603_000_i64);
     assert_eq!(row.doc["approach_sig"], "sig");
     assert_eq!(row.meta.schema, 2);
-    assert_eq!(store.rows("ep").await.unwrap()[0].at, "2026-01-01T00:00:03Z");
+    assert_eq!(
+        store.rows("ep").await.unwrap()[0].at,
+        "2026-01-01T00:00:03Z"
+    );
 
-    let counter = Counters::new(&docs).peek("flows", "adaptive_rows").await.unwrap();
+    let counter = Counters::new(&docs)
+        .peek("flows", "adaptive_rows")
+        .await
+        .unwrap();
     assert_eq!(counter, 1, "the id sequence is a tsd counter");
 }

@@ -21,13 +21,13 @@
 
 use serde_json::{Map, Value};
 use tinystoragedrivers_core::{
-    Cursor, Filter, ID_FIELD, Key, Migrations, Query, Result, Schema, ScopeClass,
-    ScopedStorage, SourceRecord, Sort, Step, TargetRecord, primitives,
+    Cursor, Filter, ID_FIELD, Key, Migrations, Query, Result, Schema, ScopeClass, ScopedStorage,
+    Sort, SourceRecord, Step, TargetRecord, primitives,
 };
 
 use super::convert::{episode_body, lesson_body, row_body, step_body, workflow_body};
 use super::{
-    COUNTERS, COUNTER_OWNER, EPISODES, EVIDENCE, LESSONS, ROWS, SCHEMA_VERSION, SCORES, STEPS,
+    COUNTER_OWNER, COUNTERS, EPISODES, EVIDENCE, LESSONS, ROWS, SCHEMA_VERSION, SCORES, STEPS,
     VARIANTS, WORKFLOWS, collections,
 };
 
@@ -99,7 +99,11 @@ fn row(source: &SourceRecord) -> Option<TargetRecord> {
     let body = row_body(rec, text(source, "scope_key"), seq(source));
     let at = body.get("at_ms").and_then(Value::as_i64).unwrap_or(0);
     let target = TargetRecord::new(ROWS, source.id.clone(), body);
-    Some(if at > 0 { target.created_ms(at) } else { target })
+    Some(if at > 0 {
+        target.created_ms(at)
+    } else {
+        target
+    })
 }
 
 fn lesson(source: &SourceRecord) -> Option<TargetRecord> {
@@ -156,7 +160,11 @@ fn episode(source: &SourceRecord) -> Option<TargetRecord> {
         return Some(carried(EPISODES, source));
     };
     let scope = text(source, "scope_key");
-    let id = rec.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let id = rec
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let body = episode_body(rec, scope);
     let started = body.get("started_ms").and_then(Value::as_i64).unwrap_or(0);
     let target = TargetRecord::new(EPISODES, key(&[scope, &id], &source.id), body);
@@ -171,7 +179,11 @@ fn steps(source: &SourceRecord) -> Option<TargetRecord> {
     let Some(rec) = record(source) else {
         return Some(carried(STEPS, source));
     };
-    let (scope, row_id, n) = (text(source, "scope_key"), text(source, "row_id"), seq(source));
+    let (scope, row_id, n) = (
+        text(source, "scope_key"),
+        text(source, "row_id"),
+        seq(source),
+    );
     let body = step_body(rec, scope, row_id, n);
     Some(TargetRecord::new(
         STEPS,
@@ -185,9 +197,17 @@ fn workflow(source: &SourceRecord) -> Option<TargetRecord> {
         return Some(carried(WORKFLOWS, source));
     };
     let scope = text(source, "scope_key");
-    let id = rec.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let id = rec
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     let target_key = key(&[scope, &id], &source.id);
-    Some(TargetRecord::new(WORKFLOWS, target_key, workflow_body(rec, scope)))
+    Some(TargetRecord::new(
+        WORKFLOWS,
+        target_key,
+        workflow_body(rec, scope),
+    ))
 }
 
 /// Move the v1 id sequences (`adaptive_counters`: `{seq}` per sequence name)
@@ -229,7 +249,9 @@ pub async fn import_legacy_adaptive_counters(storage: &ScopedStorage) -> Result<
                 tracing::debug!(sequence = %found.id, "[adaptive-storage] counter import dropped a malformed row");
                 continue;
             };
-            counters.set_at_least(COUNTER_OWNER, &found.id, last).await?;
+            counters
+                .set_at_least(COUNTER_OWNER, &found.id, last)
+                .await?;
             carried += 1;
         }
         match page.next {

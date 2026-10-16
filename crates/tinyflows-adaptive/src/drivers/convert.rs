@@ -140,7 +140,12 @@ pub(super) fn episode_from(doc: &Value) -> Result<Map<String, Value>, String> {
 
 /// A step (its camelCase wire form) as the `adaptive_steps` body. `output` is
 /// the node's own data and is kept verbatim.
-pub(super) fn step_body(mut step: Map<String, Value>, scope: &str, row_id: &str, seq: u64) -> Value {
+pub(super) fn step_body(
+    mut step: Map<String, Value>,
+    scope: &str,
+    row_id: &str,
+    seq: u64,
+) -> Value {
     rename(&mut step, "nodeId", "node_id");
     rename(&mut step, "durationMs", "duration_ms");
     rename(&mut step, "nullBindings", "null_bindings");
