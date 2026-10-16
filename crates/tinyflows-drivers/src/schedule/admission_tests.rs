@@ -95,7 +95,7 @@ async fn unsupported_backends_keep_unlimited_crud_but_refuse_policy_and_claims()
     assert!(a.list_jobs().await.unwrap().is_empty());
     assert!(
         a.docs
-            .get(super::COUNTERS, "admission")
+            .get(super::ADMISSION, "ledger")
             .await
             .unwrap()
             .is_none()
@@ -179,7 +179,7 @@ async fn malformed_admission_and_capability_downgrades_fail_closed() {
     assert!(b.add_shell_job(None, daily(), "bypass").await.is_err());
     a.docs
         .put(
-            super::COUNTERS,
+            super::ADMISSION,
             "admission",
             serde_json::json!({"limit":"one","jobs":{}}),
             Precondition::None,
@@ -270,7 +270,7 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
     a.set_max_active_jobs(Some(2)).await.unwrap();
     let stored = a
         .docs
-        .get(super::COUNTERS, "admission")
+        .get(super::ADMISSION, "ledger")
         .await
         .unwrap()
         .unwrap();
@@ -281,7 +281,7 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
     a.add_flow_schedule_job("dot.$key", daily()).await.unwrap();
     let stored = a
         .docs
-        .get(super::COUNTERS, "admission")
+        .get(super::ADMISSION, "ledger")
         .await
         .unwrap()
         .unwrap();
@@ -293,7 +293,7 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
     a.set_max_active_jobs(None).await.unwrap();
     let stored = a
         .docs
-        .get(super::COUNTERS, "admission")
+        .get(super::ADMISSION, "ledger")
         .await
         .unwrap()
         .unwrap();
