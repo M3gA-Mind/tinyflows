@@ -283,21 +283,15 @@ async fn store_admission_cap_and_import_operations_are_served() {
 async fn the_served_surface_is_exactly_the_advertised_member_set() {
     let (proxy, _host, _server) = proxy().await;
     // Every advertised member must at least be dispatched (not "unknown member").
+    let unknown = proxy.call::<Value>("Bogus", &(json!({}),)).await;
+    assert!(unknown.unwrap_err().to_string().contains("UnknownMethod"));
     for name in schedule::METHODS {
         let result = proxy.call::<Value>(name, &(json!({}),)).await;
         if let Err(error) = result {
-            let text = error.to_string().to_lowercase();
             assert!(
-                !text.contains("unknown method") && !text.contains("no such method"),
+                !error.to_string().contains("UnknownMethod"),
                 "{name}: {error}"
             );
         }
     }
-}
-
-#[tokio::test]
-async fn probe_unknown() {
-    let (proxy, _h, _s) = proxy().await;
-    let e = proxy.call::<Value>("Bogus", &(json!({}),)).await.unwrap_err();
-    panic!("{e}");
 }
