@@ -198,10 +198,22 @@ impl CronDocuments {
             options = options.created_ms(created_ms);
         }
         let member = member(id, &doc)?;
-        self.docs
-            .put_with(JOBS, id, doc, Precondition::Absent, options)
+        match self
+            .docs
+            .put_with(JOBS, id, doc.clone(), Precondition::Absent, options)
             .await
-            .map_err(storage_error)?;
+        {
+            Ok(_) => {}
+            // A store that cannot set a creation time (a module's document
+            // callback) files the job under the time of the import instead.
+            Err(error) if error.kind() == ErrorKind::Unsupported => {
+                return self
+                    .commit_job(id, None, Some(doc), vec![])
+                    .await
+                    .map(|_| ());
+            }
+            Err(error) => return Err(storage_error(error)),
+        }
         if !self.docs.capabilities().contains(Capability::Transactions) {
             return self.require_unlimited_backend().await;
         }
