@@ -181,6 +181,10 @@ fn convert<A: Serialize, B: DeserializeOwned>(value: A) -> Result<B> {
     serde_json::from_value(wire).map_err(capability_error)
 }
 
+#[cfg(test)]
+#[path = "caps_tests.rs"]
+mod tests;
+
 #[async_trait]
 impl LlmProvider for CapsHostPorts {
     async fn complete(&self, request: Value, conn: Option<&str>) -> Result<Value> {
