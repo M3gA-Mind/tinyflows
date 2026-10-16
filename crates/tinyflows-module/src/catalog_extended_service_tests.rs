@@ -158,8 +158,8 @@ fn suggestion(id: &str) -> FlowSuggestion {
 #[tokio::test]
 async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
     let (_server, host) = connections().await;
-    let (alice, alice_docs) = scope_with_documents(&host, "extended-alice").await;
-    let bob = scope(&host, "extended-bob").await;
+    let (alice, alice_docs) = scope_with_documents(&host, "extended_alice").await;
+    let bob = scope(&host, "extended_bob").await;
     let proxy = proxy(&host);
 
     let draft = create_draft(&proxy, alice.clone(), Some("old-flow".into())).await;
@@ -369,7 +369,7 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
 #[tokio::test]
 async fn promote_draft_calls_catalog_reentrantly_and_deletes_after_success() {
     let (_server, host) = connections().await;
-    let (storage, _) = scope_with_documents(&host, "promote-success").await;
+    let (storage, _) = scope_with_documents(&host, "promote_success").await;
     let proxy = proxy(&host);
     let draft = create_draft(&proxy, storage.clone(), None).await;
     let callback = promotion_host(&host, storage.clone(), "success", false).await;
@@ -412,7 +412,7 @@ async fn promote_draft_calls_catalog_reentrantly_and_deletes_after_success() {
 #[tokio::test]
 async fn promote_draft_preserves_host_failure_and_retains_draft() {
     let (_server, host) = connections().await;
-    let (storage, _) = scope_with_documents(&host, "promote-failure").await;
+    let (storage, _) = scope_with_documents(&host, "promote_failure").await;
     let proxy = proxy(&host);
     let draft = create_draft(&proxy, storage.clone(), None).await;
     let callback = promotion_host(&host, storage.clone(), "failure", true).await;
@@ -449,10 +449,10 @@ async fn promote_draft_preserves_host_failure_and_retains_draft() {
 #[tokio::test]
 async fn promote_draft_reports_cleanup_failure_after_successful_save() {
     let (_server, host) = connections().await;
-    let (storage, _) = scope_with_draft_delete_failure(&host, "promote-delete-failure").await;
+    let (storage, _) = scope_with_draft_delete_failure(&host, "promote_delete_failure").await;
     let proxy = proxy(&host);
     let draft = create_draft(&proxy, storage.clone(), None).await;
-    let callback = promotion_host(&host, storage.clone(), "delete-failure", false).await;
+    let callback = promotion_host(&host, storage.clone(), "delete_failure", false).await;
     let result: PromoteDraftResponse = proxy
         .call(
             "PromoteDraft",
