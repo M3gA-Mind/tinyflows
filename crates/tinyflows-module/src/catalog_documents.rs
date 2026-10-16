@@ -2,9 +2,13 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinybus::Connection;
-use tinyflows_bus::catalog::{CallbackAddress, STORAGE_INTERFACE, storage};
+use tinyflows_bus::catalog::{
+    CallbackAddress, CatalogStorageReply, DocAtomicBatchRequest, DocCapabilities,
+    DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest, DocDeleteWhereRequest,
+    DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest, STORAGE_INTERFACE, storage,
+};
 use tinystoragedrivers_core::{
     Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
     Result, Sort, StorageError, Version, Versioned, WriteOp, WriteResult,
@@ -22,32 +26,22 @@ impl std::fmt::Debug for Documents {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Reply {
-    Error { error: Failure },
-    Value { value: Value },
-}
-
-#[derive(Deserialize)]
-struct Failure {
-    kind: String,
-    message: String,
-}
-
-impl Failure {
+impl CatalogStorageReply {
     fn into_error(self) -> StorageError {
-        match self.kind.as_str() {
-            "conflict" => StorageError::conflict(self.message),
-            "already_exists" => StorageError::already_exists(self.message),
-            "not_found" => StorageError::not_found(self.message),
-            "invalid_input" => StorageError::invalid_input(self.message),
+        let Self::Error { error } = self else {
+            unreachable!("only error replies convert to a storage error")
+        };
+        match error.kind.as_str() {
+            "conflict" => StorageError::conflict(error.message),
+            "already_exists" => StorageError::already_exists(error.message),
+            "not_found" => StorageError::not_found(error.message),
+            "invalid_input" => StorageError::invalid_input(error.message),
             "serialization" => StorageError::new(
                 tinystoragedrivers_core::ErrorKind::Serialization,
-                self.message,
+                error.message,
             ),
-            "unavailable" => StorageError::unavailable(self.message),
-            _ => StorageError::backend(self.message),
+            "unavailable" => StorageError::unavailable(error.message),
+            _ => StorageError::backend(error.message),
         }
     }
 }
@@ -67,11 +61,9 @@ impl Documents {
             address,
             capabilities: Capabilities::none(),
         };
-        #[derive(Deserialize)]
-        struct CapabilityReport {
-            transactions: bool,
-        }
-        let report: CapabilityReport = documents.request(storage::CAPABILITIES, json!({})).await?;
+        let report: DocCapabilities = documents
+            .request(storage::CAPABILITIES, DocCapabilitiesRequest {})
+            .await?;
         if report.transactions {
             documents.capabilities = documents.capabilities.with(Capability::Transactions);
         }
@@ -96,14 +88,23 @@ impl Documents {
         Ok(())
     }
 
-    async fn call<R: DeserializeOwned>(&self, member: &str, request: Value) -> Result<R> {
+    async fn call<R: DeserializeOwned, A: serde::Serialize>(
+        &self,
+        member: &str,
+        request: A,
+    ) -> Result<R> {
+        let request = serde_json::to_value(request)?;
         if let Some(collection) = request.get("collection").and_then(Value::as_str) {
             Self::validate_collection(collection)?;
         }
         self.request(member, request).await
     }
 
-    async fn request<R: DeserializeOwned>(&self, member: &str, request: Value) -> Result<R> {
+    async fn request<R: DeserializeOwned, A: serde::Serialize>(
+        &self,
+        member: &str,
+        request: A,
+    ) -> Result<R> {
         let proxy = self
             .connection
             .proxy(
@@ -112,13 +113,13 @@ impl Documents {
                 STORAGE_INTERFACE,
             )
             .map_err(|error| StorageError::backend(error.to_string()))?;
-        let reply: Reply = proxy
+        let reply: CatalogStorageReply = proxy
             .call(member, &(request,))
             .await
             .map_err(|error| StorageError::unavailable(error.to_string()))?;
         match reply {
-            Reply::Error { error } => Err(error.into_error()),
-            Reply::Value { value } => Ok(serde_json::from_value(value)?),
+            CatalogStorageReply::Error { .. } => Err(reply.into_error()),
+            CatalogStorageReply::Value { value } => Ok(serde_json::from_value(value)?),
         }
     }
 }
@@ -137,18 +138,30 @@ impl DocumentStore for Documents {
             };
             Self::validate_collection(collection)?;
         }
-        self.request(storage::ATOMIC_BATCH, json!({"ops":ops}))
+        self.request(storage::ATOMIC_BATCH, DocAtomicBatchRequest { ops })
             .await
     }
 
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<()> {
         Self::validate_collection(&spec.name)?;
-        self.call(storage::ENSURE, json!({"spec":spec})).await
+        self.call(
+            storage::ENSURE,
+            DocEnsureRequest {
+                spec: serde_json::to_value(spec)?,
+            },
+        )
+        .await
     }
 
     async fn get(&self, collection: &str, id: &str) -> Result<Option<Versioned<Value>>> {
-        self.call(storage::GET, json!({"collection":collection,"id":id}))
-            .await
+        self.call(
+            storage::GET,
+            DocGetRequest {
+                collection: collection.into(),
+                id: id.into(),
+            },
+        )
+        .await
     }
 
     async fn put(
@@ -160,7 +173,12 @@ impl DocumentStore for Documents {
     ) -> Result<Version> {
         self.call(
             storage::PUT,
-            json!({"collection":collection,"id":id,"doc":doc,"precondition":precondition}),
+            DocPutRequest {
+                collection: collection.into(),
+                id: id.into(),
+                doc,
+                precondition: serde_json::to_value(precondition)?,
+            },
         )
         .await
     }
@@ -168,7 +186,11 @@ impl DocumentStore for Documents {
     async fn delete(&self, collection: &str, id: &str, precondition: Precondition) -> Result<bool> {
         self.call(
             storage::DELETE,
-            json!({"collection":collection,"id":id,"precondition":precondition}),
+            DocDeleteRequest {
+                collection: collection.into(),
+                id: id.into(),
+                precondition: serde_json::to_value(precondition)?,
+            },
         )
         .await
     }
@@ -176,7 +198,10 @@ impl DocumentStore for Documents {
     async fn query(&self, collection: &str, query: &Query) -> Result<Page<Versioned<Value>>> {
         self.call(
             storage::QUERY,
-            json!({"collection":collection,"query":query}),
+            DocQueryRequest {
+                collection: collection.into(),
+                query: serde_json::to_value(query)?,
+            },
         )
         .await
     }
@@ -184,7 +209,10 @@ impl DocumentStore for Documents {
     async fn count(&self, collection: &str, filter: &Filter) -> Result<u64> {
         self.call(
             storage::COUNT,
-            json!({"collection":collection,"filter":filter}),
+            DocCountRequest {
+                collection: collection.into(),
+                filter: serde_json::to_value(filter)?,
+            },
         )
         .await
     }
@@ -192,7 +220,10 @@ impl DocumentStore for Documents {
     async fn delete_where(&self, collection: &str, filter: &Filter) -> Result<u64> {
         self.call(
             storage::DELETE_WHERE,
-            json!({"collection":collection,"filter":filter}),
+            DocDeleteWhereRequest {
+                collection: collection.into(),
+                filter: serde_json::to_value(filter)?,
+            },
         )
         .await
     }

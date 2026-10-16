@@ -14,7 +14,7 @@ struct HostDocuments(Arc<dyn DocumentStore>);
 impl HostDocuments {
     async fn doc_capabilities(&self, _request: Value) -> tinybus::Result<Value> {
         Ok(
-            json!({"transactions":self.0.capabilities().contains(tinystoragedrivers_core::Capability::Transactions)}),
+            json!({"value":{"transactions":self.0.capabilities().contains(tinystoragedrivers_core::Capability::Transactions)}}),
         )
     }
 

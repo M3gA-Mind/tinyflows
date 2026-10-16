@@ -4,7 +4,14 @@
 //! host to one acting agent, and the module performs catalog operations over
 //! that scoped document port.
 
+mod storage_types;
 mod types;
+
+pub use storage_types::{
+    CatalogStorageFailure, CatalogStorageReply, DocAtomicBatchRequest, DocCapabilities,
+    DocCapabilitiesRequest, DocCountRequest, DocDeleteRequest, DocDeleteWhereRequest,
+    DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
+};
 
 pub use types::{
     CallbackAddress, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, GetRevisionRequest,
@@ -39,7 +46,7 @@ pub mod members {
     pub const LIST_WORKFLOWS: &str = "ListWorkflows";
     /// `(CatalogStorage, id) -> Option<Workflow>`.
     pub const GET_WORKFLOW: &str = "GetWorkflow";
-    /// `(PutWorkflowRequest) -> PutWorkflowResult`.
+    /// `(PutWorkflowRequest) -> PutWorkflowResponse`.
     pub const PUT_WORKFLOW: &str = "PutWorkflow";
     /// `(CatalogStorage, id) -> DeleteWorkflowResult`.
     pub const DELETE_WORKFLOW: &str = "DeleteWorkflow";
@@ -53,23 +60,23 @@ pub mod members {
 
 /// Callback members accepted by the generic document adapter.
 pub mod storage {
-    /// Read one document.
+    /// `(DocGetRequest) -> {value: driver Versioned<Value>}`.
     pub const GET: &str = "DocGet";
-    /// Put one document.
+    /// `(DocPutRequest) -> {value: driver Version}`.
     pub const PUT: &str = "DocPut";
-    /// Delete one document.
+    /// `(DocDeleteRequest) -> {value: bool}`.
     pub const DELETE: &str = "DocDelete";
-    /// Query a collection.
+    /// `(DocQueryRequest) -> {value: driver Page<Versioned<Value>>}`.
     pub const QUERY: &str = "DocQuery";
-    /// Ensure a collection and indexes.
+    /// `(DocEnsureRequest) -> {value: null}`.
     pub const ENSURE: &str = "DocEnsure";
-    /// Count matching documents.
+    /// `(DocCountRequest) -> {value: u64}`.
     pub const COUNT: &str = "DocCount";
-    /// Delete matching documents.
+    /// `(DocDeleteWhereRequest) -> {value: u64}`.
     pub const DELETE_WHERE: &str = "DocDeleteWhere";
-    /// Apply an atomic batch when the backend supports transactions.
+    /// `(DocAtomicBatchRequest) -> {value: driver WriteResult[]}`.
     pub const ATOMIC_BATCH: &str = "DocAtomicBatch";
-    /// Discover whether atomic batches are supported.
+    /// `(DocCapabilitiesRequest) -> {value: DocCapabilities}`.
     pub const CAPABILITIES: &str = "DocCapabilities";
 }
 

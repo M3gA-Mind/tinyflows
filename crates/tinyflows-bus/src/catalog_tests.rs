@@ -39,6 +39,54 @@ fn workflow() -> Workflow {
 fn every_catalog_contract_type_round_trips_on_the_wire() {
     let workflow = workflow();
     let storage = storage();
+    wire_round_trip(DocCapabilitiesRequest {});
+    wire_round_trip(DocCapabilities { transactions: true });
+    wire_round_trip(DocEnsureRequest {
+        spec: json!({"name":"flows_definitions"}),
+    });
+    wire_round_trip(DocGetRequest {
+        collection: "flows_definitions".into(),
+        id: "flow-1".into(),
+    });
+    wire_round_trip(DocPutRequest {
+        collection: "flows_definitions".into(),
+        id: "flow-1".into(),
+        doc: json!({"name":"Example"}),
+        precondition: json!({"kind":"absent"}),
+    });
+    wire_round_trip(DocDeleteRequest {
+        collection: "flows_definitions".into(),
+        id: "flow-1".into(),
+        precondition: json!({"kind":"version","version":1}),
+    });
+    wire_round_trip(DocQueryRequest {
+        collection: "flows_definitions".into(),
+        query: json!({"filter":{"kind":"all"}}),
+    });
+    wire_round_trip(DocCountRequest {
+        collection: "flows_revisions".into(),
+        filter: json!({"flow_id":"flow-1"}),
+    });
+    wire_round_trip(DocDeleteWhereRequest {
+        collection: "flows_runs".into(),
+        filter: json!({"flow_id":"flow-1"}),
+    });
+    wire_round_trip(DocAtomicBatchRequest {
+        ops: vec![json!({"op":"put"})],
+    });
+    wire_round_trip(CatalogStorageFailure {
+        kind: "conflict".into(),
+        message: "version changed".into(),
+    });
+    wire_round_trip(CatalogStorageReply::Value {
+        value: json!({"id":"flow-1"}),
+    });
+    wire_round_trip(CatalogStorageReply::Error {
+        error: CatalogStorageFailure {
+            kind: "not_found".into(),
+            message: "missing".into(),
+        },
+    });
     wire_round_trip(storage.callback.clone());
     wire_round_trip(storage.clone());
     wire_round_trip(workflow.clone());
