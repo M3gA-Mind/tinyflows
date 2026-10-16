@@ -17,7 +17,7 @@ of `tinyflows` itself.
 | `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `graph.checkpoints`, `graph.threads`, `graph.writes` (namespace `flows`; declared by `tinyagents-graph`) |
 | `schedule::CronDocuments` | the cron job and run store | `cron.jobs`, `cron.runs`, `cron.admission`; run numbers in `tsd.counters`, claims in `tsd.leases` |
 | `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows.*` |
-| `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `wf_*` |
+| `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `flows.workflows`, `flows.workflow_*`; the decision lock in `tsd.leases` |
 
 ```rust
 use std::sync::Arc;
@@ -50,8 +50,14 @@ declare the collections and carry the v1 -> v2 steps; the host composes them
 with `Registry::compose` and runs `Registry::migrate` per scope, then calls
 `import_legacy_kv` and `import_legacy_cron_counters` once per scope (a document
 step cannot write `tsd.*`). The graph checkpointer reads and writes the
-`graph.*` documents of `tinyagents-graph` under namespace `flows`. The
-library-only `store::DriverWorkflowStore` (`wf_*`) is still on its v1 names.
+`graph.*` documents of `tinyagents-graph` under namespace `flows`. With the
+`store` feature `storage_schema()` also declares the workflow store
+(`flows.workflows`, `flows.workflow_*`). `tinyflows-adaptive` (feature
+`storage-drivers`) extends the same schema with `flows.adaptive_*` through
+`tinyflows_adaptive::drivers::extend_storage_schema`, and
+`tinyflows_adaptive::drivers::import_legacy_adaptive_counters` moves its id
+sequences into `tsd.counters`: an owner is declared once, so pass the schema
+through both.
 
 ## The flow catalog (`catalog`)
 
@@ -124,13 +130,18 @@ inside any runtime.
 
 | Collection | One document per |
 | --- | --- |
-| `wf_definitions` | workflow |
-| `wf_revisions` | superseded copy (newest 20 per workflow kept) |
-| `wf_runs` | run record |
-| `wf_notes` | workflow's whole journal (capped at 100 notes) |
-| `wf_proposals` | proposal |
-| `wf_locks` | decision lease |
-| `wf_quarantine` | journal that could not be parsed, set aside |
+| `flows.workflows` | workflow (`Key::of([id])`) |
+| `flows.workflow_revisions` | superseded copy (newest 20 per workflow kept) |
+| `flows.workflow_runs` | run record |
+| `flows.workflow_notes` | workflow's whole journal (capped at 100 notes) |
+| `flows.workflow_proposals` | proposal |
+| `flows.workflow_quarantine` | journal that could not be parsed, set aside |
+
+The decision lock is a `tsd.leases` lease (owner `flows`, key
+`workflow_decision/<id>`). Bodies are bare snake_case objects with `*_ms`
+instants; the `workflow_` prefix keeps these records apart from the catalog's
+`flows.definitions` / `flows.revisions` / `flows.runs`, which have a different
+shape. The v1 `wf_*` collections move with the steps in `storage_schema()`.
 
 - Every definition write is a compare-and-swap on the version it read, and the
   revision of what it replaces is written first and taken back if the swap
