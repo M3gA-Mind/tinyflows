@@ -1,7 +1,6 @@
 use super::*;
 use crate::catalog::test_support::{catalog, catalog_in};
 use serde_json::json;
-use tinystoragedrivers_core::DocumentStoreExt;
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]

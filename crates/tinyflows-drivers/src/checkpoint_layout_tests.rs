@@ -4,7 +4,6 @@
 //! and from the document shape its `checkpoints_flows_v2` step produces, so a
 //! drift on either side fails here.
 
-use super::*;
 use crate::checkpoint::DriverCheckpointer;
 use serde_json::json;
 use std::sync::Arc;
