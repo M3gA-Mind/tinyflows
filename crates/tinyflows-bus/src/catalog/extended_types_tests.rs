@@ -242,6 +242,12 @@ fn extended_catalog_wire_names_and_optional_patch_states_are_pinned() {
     let missing: UpdateDraftRequest =
         serde_json::from_value(json!({"storage":storage(), "id":"draft-1"})).unwrap();
     assert_eq!(missing.flow_id, None);
+    assert_eq!(missing.graph, None);
+    let cleared_graph: UpdateDraftRequest = serde_json::from_value(json!({
+        "storage":storage(), "id":"draft-1", "graph":null
+    }))
+    .unwrap();
+    assert_eq!(cleared_graph.graph, Some(Value::Null));
     assert_eq!(
         serde_json::to_value(DraftPromotionOperation::Update {
             id: "flow-1".into(),

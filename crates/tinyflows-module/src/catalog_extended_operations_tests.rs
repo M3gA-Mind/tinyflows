@@ -89,6 +89,21 @@ async fn catalog_v3_operations_delegate_to_drivers_and_keep_agent_scopes() {
         .unwrap();
     assert_eq!(updated.name, "Edited");
     assert_eq!(updated.flow_id, None);
+    assert_eq!(updated.graph, json!({"incomplete": true}));
+    let cleared_graph: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: alice.clone(),
+                id: draft.id.clone(),
+                name: None,
+                graph: Some(serde_json::Value::Null),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cleared_graph.graph, serde_json::Value::Null);
     let listed_drafts: Vec<FlowDraft> = proxy.call("ListDrafts", &(alice.clone(),)).await.unwrap();
     assert_eq!(listed_drafts.len(), 2);
     assert!(
