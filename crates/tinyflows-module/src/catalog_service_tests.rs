@@ -19,7 +19,9 @@ pub(super) struct HostDocuments {
 impl HostDocuments {
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
-            self.documents.ensure_collection(&decode(&request["spec"])?).await,
+            self.documents
+                .ensure_collection(&decode(&request["spec"])?)
+                .await,
         ))
     }
 
@@ -32,7 +34,8 @@ impl HostDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
-        let result = self.documents
+        let result = self
+            .documents
             .put(
                 text(&request, "collection"),
                 text(&request, "id"),
@@ -45,13 +48,17 @@ impl HostDocuments {
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
         let result = if self.fail_draft_deletes && text(&request, "collection") == "flows_drafts" {
-            Err(tinystoragedrivers_core::StorageError::unavailable("injected draft delete failure"))
+            Err(tinystoragedrivers_core::StorageError::unavailable(
+                "injected draft delete failure",
+            ))
         } else {
-            self.documents.delete(
-                text(&request, "collection"),
-                text(&request, "id"),
-                decode(&request["precondition"])?,
-            ).await
+            self.documents
+                .delete(
+                    text(&request, "collection"),
+                    text(&request, "id"),
+                    decode(&request["precondition"])?,
+                )
+                .await
         };
         Ok(reply(result))
     }
@@ -132,11 +139,15 @@ pub(super) async fn scope_with_documents(
     let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
     let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{name}");
-    host.serve_at(path.parse().unwrap(), HostDocuments {
-        documents: docs.clone(), fail_draft_deletes: false,
-    })
-        .await
-        .unwrap();
+    host.serve_at(
+        path.parse().unwrap(),
+        HostDocuments {
+            documents: docs.clone(),
+            fail_draft_deletes: false,
+        },
+    )
+    .await
+    .unwrap();
     (
         CatalogStorage {
             callback: CallbackAddress {
@@ -158,13 +169,19 @@ pub(super) async fn scope_with_draft_delete_failure(
     let path = format!("/test/catalog/{name}");
     host.serve_at(
         path.parse().unwrap(),
-        HostDocuments { documents: docs.clone(), fail_draft_deletes: true },
+        HostDocuments {
+            documents: docs.clone(),
+            fail_draft_deletes: true,
+        },
     )
     .await
     .unwrap();
     (
         CatalogStorage {
-            callback: CallbackAddress { destination: "test.CatalogStorage".into(), object_path: path },
+            callback: CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
         },
         docs,
     )
