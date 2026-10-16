@@ -89,7 +89,7 @@ impl FakeHost {
             }))
         }
     }
-    async fn approval_cancel(&self, _request_id: String, _reason: String) -> tinybus::Result<()> {
+    async fn approval_cancel(&self, _request: runs::ApprovalCancelRequest) -> tinybus::Result<()> {
         self.record("ApprovalCancel");
         Ok(())
     }
