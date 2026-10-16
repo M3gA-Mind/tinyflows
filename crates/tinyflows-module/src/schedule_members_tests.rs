@@ -294,3 +294,10 @@ async fn the_served_surface_is_exactly_the_advertised_member_set() {
         }
     }
 }
+
+#[tokio::test]
+async fn probe_unknown() {
+    let (proxy, _h, _s) = proxy().await;
+    let e = proxy.call::<Value>("Bogus", &(json!({}),)).await.unwrap_err();
+    panic!("{e}");
+}
