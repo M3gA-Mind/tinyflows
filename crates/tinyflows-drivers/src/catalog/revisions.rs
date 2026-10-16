@@ -350,7 +350,9 @@ impl FlowCatalogDocuments {
     /// revision one even before it has any history.
     pub async fn revision_count(&self, flow_id: &str) -> Result<u64> {
         let docs = self.docs().await?;
-        docs.count(REVISIONS, &Filter::eq("flow_id", flow_id)).await
+        Ok(docs
+            .count(REVISIONS, &Filter::eq("flow_id", flow_id))
+            .await?)
     }
 
     /// One revision of `flow_id` by id, or `None`.
