@@ -60,7 +60,7 @@ pub const STORAGE_INTERFACE: &str = "ai.tinyhumans.tinyflows.CatalogStorage";
 pub const DRAFT_PROMOTION_HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.DraftPromotionHost";
 /// Stable members of the draft-promotion host callback.
 pub mod draft_promotion_host {
-    /// `(SavePromotedDraftRequest) -> SavePromotedDraftResult`.
+    /// `(SavePromotedDraftRequest) -> SavePromotedDraftResponse`.
     pub const SAVE_PROMOTED_DRAFT: &str = "SavePromotedDraft";
     /// Methods accepted by the module when it calls the promotion host.
     pub const METHODS: &[&str] = &[SAVE_PROMOTED_DRAFT];
