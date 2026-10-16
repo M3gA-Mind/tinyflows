@@ -153,10 +153,14 @@ impl CronDocuments {
     /// Declares [`Self::collections`] and the `tsd` primitives it uses
     /// (idempotent). Every method calls it.
     pub async fn ensure(&self) -> Result<()> {
-        for spec in Self::collections()
-            .into_iter()
-            .chain(primitives::collection_specs())
-        {
+        // The primitives the store uses: run numbers and occurrence claims.
+        let used = primitives::collection_specs().into_iter().filter(|spec| {
+            matches!(
+                spec.name.as_str(),
+                primitives::COUNTERS | primitives::LEASES
+            )
+        });
+        for spec in Self::collections().into_iter().chain(used) {
             self.docs
                 .ensure_collection(&spec)
                 .await
@@ -164,6 +168,29 @@ impl CronDocuments {
         }
         self.migrate_policies().await?;
         Ok(())
+    }
+}
+
+/// Waits until the wall clock is in a millisecond no job of this process was
+/// created in. A job's creation time (the record's `created_ms`) is its
+/// identity for the runs written against it, so two creations, such as a flow
+/// schedule job removed and registered again, must not share one.
+async fn fresh_millisecond() {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static LAST: AtomicI64 = AtomicI64::new(0);
+    loop {
+        let now = chrono::Utc::now().timestamp_millis();
+        let last = LAST.load(Ordering::SeqCst);
+        if now > last {
+            if LAST
+                .compare_exchange(last, now, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return;
+            }
+        } else {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
     }
 }
 

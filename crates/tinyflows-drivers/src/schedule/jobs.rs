@@ -71,6 +71,7 @@ impl CronDocuments {
     /// Writes a new job and reads it back.
     async fn insert(&self, job: &CronJob, what: &str) -> Result<CronJob> {
         self.ensure().await?;
+        super::fresh_millisecond().await;
         let doc = new_job_doc(job)?;
         for _ in 0..CAS_ATTEMPTS {
             match self
@@ -217,6 +218,7 @@ impl CronDocuments {
         job.name = Some(format!("flow:{flow_id}"));
         job.command = flow_id.to_string();
         self.ensure().await?;
+        super::fresh_millisecond().await;
         let doc = new_job_doc(&job)?;
         for _ in 0..CAS_ATTEMPTS {
             if let Some(existing) = self.find_flow_schedule_job(flow_id).await? {
