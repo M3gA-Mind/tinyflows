@@ -1,9 +1,14 @@
 use super::*;
-use crate::catalog::{FlowCatalogDocuments, test_support::scoped};
+use crate::catalog::FlowCatalogDocuments;
 use serde_json::json;
 use tinystoragedrivers_core::{
-    DocumentStoreExt, MigrateOptions, Precondition, Query, Registry, ScopedStorage,
+    DocumentStoreExt, MemoryStorage, MigrateOptions, Precondition, Query, Registry, Scope,
+    ScopedStorage, StorageBackend,
 };
+
+fn scoped() -> ScopedStorage {
+    MemoryStorage::new().for_scope(&Scope::local()).unwrap()
+}
 
 async fn seed(storage: &ScopedStorage, collection: &str, id: &str, body: Value) {
     storage
