@@ -33,13 +33,23 @@ fn revision(id: &str, flow_id: &str) -> FlowRevision {
 }
 
 #[tokio::test]
-async fn imported_prior_revisions_advance_the_flow_sequence_once_each() {
+async fn imported_history_bootstraps_sequence_until_a_graph_update_commits_it() {
     let store = catalog();
     let imported = flow("legacy-sequence");
     store.import_flow(&imported).await.unwrap();
     assert_eq!(
         store.latest_revision_number(&imported.id).await.unwrap(),
         Some(1)
+    );
+    let docs = store.docs().await.unwrap();
+    assert!(
+        docs.get(DEFINITIONS, &imported.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .doc
+            .get("revision")
+            .is_none()
     );
 
     let first = revision("legacy-revision-1", &imported.id);
@@ -63,6 +73,43 @@ async fn imported_prior_revisions_advance_the_flow_sequence_once_each() {
     assert_eq!(
         store.latest_revision_number(&imported.id).await.unwrap(),
         Some(3)
+    );
+    let current = store.get_flow(&imported.id).await.unwrap().unwrap();
+    store
+        .update_flow_graph(
+            &imported.id,
+            "after import".into(),
+            trigger_graph(),
+            false,
+            None,
+            false,
+            Some(&current.updated_at),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&imported.id).await.unwrap(),
+        Some(4)
+    );
+    assert_eq!(
+        docs.get(DEFINITIONS, &imported.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["revision"],
+        4
+    );
+    assert!(!store.import_flow(&imported).await.unwrap());
+    assert!(
+        store
+            .import_revision(&revision("legacy-revision-3", &imported.id))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store.latest_revision_number(&imported.id).await.unwrap(),
+        Some(4),
+        "adding historical data leaves the current graph revision alone"
     );
 }
 

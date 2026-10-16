@@ -25,8 +25,8 @@ use super::runs::set_finished;
 use super::steps::with_steps;
 use super::suggestions::suggestion_doc;
 use super::{
-    DEFINITIONS, DRAFTS, FlowCatalogDocuments, KV, REVISIONS, RUNS, SUGGESTIONS, compare_and_swap,
-    composite_id, instant_ns, set_optional,
+    DEFINITIONS, DRAFTS, FlowCatalogDocuments, KV, REVISIONS, RUNS, SUGGESTIONS, composite_id,
+    instant_ns, set_optional,
 };
 
 /// Writes `doc` at `collection/id` only if absent. `Ok(false)` when a document
@@ -50,21 +50,27 @@ async fn put_if_absent(
 
 impl FlowCatalogDocuments {
     /// Imports a flow under its own id, keeping its timestamps, enabled flag,
-    /// approval requirement and last-run summary.
+    /// approval requirement and last-run summary. The sequence is left
+    /// unseeded so later imported history can define its legacy baseline.
     ///
     /// # Errors
     ///
     /// When the graph cannot be serialized or the backend fails.
     pub async fn import_flow(&self, flow: &Flow) -> Result<bool> {
         let docs = self.docs().await?;
-        let wrote =
-            put_if_absent(docs.as_ref(), DEFINITIONS, &flow.id, flow_doc(flow, None)?).await?;
+        let mut doc = flow_doc(flow, None)?;
+        if let Some(object) = doc.as_object_mut() {
+            object.remove("revision");
+        }
+        let wrote = put_if_absent(docs.as_ref(), DEFINITIONS, &flow.id, doc).await?;
         tracing::debug!(target: "flows", flow_id = %flow.id, wrote, "[flows] import: flow");
         Ok(wrote)
     }
 
     /// Imports a superseded-graph revision under its own id, visible at once.
-    /// The flow it belongs to must already exist (import flows first).
+    /// The flow it belongs to must already exist (import flows first). History
+    /// imports do not advance the current graph sequence; an unseeded imported
+    /// flow derives its baseline from visible snapshots until its first update.
     ///
     /// # Errors
     ///
@@ -72,13 +78,6 @@ impl FlowCatalogDocuments {
     pub async fn import_revision(&self, revision: &FlowRevision) -> Result<bool> {
         let docs = self.docs().await?;
         let flow = self.owner(&revision.flow_id, &revision.id).await?;
-        let legacy_baseline = match flow.get("revision").and_then(Value::as_u64) {
-            Some(revision) => revision.max(1),
-            None => self
-                .retained_history_count(&revision.flow_id)
-                .await?
-                .saturating_add(1),
-        };
         let mut doc = json!({
             "flow_id": revision.flow_id,
             "graph_json": serde_json::to_string(&revision.graph)
@@ -90,30 +89,6 @@ impl FlowCatalogDocuments {
         });
         set_optional(&mut doc, FLOW_INCARNATION, incarnation(&flow));
         let wrote = put_if_absent(docs.as_ref(), REVISIONS, &revision.id, doc).await?;
-        let baseline = if wrote {
-            legacy_baseline.saturating_add(1)
-        } else {
-            self.latest_revision_number(&revision.flow_id)
-                .await?
-                .unwrap_or(1)
-        };
-        let counter = compare_and_swap(docs, DEFINITIONS, &revision.flow_id, |doc| {
-            let next_revision = match doc.get("revision").and_then(Value::as_u64) {
-                Some(current) if wrote => current.checked_add(1)?,
-                Some(_) => return None,
-                None => baseline,
-            };
-            let mut next = doc.clone();
-            next["revision"] = json!(next_revision);
-            Some(next)
-        })
-        .await?;
-        if wrote && counter.is_none() {
-            bail!(
-                "could not advance the revision number while importing '{}': flow disappeared or sequence overflowed",
-                revision.flow_id
-            );
-        }
         tracing::debug!(target: "flows", revision_id = %revision.id, wrote, "[flows] import: revision");
         Ok(wrote)
     }

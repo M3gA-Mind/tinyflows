@@ -122,9 +122,10 @@ it born-disabled the workflow or forced approval. New and duplicated workflows
 start at revision 1; only a committed graph update advances the number. Existing
 documents without the sequence report one plus their visible retained history;
 any older, already-pruned history cannot be reconstructed. The next successful
-graph update persists the following number. Once persisted, the durable counter
-does not reset when old snapshots are pruned. Imported history advances the
-sequence once per newly imported snapshot. List rows
+graph update persists the following number. Imported definitions remain
+unseeded while their history is copied, so a history import does not masquerade
+as a graph update. Once persisted, the durable counter does not reset when old
+snapshots are pruned. List rows
 include the latest revision, status, trigger kind, node count, update time and
 skipped corrupt-row count; revisions are served by id and history order. The
 CatalogStorage port advertises only ensure, get, put, delete, query and
