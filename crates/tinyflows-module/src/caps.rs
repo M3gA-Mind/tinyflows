@@ -1,6 +1,6 @@
 //! Adapters from the exact per-run `CapsHost` callback to engine capabilities.
 
-use std::{sync::Arc, time::Duration};
+use std::{sync::{Arc, OnceLock, Weak}, time::Duration};
 
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
@@ -12,7 +12,8 @@ use tinyflows::{
         ApprovalOutcome, ApprovalProvider, ApprovalRequest,
         CodeLanguage, CodeRunner, ContextBlock, HttpClient, LlmProvider, MemoryProvider,
         ShellInterpreter, ShellOutcome, ShellRequest, ShellScript, ShellRunner, StateStore,
-        ToolDescriptor, ToolInvoker, TokioTaskRunner, WorkdirCheck, WorkflowResolver,
+        TaskExecutor, TaskRunner, TaskSpec, ToolDescriptor, ToolInvoker, TokioTaskRunner,
+        WorkdirCheck, WorkflowResolver,
     },
     error::{EngineError, Result},
 };
@@ -73,7 +74,7 @@ impl CapsHostPorts {
             connection,
             address: host.callback,
         });
-        Ok(caps::Capabilities {
+        let mut capabilities = caps::Capabilities {
             llm: ports.clone(),
             tools: ports.clone(),
             http: ports.clone(),
@@ -83,9 +84,21 @@ impl CapsHostPorts {
             agent: Some(ports.clone()),
             shell: Some(ports.clone()),
             memory: Some(ports.clone()),
-            tasks: Some(Arc::new(TokioTaskRunner::new())),
+            tasks: None,
             approvals: Some(ports),
-        })
+        };
+        // The executor sees the same host capabilities but no task runner, so
+        // child workflows can still execute their spawn specs inline without
+        // creating a runner -> capabilities -> runner reference cycle.
+        let task_runner = Arc::new(TaskRunnerLink::default());
+        let executor = Arc::new(CapabilityTaskExecutor {
+            capabilities: capabilities.clone(),
+            task_runner: Arc::clone(&task_runner),
+        });
+        let runner = Arc::new(TokioTaskRunner::with_executor(executor)) as Arc<dyn TaskRunner>;
+        task_runner.bind(&runner);
+        capabilities.tasks = Some(runner);
+        Ok(capabilities)
     }
 
     async fn call<A, R>(&self, member: &str, args: &A) -> Result<R>
@@ -141,6 +154,52 @@ impl CapsHostPorts {
 
 struct CatalogResolver {
     catalog: FlowCatalogDocuments,
+}
+
+struct CapabilityTaskExecutor {
+    capabilities: caps::Capabilities,
+    task_runner: Arc<TaskRunnerLink>,
+}
+
+#[derive(Default)]
+struct TaskRunnerLink {
+    runner: OnceLock<Weak<dyn TaskRunner>>,
+}
+
+impl TaskRunnerLink {
+    fn bind(&self, runner: &Arc<dyn TaskRunner>) {
+        let _ = self.runner.set(Arc::downgrade(runner));
+    }
+
+    fn upgrade(&self) -> Option<Arc<dyn TaskRunner>> {
+        self.runner.get().and_then(Weak::upgrade)
+    }
+}
+
+#[async_trait]
+impl TaskExecutor for CapabilityTaskExecutor {
+    async fn execute(&self, spec: TaskSpec) -> Result<Value> {
+        match spec {
+            TaskSpec::Tool { slug, args } => {
+                self.capabilities.tools.invoke(&slug, args, None).await
+            }
+            TaskSpec::Http { request } => self.capabilities.http.request(request, None).await,
+            TaskSpec::Workflow { graph, input } => {
+                let graph: tinyflows::model::WorkflowGraph = serde_json::from_value(graph)
+                    .map_err(|error| capability_error(format!("invalid child workflow: {error}")))?;
+                let compiled = tinyflows::compiler::compile(&graph).map_err(capability_error)?;
+                let mut capabilities = self.capabilities.clone();
+                capabilities.tasks = self.task_runner.upgrade();
+                let outcome = tinyflows::engine::run(&compiled, input, &capabilities)
+                    .await
+                    .map_err(capability_error)?;
+                if outcome.cancelled {
+                    return Err(capability_error("spawned child workflow was cancelled"));
+                }
+                Ok(outcome.output)
+            }
+        }
+    }
 }
 
 #[async_trait]

@@ -28,12 +28,12 @@ fn agent_capability_records_round_trip_and_match_fixtures() {
     pin(AgentRunHandle { handle: "h1".into() }, serde_json::json!({"handle":"h1"}));
     pin(AgentEventsRequest { handle: "h1".into(), cursor: 0 }, serde_json::json!({"handle":"h1","cursor":0}));
     pin(AgentProgressEvent { seq: 1, at_ms: 2, kind: "tool_call".into(), text: "read".into() }, serde_json::json!({"seq":1,"at_ms":2,"kind":"tool_call","text":"read"}));
-    pin(AgentEventsResponse { events: vec![], done: true, outcome: Some(AgentRunOutcome { stop: StopReason::Finished, text: None, json: serde_json::Value::Null, raw: serde_json::Value::Null, usage: None, transcript: vec![] }) }, serde_json::json!({"events":[],"done":true,"outcome":{"stop":"finished","json":null,"raw":null}}));
+    pin(AgentEventsResponse { events: vec![], done: true, outcome: Some(AgentRunOutcome { stop: StopReason::Finished, text: None, json: serde_json::Value::Null, raw: serde_json::Value::Null, usage: None, transcript: vec![] }) }, serde_json::json!({"events":[],"done":true,"outcome":{"stop":{"stop":"finished"},"json":null,"raw":null}}));
     pin(StopReason::Finished, serde_json::json!({"stop":"finished"}));
     pin(StopReason::LimitStop { limit: "steps".into() }, serde_json::json!({"stop":"limit_stop","limit":"steps"}));
     pin(StopReason::Paused { token: None, reason: "approval".into(), payload: serde_json::Value::Null }, serde_json::json!({"stop":"paused","reason":"approval"}));
     pin(AgentUsage::default(), serde_json::json!({}));
-    pin(AgentRunOutcome { stop: StopReason::Finished, text: Some("done".into()), json: serde_json::json!({"ok":true}), raw: serde_json::json!("raw"), usage: None, transcript: vec![] }, serde_json::json!({"stop":"finished","text":"done","json":{"ok":true},"raw":"raw"}));
+    pin(AgentRunOutcome { stop: StopReason::Finished, text: Some("done".into()), json: serde_json::json!({"ok":true}), raw: serde_json::json!("raw"), usage: None, transcript: vec![] }, serde_json::json!({"stop":{"stop":"finished"},"text":"done","json":{"ok":true},"raw":"raw"}));
     pin(TranscriptEntry { at_ms: 3, kind: "message".into(), text: "hi".into() }, serde_json::json!({"atMs":3,"kind":"message","text":"hi"}));
     pin(WorkdirCheck::Unmanaged, serde_json::json!({"status":"unmanaged"}));
     pin(WorkdirCheck::Resolved("/work".into()), serde_json::json!({"status":"resolved","path":"/work"}));
