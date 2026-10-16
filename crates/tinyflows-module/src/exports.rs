@@ -45,6 +45,10 @@ fn manifest() -> TbSlice {
             provides: vec![
                 provided(tinyflows_bus::INTERFACE, tinyflows_bus::METHODS),
                 provided(
+                    tinyflows_bus::catalog::INTERFACE,
+                    tinyflows_bus::catalog::METHODS,
+                ),
+                provided(
                     tinyflows_bus::schedule::INTERFACE,
                     tinyflows_bus::schedule::METHODS,
                 ),
