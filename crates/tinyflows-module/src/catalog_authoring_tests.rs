@@ -22,15 +22,6 @@ impl Classifier {
     }
 }
 
-struct Resolver(Option<Value>);
-
-#[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
-impl Resolver {
-    async fn resolve_workflow(&self, _: String) -> tinybus::Result<Option<Value>> {
-        Ok(self.0.clone())
-    }
-}
-
 async fn connections() -> (Connection, Connection) {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
@@ -51,28 +42,26 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
     let contracts: Vec<tinyflows_bus::node_kinds::NodeKindContract> =
         proxy.call(catalog::members::NODE_KINDS, ()).await?;
     assert_eq!(contracts.len(), tinyflows_bus::node_kinds::NODE_KINDS.len());
-    let http = contracts
+    let code = contracts
         .iter()
-        .find(|contract| contract.kind == "http_request")
+        .find(|contract| contract.kind == "code")
         .unwrap();
-    assert!(!http.config_fields.is_empty());
-    assert_eq!(http.ports.outputs, ["main"]);
-    assert_eq!(http.example["kind"], "http_request");
-    assert!(http.notes.is_empty());
+    assert_eq!(code.config_fields.len(), 2);
+    assert_eq!(code.ports.outputs, ["main"]);
+    assert_eq!(code.example["kind"], "code");
+    assert!(code.notes.is_empty());
     assert_eq!(
-        serde_json::to_value(&http).unwrap(),
+        serde_json::to_value(&code).unwrap(),
         json!({
-            "kind":"http_request",
-            "summary":"Make an HTTP request and expose the parsed response.",
-            "description":"Send an HTTP request. The host supplies the actual HTTP client and credentials.",
+            "kind":"code",
+            "summary":"Run a sandboxed JavaScript or Python snippet.",
+            "description":"config.language + config.source, run via the host's CodeRunner capability.",
             "config_fields":[
-                {"name":"url","required":true,"value_type":"string | \"=expr\"","description":"The request URL."},
-                {"name":"method","required":false,"value_type":"enum","description":"HTTP method.","enum_values":["GET","POST","PUT","PATCH","DELETE"]},
-                {"name":"headers","required":false,"value_type":"object","description":"Request headers."},
-                {"name":"body","required":false,"value_type":"JSON | \"=expr\"","description":"Optional request body."}
+                {"name":"language","required":true,"value_type":"enum","description":"The runtime language.","enum_values":["javascript","python"]},
+                {"name":"source","required":true,"value_type":"string","description":"The code to run."}
             ],
             "ports":{"inputs":["main"],"outputs":["main"]},
-            "example":{"id":"http_request","name":"HTTP request","kind":"http_request","config":{"url":"https://example.com"}}
+            "example":{"id":"shape","name":"Shape","kind":"code","config":{"language":"javascript","source":"return { total: item.a + item.b };"}}
         })
     );
     assert!(tinyflows_bus::node_kinds::render_node_kinds_line(&contracts).contains("http_request"));
@@ -170,11 +159,12 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
         candidates[3],
         ManifestCandidate::NativeTool { .. }
     ));
-    assert_eq!(entries.len(), 4);
+    assert_eq!(entries.len(), 5);
     assert_eq!(entries[0]["node_id"], "http");
     assert_eq!(entries[1]["node_id"], "code");
     assert_eq!(entries[2]["node_id"], "connector");
     assert_eq!(entries[3]["kind"], "dynamic");
+    assert_eq!(entries[4]["kind"], "agent");
     assert!(
         !entries
             .iter()
