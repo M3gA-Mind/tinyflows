@@ -106,11 +106,13 @@ pub(super) async fn approval_manifest(
     let classes = classes
         .into_iter()
         .map(|class| {
-            class.map(|class| tinyflows_catalog::approval_manifest::ManifestClass {
-                name: class.name,
-                blocked: class.blocked,
-                skip: class.skip,
-            })
+            class.map(
+                |class| tinyflows_catalog::approval_manifest::ManifestClass {
+                    name: class.name,
+                    blocked: class.blocked,
+                    skip: class.skip,
+                },
+            )
         })
         .collect::<Vec<_>>();
     Ok(tinyflows_catalog::approval_manifest::assemble_manifest(
@@ -143,12 +145,10 @@ fn wire_candidate(
             tool_name: tool_name.clone(),
             args: args.clone(),
         },
-        Candidate::ConnectorTool { node_id, slug } => {
-            catalog::ManifestCandidate::ConnectorTool {
-                node_id: node_id.clone(),
-                slug: slug.clone(),
-            }
-        }
+        Candidate::ConnectorTool { node_id, slug } => catalog::ManifestCandidate::ConnectorTool {
+            node_id: node_id.clone(),
+            slug: slug.clone(),
+        },
         Candidate::Agent { node_id } => catalog::ManifestCandidate::Agent {
             node_id: node_id.clone(),
         },

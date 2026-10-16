@@ -35,7 +35,7 @@ impl Authoring {
             .unwrap_or("auto")
             .trim()
             .to_ascii_lowercase();
-        let is_n8n = match format {
+        let is_n8n = match format.as_str() {
             "auto" | "" => tinyflows_catalog::import::n8n::looks_like_n8n(&request.graph),
             "n8n" => true,
             "native" | "tinyflows" => false,

@@ -87,7 +87,8 @@ async fn catalog_node_kinds_returns_the_full_portable_contracts() -> tinybus::Re
 }
 
 #[tokio::test]
-async fn bus_node_contracts_are_exhaustively_in_parity_with_engine_compatibility_api() -> tinybus::Result<()> {
+async fn bus_node_contracts_are_exhaustively_in_parity_with_engine_compatibility_api()
+-> tinybus::Result<()> {
     let (_server, client) = connections().await;
     let proxy = client.proxy(
         tinyflows_bus::BUS_NAME,
@@ -101,7 +102,10 @@ async fn bus_node_contracts_are_exhaustively_in_parity_with_engine_compatibility
     assert_eq!(bus_contracts.len(), engine_contracts.len());
     for (bus, engine) in bus_contracts.iter().zip(&engine_contracts) {
         assert_eq!(bus.kind, engine.kind);
-        assert_eq!(serde_json::to_value(bus).unwrap(), serde_json::to_value(engine).unwrap());
+        assert_eq!(
+            serde_json::to_value(bus).unwrap(),
+            serde_json::to_value(engine).unwrap()
+        );
         let note = format!("host overlay for {}", bus.kind);
         let bus_overlay = bus.clone().with_note(note.clone());
         let engine_overlay = engine.clone().with_note(note);
@@ -114,7 +118,9 @@ async fn bus_node_contracts_are_exhaustively_in_parity_with_engine_compatibility
             tinyflows::catalog::render_node_kinds_line(std::slice::from_ref(&engine_overlay))
         );
         assert_eq!(
-            tinyflows_bus::node_kinds::render_node_kinds_required(std::slice::from_ref(&bus_overlay)),
+            tinyflows_bus::node_kinds::render_node_kinds_required(std::slice::from_ref(
+                &bus_overlay
+            )),
             tinyflows::catalog::render_node_kinds_required(std::slice::from_ref(&engine_overlay))
         );
     }
@@ -186,7 +192,7 @@ async fn approval_manifest_uses_host_classification_and_preserves_candidate_orde
     ];
     client
         .serve_at(
-            "/test/approval-missing".try_into()?,
+            "/test/approval_missing".try_into()?,
             Classifier {
                 classes,
                 seen: seen.clone(),
@@ -290,7 +296,7 @@ async fn approval_manifest_fails_closed_on_malformed_classifier_reply_or_transpo
                 native_prefix: "oh:".into(),
                 host: catalog::CallbackAddress {
                     destination: "test.ApprovalHost".into(),
-                    object_path: "/test/approval-missing".into(),
+                    object_path: "/test/approval_missing".into(),
                 },
             },),
         )
