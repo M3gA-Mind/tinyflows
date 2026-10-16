@@ -1,17 +1,12 @@
-//! Jobs and runs to and from documents.
+//! Jobs and runs to and from documents (storage schema v2, owner `cron`).
 //!
-//! Optional fields are left out of a document rather than stored as `null`;
-//! nested values (`schedule`, `delivery`, `origin`) are JSON strings. A job
+//! Bodies are bare snake_case objects. Nested values (`schedule`, `delivery`,
+//! `origin`, `policy`) are real objects, not JSON strings; every instant is one
+//! `_ms` field (`next_run_ms`, `last_run_ms`, `started_ms`, `finished_ms`), and
+//! a job's creation time is the document's `created_ms` metadata, not a body
+//! field. Optional fields are left out rather than stored as `null`. A job
 //! document that cannot be read back is an error naming the field, never a
 //! silently defaulted job.
-
-use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, Utc};
-use serde_json::{Map, Value, json};
-use tinyflows_schedule::{
-    CronJob, CronRun, DeliveryConfig, DeliveryStatus, JobOrigin, JobType, Schedule, SessionTarget,
-};
-use tinystoragedrivers_core::Versioned;
 
 /// The string field `field` of `doc`.
 pub(super) fn text<'a>(doc: &'a Value, field: &str) -> Option<&'a str> {
