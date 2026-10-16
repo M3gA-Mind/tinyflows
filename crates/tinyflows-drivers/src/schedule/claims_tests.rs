@@ -181,7 +181,7 @@ async fn one_shot_claim_releases_admission_and_retains_delivery_history() {
         a.claim_due_job(
             &job.id,
             "w",
-            at - Duration::nanoseconds(1),
+            at - Duration::milliseconds(1),
             Duration::minutes(1)
         )
         .await
@@ -322,10 +322,15 @@ async fn invalid_inputs_and_malformed_stored_leases_fail_closed() {
             .await
             .is_err()
     );
-    let mut stored = a.docs.get(super::JOBS, &job.id).await.unwrap().unwrap().doc;
-    stored["occurrence_lease"] = json!({"token": 1});
+    // The claim's lease record, tampered with.
+    let key = tinystoragedrivers_core::Key::of([
+        job.id.as_str(),
+        job.next_run.timestamp_millis().to_string().as_str(),
+    ])
+    .unwrap();
+    let id = tinystoragedrivers_core::Key::of(["cron", key.as_str()]).unwrap();
     a.docs
-        .put(super::JOBS, &job.id, stored, Precondition::None)
+        .put("tsd.leases", id.as_str(), json!({"holder": 1}), Precondition::None)
         .await
         .unwrap();
     assert!(

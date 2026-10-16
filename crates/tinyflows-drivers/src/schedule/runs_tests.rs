@@ -148,7 +148,10 @@ async fn record_last_run_leaves_the_schedule_alone() {
     let read = store.get_job(&job.id).await.unwrap();
     assert_eq!(read.last_status.as_deref(), Some("error"));
     assert_eq!(read.last_output.as_deref(), Some("boom"));
-    assert_eq!(read.last_run, Some(at));
+    assert_eq!(
+        read.last_run.map(|at| at.timestamp_millis()),
+        Some(at.timestamp_millis())
+    );
     assert_eq!(read.next_run, job.next_run);
 }
 
@@ -388,12 +391,12 @@ async fn an_edited_schedule_with_the_same_next_run_is_not_advanced() {
 }
 
 #[tokio::test]
-async fn runs_started_within_a_millisecond_order_by_their_real_start() {
+async fn runs_started_within_a_millisecond_order_by_run_number() {
     let store = store().with_limits(1, 64);
     let job = store.add_job("0 9 * * *", "x").await.unwrap();
     let earlier: DateTime<Utc> = "2026-01-01T00:00:00.000100Z".parse().unwrap();
     let later: DateTime<Utc> = "2026-01-01T00:00:00.000900Z".parse().unwrap();
-    // The later start is recorded first, as a run finishing sooner would be.
+    // Within one millisecond the later-recorded run is the newer one.
     store
         .record_run(&job.id, later, later, "later", None, 1)
         .await
@@ -404,7 +407,7 @@ async fn runs_started_within_a_millisecond_order_by_their_real_start() {
         .unwrap();
     let runs = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].status, "later", "pruning keeps the latest start");
+    assert_eq!(runs[0].status, "earlier", "pruning keeps the newest run number");
 }
 
 #[tokio::test]

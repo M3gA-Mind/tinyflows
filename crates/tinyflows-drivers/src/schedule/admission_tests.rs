@@ -180,8 +180,8 @@ async fn malformed_admission_and_capability_downgrades_fail_closed() {
     a.docs
         .put(
             super::ADMISSION,
-            "admission",
-            serde_json::json!({"limit":"one","jobs":{}}),
+            "ledger",
+            serde_json::json!({"limit":"one","members":[]}),
             Precondition::None,
         )
         .await
@@ -265,7 +265,7 @@ async fn installing_policy_fences_an_unlimited_write_already_in_flight() {
 }
 
 #[tokio::test]
-async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
+async fn admission_wire_form_lists_members_with_their_job_ids() {
     let a = super::test_support::store();
     a.set_max_active_jobs(Some(2)).await.unwrap();
     let stored = a
@@ -276,7 +276,7 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
         .unwrap();
     assert_eq!(
         stored.doc,
-        serde_json::json!({"limit": 2, "members_json": "{}"})
+        serde_json::json!({"limit": 2, "members": []})
     );
     a.add_flow_schedule_job("dot.$key", daily()).await.unwrap();
     let stored = a
@@ -286,9 +286,8 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
         .unwrap()
         .unwrap();
     assert!(stored.doc.get("jobs").is_none());
-    let members: serde_json::Value =
-        serde_json::from_str(stored.doc["members_json"].as_str().unwrap()).unwrap();
-    assert!(members.get("flow:dot.$key").is_some());
+    assert!(stored.doc.get("members_json").is_none());
+    assert_eq!(stored.doc["members"][0]["job_id"], "flow:dot.$key");
     a.clear_all_jobs().await.unwrap();
     a.set_max_active_jobs(None).await.unwrap();
     let stored = a
@@ -297,7 +296,7 @@ async fn admission_wire_form_keeps_arbitrary_job_ids_inside_a_json_string() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored.doc, serde_json::json!({"members_json": "{}"}));
+    assert_eq!(stored.doc, serde_json::json!({"members": []}));
 }
 
 #[tokio::test]
