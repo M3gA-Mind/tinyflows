@@ -2032,6 +2032,7 @@ dependencies = [
 name = "tinyflows-bus"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
 ]
@@ -2098,6 +2099,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "tinyflows",
+ "tinyflows-bus",
  "tinyflows-catalog",
  "tinyflows-drivers",
  "tinyflows-schedule",
@@ -2140,6 +2142,7 @@ dependencies = [
  "cron",
  "serde",
  "serde_json",
+ "tinyflows-bus",
  "tokio",
  "tracing",
  "uuid",

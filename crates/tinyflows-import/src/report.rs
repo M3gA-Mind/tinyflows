@@ -22,7 +22,7 @@ pub struct ImportReport {
 }
 
 impl ImportReport {
-    pub(crate) fn wrote(&mut self, kind: &'static str, written: bool) {
+    pub fn wrote(&mut self, kind: &'static str, written: bool) {
         let tally = self.kinds.entry(kind).or_default();
         if written {
             tally.written += 1;
@@ -32,7 +32,7 @@ impl ImportReport {
     }
 
     /// Records one record that could not be imported, with why.
-    pub(crate) fn invalid(&mut self, kind: &'static str, what: impl std::fmt::Display) {
+    pub fn invalid(&mut self, kind: &'static str, what: impl std::fmt::Display) {
         self.kinds.entry(kind).or_default().invalid += 1;
         let message = format!("{kind}: {what}");
         tracing::warn!(target: "tinyflows_import", "[import] skipped an unreadable record: {message}");

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Schedule bus contract v3: hosts need only `tinyflows-bus`
+
+- **Moved** the schedule wire records (`Schedule`, `CronJob`, `CronRun`,
+  `CronJobPatch`, `JobOrigin`, `DeliveryConfig`, `DeliveryStatus`, `JobPolicy`,
+  `JobType`, `SessionTarget`, `ActiveHours`, `delivery_mode`), `AgentJobSpec`,
+  and the callback records `Attempt`/`RunRecord`/`Completion` from
+  `tinyflows-schedule` into `tinyflows_bus::schedule` (`tinyflows-bus` gains
+  `chrono`). `tinyflows-schedule` re-exports them at the same paths; the JSON
+  wire shape is unchanged (`wire_tests` pass unchanged and now also pin the bus).
+  The two `Schedule` deserializer `debug` logs were dropped with the move.
+- **Added** the typed `StoreOperation`, `ImportedJob`, `TooFrequent`,
+  `MIN_AGENT_JOB_INTERVAL` and request types to the contract, and `members::*`
+  constants for every Schedule member.
+- **Added** module members `NextRun`, `ValidateSchedule`, `RunsCloserThan`,
+  `NormalizeExpression`, `ScheduleCronExpression`, `DefaultDelivery`,
+  `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput`, and
+  `ScheduleStore` operations `set_max_active_jobs`, `import_job`, `import_run`.
+- **Changed** Schedule `CONTRACT_VERSION` 2 -> 3.
+
 ### Script spawner seam (`host-caps`)
 
 `caps::host::script` now launches every `code`/`shell` script through a

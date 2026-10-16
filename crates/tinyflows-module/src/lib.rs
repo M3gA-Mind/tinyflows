@@ -11,3 +11,7 @@ mod schedule_service;
 
 mod schedule_documents;
 mod schedule_store;
+
+#[cfg(feature = "static-link")]
+pub use exports::linked_module;
+pub use tinyflows_bus::{BUS_NAME, OBJECT_PATH};

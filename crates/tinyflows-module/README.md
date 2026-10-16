@@ -53,6 +53,31 @@ existing job/run JSON; mutation-only operations return null.
 | record_run | job_id, started_at, finished_at (RFC3339), status, output (optional), duration_ms, delivery_status (optional) | null |
 | delete_queued_runs | job_id | removed count |
 | list_runs | job_id, limit | runs |
+| set_max_active_jobs | limit (number, or null to clear) | null |
+| import_job | job (CronJob JSON) | `{id, written}` (an existing id is left untouched) |
+| import_run | run (CronRun JSON) | written (bool) |
+
+`tinyflows_bus::schedule::StoreOperation` is the typed form of `operation`; the
+job, run, patch, spec and callback records (`Attempt`, `RunRecord`, `Completion`)
+are in `tinyflows_bus::schedule`, so a host implements ScheduleHost and the
+document port without redeclaring them.
+
+### Pure members (contract v3)
+
+Each takes one JSON argument and returns JSON; failures are bus errors carrying
+the author-facing message.
+
+| Member | Argument | Reply |
+| --- | --- | --- |
+| NextRun | `{schedule, from}` | RFC3339 instant after `from` |
+| ValidateSchedule | `{schedule, now, agent?}`; `agent` adds the 5 minute floor | null |
+| RunsCloserThan | `{schedule, from, min_gap_ms}` | `TooFrequent` or null |
+| NormalizeExpression | cron expression string | normalised expression |
+| ScheduleCronExpression | schedule | expression string or null |
+| DefaultDelivery | origin or null | `DeliveryConfig` (`origin` with an origin, else `proactive`) |
+| CheckOriginRequirements | `{session_target, delivery, origin?}` | null |
+| CheckPatch | `{job, patch}`; refuses re-targeting a flow job | null |
+| TruncateCronOutput | output string | output bounded to 16 KiB |
 
 A document callback serves `ai.tinyhumans.tinyflows.ScheduleDocuments.Document`
 with a JSON request and returns `{value: JSON}` or `{error: {kind, message}}`.

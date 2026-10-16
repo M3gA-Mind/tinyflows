@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DeliveryConfig, Schedule, SessionTarget};
 
 #[test]
 fn short_output_is_kept_and_long_output_is_cut_at_a_char_boundary() {

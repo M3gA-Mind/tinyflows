@@ -15,7 +15,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | Surface | Status | Members |
 | --- | --- | --- |
 | Authoring | served, v1 | `ValidateGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, graph ops gates, preflight) |
-| Schedule | served, v2 | scheduler start/stop/tick/drain, `ExecuteJob`, delay and delivery validation |
+| Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
 | Catalog | skeleton, v1 | list/get/put/delete workflows, `ListRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
@@ -73,6 +73,31 @@ returns a handle; the module reads `AgentEvents(handle, cursor)` the same way
 the host reads `PollRun`. Calls are blocking from the module's executor
 thread. A callback failure surfaces as the node's error; approval callbacks
 fail closed (an error is a rejection, never an approval).
+
+## Schedule contract v3: typed records and pure members
+
+A host reaches the scheduler through `tinyflows-bus` alone: it links neither
+`tinyflows-schedule` nor `tinyflows-drivers`, and redeclares no type. v3 makes
+that possible:
+
+- The wire records live in `tinyflows_bus::schedule::types` (`Schedule`,
+  `CronJob`, `CronRun`, `CronJobPatch`, `JobOrigin`, `DeliveryConfig`,
+  `DeliveryStatus`, `JobPolicy`, `JobType`, `SessionTarget`, `ActiveHours`,
+  `delivery_mode`). `tinyflows_bus::schedule` exports them together with
+  `AgentJobSpec`, `ImportedJob`, the callback records
+  `Attempt`/`RunRecord`/`Completion`, `StoreOperation` (the typed `op` enum),
+  `TooFrequent` and the constants `MIN_AGENT_JOB_INTERVAL`,
+  `MAX_CRON_OUTPUT_BYTES`, `TRUNCATED_OUTPUT_MARKER`. `tinyflows-schedule`
+  re-exports every one at its old path. JSON shapes are byte-identical, pinned
+  by `wire_tests` in both crates. Adds `chrono` (no I/O) to the contract.
+- New members (algorithms that need the `cron` crate run in the module):
+  `NextRun(NextRunRequest)`, `ValidateSchedule(ValidateScheduleRequest)`
+  (`agent: true` adds the cadence floor), `RunsCloserThan(RunsCloserThanRequest)`,
+  `NormalizeExpression(string)`, `ScheduleCronExpression(Schedule)`,
+  `DefaultDelivery(Option<JobOrigin>)`, `CheckOriginRequirements(CheckOriginRequest)`,
+  `CheckPatch(CheckPatchRequest)`, `TruncateCronOutput(string)`.
+- New `ScheduleStore` operations: `set_max_active_jobs`, `import_job`,
+  `import_run`.
 
 ## Storage-port decision (`tinyflows-sqlite`)
 

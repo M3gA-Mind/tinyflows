@@ -3,8 +3,13 @@ use super::schedule_callbacks::HostCallbacks;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
-use tinyflows_bus::schedule::{self, CallbackAddress, StartScheduler};
-use tinyflows_schedule::{CronJob, DeliveryConfig, JobOrigin, runtime::*, validation};
+use tinyflows_bus::schedule::{
+    self, CallbackAddress, CheckOriginRequest, CheckPatchRequest, NextRunRequest,
+    RunsCloserThanRequest, StartScheduler, TooFrequent, ValidateScheduleRequest,
+};
+use tinyflows_schedule::{
+    CronJob, DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
+};
 use tokio::{
     sync::{Mutex, oneshot},
     task::JoinHandle,
@@ -174,6 +179,64 @@ impl ScheduleService {
         validation::validate_delivery(&delivery, origin.as_ref(), allowed_users.as_deref())
             .map_err(failure)
     }
+
+    async fn next_run(&self, request: NextRunRequest) -> Result<chrono::DateTime<chrono::Utc>> {
+        // The contract promises an occurrence strictly after `from`; the
+        // in-process function returns a one-shot's instant unchanged, so an
+        // elapsed `At` is refused here instead of handed back as "next".
+        if let Schedule::At { at } = &request.schedule
+            && *at <= request.from
+        {
+            return Err(Error::failed(format!(
+                "one-shot schedule at {at} is not after {}",
+                request.from
+            )));
+        }
+        maths::next_run_for_schedule(&request.schedule, request.from).map_err(failure)
+    }
+    async fn validate_schedule(&self, request: ValidateScheduleRequest) -> Result<()> {
+        if request.agent {
+            maths::validate_agent_schedule(&request.schedule, request.now)
+        } else {
+            maths::validate_schedule(&request.schedule, request.now)
+        }
+        .map_err(failure)
+    }
+    async fn runs_closer_than(
+        &self,
+        request: RunsCloserThanRequest,
+    ) -> Result<Option<TooFrequent>> {
+        let min_gap = chrono::Duration::try_milliseconds(request.min_gap_ms)
+            .ok_or_else(|| Error::failed("min_gap_ms out of range"))?;
+        Ok(maths::runs_closer_than(
+            &request.schedule,
+            request.from,
+            min_gap,
+        ))
+    }
+    async fn normalize_expression(&self, expression: String) -> Result<String> {
+        maths::normalize_expression(&expression).map_err(failure)
+    }
+    async fn schedule_cron_expression(&self, schedule: Schedule) -> Result<Option<String>> {
+        Ok(maths::schedule_cron_expression(&schedule))
+    }
+    async fn default_delivery(&self, origin: Option<JobOrigin>) -> Result<DeliveryConfig> {
+        Ok(validation::default_delivery(origin.as_ref()))
+    }
+    async fn check_origin_requirements(&self, request: CheckOriginRequest) -> Result<()> {
+        validation::check_origin_requirements(
+            &request.session_target,
+            &request.delivery,
+            request.origin.as_ref(),
+        )
+        .map_err(Error::failed)
+    }
+    async fn check_patch(&self, request: CheckPatchRequest) -> Result<()> {
+        store::check_patch(&request.job, &request.patch).map_err(failure)
+    }
+    async fn truncate_cron_output(&self, output: String) -> Result<String> {
+        Ok(store::truncate_cron_output(&output))
+    }
 }
 
 pub(super) async fn setup(connection: &Connection) -> Result<()> {
@@ -186,6 +249,9 @@ pub(super) async fn setup(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "schedule_members_tests.rs"]
+mod members_tests;
 #[cfg(test)]
 #[path = "schedule_service_tests.rs"]
 mod tests;
