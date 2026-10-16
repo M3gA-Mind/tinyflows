@@ -139,3 +139,7 @@ pub const STORAGE_METHODS: &[&str] = &[
 #[cfg(test)]
 #[path = "catalog_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "catalog/extended_types_tests.rs"]
+mod extended_tests;
