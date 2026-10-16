@@ -138,7 +138,7 @@ async fn prune_loses_its_delete_to_an_update_naming_the_revision() {
             Box::pin(async move {
                 compare_and_swap(&docs, REVISIONS, "stale", |doc| {
                     let mut next = doc.clone();
-                    next[TOUCHED] = json!(instant_ns(&next_stamp(None)));
+                    next[TOUCHED] = json!(next_stamp(None));
                     Some(next)
                 })
                 .await

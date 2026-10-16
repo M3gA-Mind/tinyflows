@@ -285,11 +285,11 @@ async fn rapid_updates_always_advance_updated_at() {
             )
             .await
             .unwrap();
-        assert!(crate::catalog::instant_before(&seen, &updated.updated_at));
+        assert!(crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&updated.updated_at));
         seen = updated.updated_at;
     }
     let toggled = store.set_enabled(&flow.id, false).await.unwrap();
-    assert!(crate::catalog::instant_before(&seen, &toggled.updated_at));
+    assert!(crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&toggled.updated_at));
     let names: Vec<String> = store
         .list_revisions(&flow.id, 3)
         .await
