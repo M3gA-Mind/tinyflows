@@ -6,13 +6,10 @@ use cron::Schedule as CronExprSchedule;
 use std::fmt;
 use std::str::FromStr;
 
-/// The closest together two runs of an *agent* job may be scheduled. Every
-/// run is a full inference turn, so a tighter cadence is almost always a
-/// misconfiguration that bills accordingly. Shell and flow jobs are not
-/// subject to it. Enforced by [`validate_agent_schedule`] when an agent job is
-/// created or its schedule changed; the scheduler warns about rows that
-/// predate the rule.
-pub const MIN_AGENT_JOB_INTERVAL: ChronoDuration = ChronoDuration::minutes(5);
+// `MIN_AGENT_JOB_INTERVAL` (the closest together two runs of an agent job may
+// be scheduled, enforced by `validate_agent_schedule`) and `TooFrequent` live in
+// the bus contract and are re-exported here.
+pub use tinyflows_bus::schedule::{MIN_AGENT_JOB_INTERVAL, TooFrequent};
 
 /// Upper bound on cron candidates walked while looking for an occurrence that
 /// falls inside `active_hours`. `next_run_for_schedule` gets a fresh budget
@@ -95,44 +92,6 @@ pub fn validate_agent_schedule(schedule: &Schedule, now: DateTime<Utc>) -> Resul
     Ok(())
 }
 
-/// Why a schedule runs more often than a threshold allows. Carries the
-/// evidence, not only the verdict, so a log line or an error can quote it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TooFrequent {
-    /// A fixed `every_ms` interval shorter than the threshold.
-    FixedInterval(ChronoDuration),
-    /// Two consecutive cron occurrences closer together than the threshold.
-    ConsecutiveRuns {
-        first: DateTime<Utc>,
-        second: DateTime<Utc>,
-    },
-}
-
-impl TooFrequent {
-    /// The offending gap.
-    pub fn gap(&self) -> ChronoDuration {
-        match self {
-            Self::FixedInterval(gap) => *gap,
-            Self::ConsecutiveRuns { first, second } => *second - *first,
-        }
-    }
-}
-
-impl fmt::Display for TooFrequent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::FixedInterval(gap) => write!(f, "fires every {}", describe_gap(*gap)),
-            Self::ConsecutiveRuns { first, second } => write!(
-                f,
-                "fires at {} and again at {}, {} apart",
-                first.format("%Y-%m-%d %H:%M:%S UTC"),
-                second.format("%Y-%m-%d %H:%M:%S UTC"),
-                describe_gap(*second - *first)
-            ),
-        }
-    }
-}
-
 /// The two consecutive runs of `schedule` after `from` that are closest
 /// together, if that gap is under `min_gap`.
 ///
@@ -186,23 +145,6 @@ pub fn runs_closer_than(
             }
             closest
         }
-    }
-}
-
-/// `4 minutes`, `30 seconds`, `1 minute 30 seconds` — whole seconds only.
-fn describe_gap(gap: ChronoDuration) -> String {
-    fn count(n: i64, unit: &str) -> String {
-        if n == 1 {
-            format!("{n} {unit}")
-        } else {
-            format!("{n} {unit}s")
-        }
-    }
-    let seconds = gap.num_seconds();
-    match (seconds / 60, seconds % 60) {
-        (0, s) => count(s, "second"),
-        (m, 0) => count(m, "minute"),
-        (m, s) => format!("{} {}", count(m, "minute"), count(s, "second")),
     }
 }
 

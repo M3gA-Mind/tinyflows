@@ -2153,6 +2153,7 @@ dependencies = [
  "cron",
  "serde",
  "serde_json",
+ "tinyflows-bus",
  "tokio",
  "tracing",
  "uuid",
