@@ -33,9 +33,19 @@ fn method_constants_match_advertised_members() {
 #[test]
 fn authoring_contract_version_and_methods_pin_the_new_requests() {
     assert_eq!(CONTRACT_VERSION, 2);
-    assert_eq!(METHODS.last(), Some(&"ImportGraph"));
-    assert!(METHODS.contains(&methods::VALIDATE_GRAPH));
-    assert!(METHODS.contains(&methods::IMPORT_GRAPH));
+    assert_eq!(
+        METHODS,
+        [
+            "ValidateGraph",
+            "BindingFailures",
+            "AuthoringFailures",
+            "UnresolvableToolArgs",
+            "BuilderFailures",
+            "ImportGraph",
+        ]
+    );
+    assert_eq!(methods::VALIDATE_GRAPH, "ValidateGraph");
+    assert_eq!(methods::IMPORT_GRAPH, "ImportGraph");
     let request = ValidateGraphRequest {
         graph: serde_json::json!({"nodes":[],"edges":[]}),
         host: None,

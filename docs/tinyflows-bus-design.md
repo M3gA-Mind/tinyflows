@@ -51,11 +51,13 @@ cursor. Run checkpoints live in the host document port (below).
 
 ### Node kinds, graph_ops, gates, preflight
 
-The complete `NodeKindContract` data model, host-note overlay method, and
-renderers live in `tinyflows-bus::node_kinds`; `tinyflows::catalog` only
-re-exports them for existing engine users. The `NodeKinds` member returns the
-full ordered schema, including config fields, ports, examples and portable
-notes, without requiring hosts to link the engine. `ApplyGraphOps` applies
+The canonical host-facing `NodeKindContract` data model, host-note overlay
+method, and renderers live in `tinyflows-bus::node_kinds`. The engine retains
+its source-compatible API snapshot because the bus crate is intentionally
+unpublished; an exhaustive module parity test keeps every contract and
+renderer aligned. The `NodeKinds` member returns the full ordered schema,
+including config fields, ports, examples and portable notes, without requiring
+hosts to link the engine. `ApplyGraphOps` applies
 tagged edits sequentially to a private graph copy and returns either the full
 result or the first indexed error, with no validation or persistence.
 
