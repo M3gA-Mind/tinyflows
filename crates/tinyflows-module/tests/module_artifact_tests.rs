@@ -45,6 +45,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             .any(|dependency| dependency.optional
                 && dependency.interface.interface.as_str() == tinyflows_bus::HOST_INTERFACE)
     );
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str() == tinyflows_bus::catalog::STORAGE_INTERFACE
+    }));
     let provided = info
         .manifest
         .provides
@@ -53,6 +57,25 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     let mut actual: Vec<_> = provided.methods.iter().map(ToString::to_string).collect();
     let mut expected: Vec<_> = METHODS.iter().map(|member| member.to_string()).collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+
+    let catalog_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::catalog::INTERFACE)
+        .unwrap();
+    let mut actual: Vec<_> = catalog_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut expected: Vec<_> = tinyflows_bus::catalog::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
     actual.sort();
     expected.sort();
     assert_eq!(actual, expected);

@@ -2123,6 +2123,7 @@ dependencies = [
  "tinybus-module",
  "tinyflows",
  "tinyflows-bus",
+ "tinyflows-catalog",
  "tinyflows-drivers",
  "tinyflows-schedule",
  "tinystoragedrivers-core",

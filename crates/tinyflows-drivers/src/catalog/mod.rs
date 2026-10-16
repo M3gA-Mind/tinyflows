@@ -74,6 +74,7 @@ mod drafts;
 mod import;
 mod kv;
 mod lineage;
+mod revision_sequence;
 mod revisions;
 mod runs;
 mod state;

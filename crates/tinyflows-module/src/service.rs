@@ -69,6 +69,9 @@ pub(super) async fn setup(connection: Connection) -> Result<()> {
         .await?;
     connection.request_name(BUS_NAME).await?;
     super::schedule_service::setup(&connection).await?;
+    super::catalog_service::setup(&connection)
+        .await
+        .map_err(|error| Error::failed(error.to_string()))?;
     Ok(())
 }
 
