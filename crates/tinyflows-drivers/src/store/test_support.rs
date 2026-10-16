@@ -108,6 +108,7 @@ impl DocumentStore for Faulty {
             self.inner
                 .capabilities()
                 .without(tinystoragedrivers_core::Capability::Transactions)
+                .without(tinystoragedrivers_core::Capability::ValidatedBatch)
         }
     }
 
@@ -205,5 +206,18 @@ impl DocumentStore for Faulty {
             ));
         }
         self.inner.atomic_batch(ops).await
+    }
+
+    async fn atomic_batch_checked(
+        &self,
+        checks: Vec<tinystoragedrivers_core::ReadCheck>,
+        ops: Vec<tinystoragedrivers_core::WriteOp>,
+    ) -> tinystoragedrivers_core::Result<Vec<tinystoragedrivers_core::WriteResult>> {
+        if self.fail_batches.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(tinystoragedrivers_core::StorageError::backend(
+                "injected batch failure",
+            ));
+        }
+        self.inner.atomic_batch_checked(checks, ops).await
     }
 }
