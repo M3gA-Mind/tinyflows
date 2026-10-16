@@ -23,7 +23,7 @@ use super::definitions::{is_race, to_doc as definition_doc};
 use super::history::to_doc as revision_doc;
 use super::proposals::to_doc as proposal_doc;
 use super::runs::to_doc as run_doc;
-use super::{DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, storage};
+use super::{DEFINITIONS, DriverWorkflowStore, PROPOSALS, REVISIONS, RUNS, doc_id, put_doc, storage};
 
 /// Writes `doc` at `collection/id` only if absent; `Ok(false)` when taken.
 async fn put_if_absent(
@@ -32,7 +32,7 @@ async fn put_if_absent(
     id: &str,
     doc: Value,
 ) -> Result<bool, WorkflowError> {
-    match docs.put(collection, id, doc, Precondition::Absent).await {
+    match put_doc(docs, collection, id, doc, Precondition::Absent).await {
         Ok(_) => Ok(true),
         // An absent-precondition put that finds the id taken reports a
         // conflict on some backends and "already exists" on others.
