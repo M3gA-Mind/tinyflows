@@ -135,7 +135,7 @@ pub enum Schedule {
         /// A standard 5-field crontab (`min hour dom mon dow`, weekdays 0–7
         /// with 0 and 7 = Sunday) or a crate-native 6/7-field expression
         /// with a leading seconds column (weekdays 1–7, 1 = Sunday). See
-        /// [`crate::schedule::normalize_expression`].
+        /// `normalize_expression` (served by the module's `NormalizeExpression` member).
         expr: String,
         #[serde(default)]
         tz: Option<String>,
@@ -172,11 +172,6 @@ impl<'de> Deserialize<'de> for Schedule {
             /// This handles callers that send `schedule: "0 9 * * 1"` directly
             /// instead of the structured form.
             fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                tracing::debug!(
-                    "[cron] Schedule::deserialize: got bare string '{}', \
-                     coercing to Cron variant",
-                    value
-                );
                 Ok(Schedule::Cron {
                     expr: value.to_owned(),
                     tz: None,
@@ -185,11 +180,6 @@ impl<'de> Deserialize<'de> for Schedule {
             }
 
             fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
-                tracing::debug!(
-                    "[cron] Schedule::deserialize: got bare string '{}', \
-                     coercing to Cron variant",
-                    value
-                );
                 Ok(Schedule::Cron {
                     expr: value,
                     tz: None,
