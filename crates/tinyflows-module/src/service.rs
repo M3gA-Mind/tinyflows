@@ -29,11 +29,16 @@ impl Authoring {
         &self,
         request: tinyflows_bus::ImportGraphRequest,
     ) -> Result<tinyflows_bus::ImportGraphResult> {
-        let format = request.format.as_deref().unwrap_or("auto").trim();
+        let format = request
+            .format
+            .as_deref()
+            .unwrap_or("auto")
+            .trim()
+            .to_ascii_lowercase();
         let is_n8n = match format {
-            "auto" => tinyflows_catalog::import::n8n::looks_like_n8n(&request.graph),
+            "auto" | "" => tinyflows_catalog::import::n8n::looks_like_n8n(&request.graph),
             "n8n" => true,
-            "native" => false,
+            "native" | "tinyflows" => false,
             other => {
                 return Err(Error::failed(format!(
                     "unsupported import format '{other}'"
