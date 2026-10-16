@@ -8,7 +8,7 @@ mod requests;
 mod store_types;
 pub mod types;
 
-pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent};
+pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
     CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunsCloserThanRequest,

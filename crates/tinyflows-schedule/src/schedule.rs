@@ -3,13 +3,12 @@ use crate::types::{ActiveHours, Schedule};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration as ChronoDuration, NaiveTime, Timelike, Utc};
 use cron::Schedule as CronExprSchedule;
-use std::fmt;
 use std::str::FromStr;
 
 // `MIN_AGENT_JOB_INTERVAL` (the closest together two runs of an agent job may
 // be scheduled, enforced by `validate_agent_schedule`) and `TooFrequent` live in
 // the bus contract and are re-exported here.
-pub use tinyflows_bus::schedule::{MIN_AGENT_JOB_INTERVAL, TooFrequent};
+pub use tinyflows_bus::schedule::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 
 /// Upper bound on cron candidates walked while looking for an occurrence that
 /// falls inside `active_hours`. `next_run_for_schedule` gets a fresh budget

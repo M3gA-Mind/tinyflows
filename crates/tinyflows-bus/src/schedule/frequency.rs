@@ -65,7 +65,7 @@ impl fmt::Display for TooFrequent {
 }
 
 /// `4 minutes`, `30 seconds`, `1 minute 30 seconds` — whole seconds only.
-fn describe_gap(gap: ChronoDuration) -> String {
+pub fn describe_gap(gap: ChronoDuration) -> String {
     fn count(n: i64, unit: &str) -> String {
         if n == 1 {
             format!("{n} {unit}")
