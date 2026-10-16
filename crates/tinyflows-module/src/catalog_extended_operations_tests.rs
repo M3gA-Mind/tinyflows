@@ -2,8 +2,8 @@ use super::tests::{connections, graph, put_proxy, scope, scope_with_documents};
 use serde_json::json;
 use std::sync::Arc;
 use tinyflows_bus::catalog::{
-    self as catalog, CreateDraftRequest, DraftIdRequest, DraftOrigin, FlowDraft, FlowRun,
-    FlowSuggestion, ListAllRunsRequest, ListRunsRequest, ListSuggestionsRequest, PruneRunsRequest,
+    CreateDraftRequest, DraftIdRequest, DraftOrigin, FlowDraft, FlowRun, FlowSuggestion,
+    ListAllRunsRequest, ListRunsRequest, ListSuggestionsRequest, PruneRunsRequest,
     PutWorkflowRequest, PutWorkflowResponse, RunIdRequest, SetSuggestionStatusRequest,
     SuggestionStatus, UpdateDraftRequest, UpsertSuggestionsRequest,
 };
