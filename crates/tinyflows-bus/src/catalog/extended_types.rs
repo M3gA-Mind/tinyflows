@@ -71,7 +71,11 @@ pub struct UpdateDraftRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Optional replacement graph.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_graph_patch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub graph: Option<Value>,
     /// Missing means unchanged, null clears, and a string assigns.
     #[serde(
@@ -87,6 +91,13 @@ where
     D: Deserializer<'de>,
 {
     Option::<String>::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_graph_patch<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
 }
 
 /// Draft promotion asks a host callback to execute its normal save path.
