@@ -136,18 +136,18 @@ async fn refill_stops_at_the_batch_cap_after_skipping_a_held_head() {
         .lock()
         .unwrap()
         .iter()
-        .map(|record| record.job_id.as_str())
+        .map(|record| record.job_id.clone())
         .collect();
     assert_eq!(recorded.len(), 2);
-    assert!(recorded.contains(&second.id.as_str()));
-    assert!(recorded.contains(&third.id.as_str()));
-    assert!(!recorded.contains(&fourth.id.as_str()));
+    assert!(recorded.contains(&second.id));
+    assert!(recorded.contains(&third.id));
+    assert!(!recorded.contains(&fourth.id));
     assert!(fixture.release_occurrence(&held, fixture.now()).await.unwrap());
 }
 
 #[tokio::test]
 async fn a_later_claim_error_releases_every_earlier_undispatched_receipt() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     let first = fixture.job();
     let second = fixture.job();
     *fixture.jobs.lock().unwrap() = vec![first.clone(), second];
