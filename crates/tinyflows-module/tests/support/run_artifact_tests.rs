@@ -94,7 +94,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .unwrap();
     assert_eq!(started.run_id, run_id);
     assert!(!started.already_running);
-    alice_agent.started.notified().await;
+    wait_notify(&alice_agent.started, "alice agent start").await;
     let live_graph =
         poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
     assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
@@ -109,7 +109,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let bob_started: runs::StartRunResponse =
         runs_proxy.call("StartRun", (bob_start,)).await.unwrap();
     assert!(!bob_started.already_running);
-    bob_agent.started.notified().await;
+    wait_notify(&bob_agent.started, "bob agent start").await;
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
 
     let wrong_owner = RunControlRequest {
@@ -141,7 +141,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     alice_agent.release.notify_one();
     bob_agent.release.notify_one();
 
-    terminal_write_started.notified().await;
+    wait_notify(&terminal_write_started, "terminal event write").await;
     let gap: runs::PollRun = runs_proxy
         .call(
             "PollRun",
@@ -252,7 +252,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
                 .await
         })
     };
-    insert_started.notified().await;
+    wait_notify(&insert_started, "blocked initial run row write").await;
     release_insert.notify_one();
     assert!(first_attempt.await.unwrap().is_err());
     let failed_row: Option<catalog::FlowRun> = catalog_proxy
@@ -269,7 +269,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let retry_started: runs::StartRunResponse =
         runs_proxy.call("StartRun", (retry_request,)).await.unwrap();
     assert!(!retry_started.already_running);
-    retry_agent.started.notified().await;
+    wait_notify(&retry_agent.started, "retry agent start").await;
     retry_agent.release.notify_one();
     let _ = poll_until_done(&runs_proxy, &retry_owner.storage, "rollback-id").await;
 
@@ -315,7 +315,13 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .await
         .unwrap();
     assert!(!admitted.already_running);
-    snapshot_agent.started.notified().await;
+    wait_notify(&snapshot_agent.started, "snapshot retry agent start").await;
     snapshot_agent.release.notify_one();
     let _ = poll_until_done(&runs_proxy, &snapshot_owner.storage, "snapshot-id").await;
+}
+
+async fn wait_notify(notify: &Notify, boundary: &str) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), notify.notified())
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {boundary}"));
 }
