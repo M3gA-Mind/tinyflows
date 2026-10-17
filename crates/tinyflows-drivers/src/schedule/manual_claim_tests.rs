@@ -81,3 +81,54 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
     assert_eq!(history.len(), 1, "release removes its queued placeholder");
     assert_eq!(history[0].status, "ok");
 }
+
+#[tokio::test]
+async fn expired_manual_recovery_removes_the_old_queued_placeholder() {
+    let backend = MemoryStorage::new();
+    let store = CronDocuments::new(docs_in(&backend, "manual-recovery-queue"));
+    let job = store
+        .add_shell_job(
+            None,
+            Schedule::Every { every_ms: 60_000 },
+            "echo recover",
+        )
+        .await
+        .unwrap();
+    let started = Utc::now();
+    let old = store
+        .claim_job_now(&job, "crashed-owner", started, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store.queue_claimed_run(&old, started).await.unwrap());
+    assert_eq!(store.list_runs(&job.id, 10).await.unwrap()[0].status, "queued");
+
+    let recovered_at = started + Duration::minutes(2);
+    let recovered = store
+        .claim_job_now(&job, "replacement-owner", recovered_at, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(old.token(), recovered.token());
+    assert!(
+        store.list_runs(&job.id, 10).await.unwrap().is_empty(),
+        "expired queued history is removed atomically with replacement claim"
+    );
+    assert!(store
+        .queue_claimed_run(&recovered, recovered_at)
+        .await
+        .unwrap());
+    assert!(store
+        .complete_manual_claim(
+            &recovered,
+            recovered_at + Duration::seconds(1),
+            true,
+            "recovered",
+            None,
+        )
+        .await
+        .unwrap());
+    let history = store.list_runs(&job.id, 10).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].status, "ok");
+}

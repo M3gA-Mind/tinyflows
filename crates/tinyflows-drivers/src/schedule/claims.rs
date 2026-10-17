@@ -185,7 +185,11 @@ impl CronDocuments {
             if !force && (!job.enabled || job.next_run > now) {
                 return Ok(None);
             }
-            if lease(&stored.doc)?.is_some_and(|lease| lease.expires_at > now) {
+            let previous_lease = lease(&stored.doc)?;
+            if previous_lease
+                .as_ref()
+                .is_some_and(|lease| lease.expires_at > now)
+            {
                 return Ok(None);
             }
             let mut doc = stored.doc.clone();
@@ -206,8 +210,16 @@ impl CronDocuments {
                 queued_run: None,
             };
             doc[LEASE] = serde_json::to_value(&acquired)?;
+            let mut extra = vec![];
+            if let Some(queued_run) = previous_lease.and_then(|lease| lease.queued_run) {
+                extra.push(WriteOp::Delete {
+                    collection: RUNS.into(),
+                    id: run_id(queued_run),
+                    precondition: Precondition::None,
+                });
+            }
             match self
-                .commit_job(job_id, Some(&stored), Some(doc), vec![])
+                .commit_job(job_id, Some(&stored), Some(doc), extra)
                 .await
             {
                 Ok(_) => {
