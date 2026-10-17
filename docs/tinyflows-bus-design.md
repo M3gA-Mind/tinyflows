@@ -67,6 +67,11 @@ false for `pending_approval`. Checkpoints and the exact executed graph snapshot
 live in the owner-scoped document port. Persisted-row rebinding after module
 restart and `ResumeRun` are left to the next slice.
 
+The host's CatalogStorage callback allowlist must also admit
+`flows_graph_checkpoints`, `flows_graph_threads` and `flows_graph_writes` for
+the module's DriverCheckpointer. It must apply the same owner scope to those
+collections as it does to the workflow catalog collections.
+
 ### Node kinds, graph_ops, gates, preflight
 
 The canonical host-facing `NodeKindContract` data model, host-note overlay
