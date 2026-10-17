@@ -243,14 +243,6 @@ impl DocumentStore for Documents {
         precondition: Precondition,
         options: WriteOptions,
     ) -> Result<Version> {
-        if options.created_ms.is_some() {
-            // A creation time is a host-only migration option; the callback
-            // seam cannot carry it.
-            return Err(StorageError::unsupported(
-                Capability::RecordMetadata,
-                "a module cannot set a document's creation time",
-            ));
-        }
         self.call_record(
             storage::PUT,
             collection,
