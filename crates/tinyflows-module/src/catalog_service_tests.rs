@@ -391,7 +391,12 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
     let (storage, docs, fail_revision_put) =
         scope_with_test_options(&host, "migration", true, true).await;
     let created_ms = 1_772_600_767_250_i64;
-    for collection in ["flows_definitions", "flows_kv", "flows_state"] {
+    for collection in [
+        "flows_definitions",
+        "flows_revisions",
+        "flows_kv",
+        "flows_state",
+    ] {
         docs.ensure_collection(&CollectionSpec::new(collection))
             .await
             .unwrap();
@@ -404,6 +409,17 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
             "updated_at":"2026-03-04T05:06:07.250+00:00","require_approval":false,
             "incarnation":"legacy-inc"}),
         Precondition::None,
+    )
+    .await
+    .unwrap();
+    let revision_created_ms = 1_700_000_123_456_i64;
+    docs.put_with(
+        "flows_revisions",
+        "legacy-revision",
+        json!({"flow_id":"legacy-flow","name":"Older","graph_json":graph("manual", false).to_string(),
+            "require_approval":false,"flow_incarnation":"legacy-inc"}),
+        Precondition::None,
+        WriteOptions::new().created_ms(revision_created_ms),
     )
     .await
     .unwrap();
