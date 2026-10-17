@@ -66,8 +66,8 @@ pub const CAPS_METHODS: &[&str] = &[
     caps::APPROVAL_CANCEL,
 ];
 
-/// `StartRun` request; the host callback address is intentionally not a field
-/// in this graph-shaped request and is added by the trusted run manager.
+/// `StartRun` request. The host-supplied context, capabilities and storage
+/// callback are a trusted execution envelope separate from graph JSON.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct StartRun {
     /// Host-chosen stable id. The exact opaque value is used for the row and
@@ -82,8 +82,10 @@ pub struct StartRun {
     pub storage: CatalogStorage,
     /// Migrated graph JSON.
     pub graph: Value,
-    /// Trigger payload and kind are separate from declared inputs.
-    pub trigger: FlowRunTrigger,
+    /// Host trigger kind, separate from its free-form payload and inputs.
+    pub trigger_kind: FlowRunTrigger,
+    /// Payload delivered by the trigger node and exposed as `run.trigger`.
+    pub trigger_data: Value,
     /// Values for declared workflow inputs.
     pub inputs: serde_json::Map<String, Value>,
     /// Required host-selected execution budget. Zero is invalid; the module
@@ -110,6 +112,8 @@ pub enum FlowRunTrigger {
     Schedule,
     /// Application event dispatch.
     AppEvent,
+    /// Human-approved continuation of a parked run (ResumeRun is served by a later slice).
+    Resume,
 }
 
 /// Owner-scoped operation on an existing live run.
@@ -130,7 +134,9 @@ pub struct RunControlRequest {
 pub struct StartRunResponse {
     /// Exact host-chosen id used for this run.
     pub run_id: String,
-    /// False when an identical owner-scoped StartRun was already admitted.
+    /// True when the exact owner-scoped id already has a live or parked run;
+    /// false when this request created and started a new run. Existing
+    /// terminal rows are rejected and never overwritten.
     pub already_running: bool,
 }
 

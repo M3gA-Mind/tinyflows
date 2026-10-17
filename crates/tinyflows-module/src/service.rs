@@ -122,6 +122,7 @@ pub(super) async fn setup(connection: Connection) -> Result<()> {
     super::catalog_service::setup(&connection)
         .await
         .map_err(|error| Error::failed(error.to_string()))?;
+    super::runs_service::setup(&connection).await?;
     Ok(())
 }
 

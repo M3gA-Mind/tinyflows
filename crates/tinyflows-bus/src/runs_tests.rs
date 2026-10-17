@@ -34,7 +34,8 @@ fn run_start_contract_roundtrips_and_matches_literal_fixture() {
             },
             storage: storage(),
             graph: serde_json::json!({"nodes": [], "edges": []}),
-            trigger: FlowRunTrigger::Schedule,
+            trigger_kind: FlowRunTrigger::Schedule,
+            trigger_data: serde_json::json!({"task":"nightly"}),
             inputs: serde_json::Map::from_iter([("limit".into(), serde_json::json!(3))]),
             timeout_ms: 600_000,
         },
@@ -44,7 +45,8 @@ fn run_start_contract_roundtrips_and_matches_literal_fixture() {
             "caps_host":{"callback":{"destination":"host.caps","object_path":"/run/opaque"}},
             "storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},
             "graph":{"nodes":[],"edges":[]},
-            "trigger":"schedule",
+            "trigger_kind":"schedule",
+            "trigger_data":{"task":"nightly"},
             "inputs":{"limit":3},
             "timeout_ms":600000
         }),
@@ -55,6 +57,13 @@ fn run_start_contract_roundtrips_and_matches_literal_fixture() {
             already_running: true,
         },
         serde_json::json!({"run_id":"opaque/run:1","already_running":true}),
+    );
+    pin(
+        RunContext {
+            flow_id: "flow-2".into(),
+            origin: None,
+        },
+        serde_json::json!({"flow_id":"flow-2","origin":null}),
     );
 }
 
@@ -91,10 +100,39 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"events":[],"next_cursor":4,"done":false}),
     );
+    for (trigger, fixture) in [
+        (FlowRunTrigger::Rpc, "rpc"),
+        (FlowRunTrigger::Schedule, "schedule"),
+        (FlowRunTrigger::AppEvent, "app_event"),
+        (FlowRunTrigger::Resume, "resume"),
+    ] {
+        pin(trigger, serde_json::json!(fixture));
+    }
     pin(
-        FlowRunTrigger::AppEvent,
-        serde_json::json!("app_event"),
+        ResumeRun {
+            run_id: "run-1".into(),
+            approvals: vec!["gate".into()],
+        },
+        serde_json::json!({"run_id":"run-1","approvals":["gate"]}),
+    );
+    pin(
+        CallbackAddress {
+            destination: "host.caps".into(),
+            object_path: "/run/1".into(),
+        },
+        serde_json::json!({"destination":"host.caps","object_path":"/run/1"}),
+    );
+    pin(
+        CapsHost {
+            callback: CallbackAddress {
+                destination: "host.caps".into(),
+                object_path: "/run/1".into(),
+            },
+        },
+        serde_json::json!({"callback":{"destination":"host.caps","object_path":"/run/1"}}),
     );
     assert_eq!(CONTRACT_VERSION, 2);
     assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun"]);
+    assert_eq!(CAPS_CONTRACT_VERSION, 1);
+    assert_eq!(CAPS_METHODS.len(), 19);
 }

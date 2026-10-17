@@ -77,6 +77,7 @@ mod lineage;
 mod revision_sequence;
 mod revisions;
 mod runs;
+mod run_events;
 mod state;
 mod steps;
 mod suggestions;

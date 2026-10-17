@@ -66,6 +66,9 @@ impl Documents {
             "flows_kv",
             "flows_suggestions",
             "flows_drafts",
+            "flows_graph_checkpoints",
+            "flows_graph_threads",
+            "flows_graph_writes",
         ]
         .contains(&collection)
         {

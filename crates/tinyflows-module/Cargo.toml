@@ -12,7 +12,7 @@ description = "Loadable TinyBus module for workflow authoring and scheduling"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["catalog", "schedule"] }
+tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["catalog", "engine", "schedule"] }
 tinyflows-catalog = { path = "../tinyflows-catalog" }
 tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.11.0" }
 tinyflows-schedule = { path = "../tinyflows-schedule" }
