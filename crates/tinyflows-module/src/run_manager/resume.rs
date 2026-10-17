@@ -11,7 +11,7 @@ use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
 use super::preparation::Prepared;
-use super::{RUNNING, key, reserve_resume, unregister};
+use super::{PARKED, RUNNING, active, key, reserve_resume, unregister};
 use crate::catalog_documents::Documents;
 
 const GRAPH_CHANGED: &str = "workflow graph changed after the run parked; refusing resume";
@@ -222,6 +222,11 @@ async fn refuse_stale_graph(
         .await?
     {
         return Ok(());
+    }
+    if let Some(active) = active(&key(&request.storage, run_id))
+        && active.phase.load(std::sync::atomic::Ordering::Acquire) == PARKED
+    {
+        unregister(&active);
     }
     let seq = catalog
         .flow_run_event_last_seq(run_id)
