@@ -6,11 +6,12 @@ use std::collections::BTreeMap;
 
 /// Language accepted by a code-run callback.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum CodeLanguage {
     /// Existing JavaScript code-node convention.
+    #[serde(rename = "javascript")]
     JavaScript,
     /// Existing Python code-node convention.
+    #[serde(rename = "python")]
     Python,
 }
 
