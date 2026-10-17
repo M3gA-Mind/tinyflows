@@ -11,7 +11,7 @@ pub mod types;
 pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
-    CheckOriginRequest, CheckPatchRequest, DeliveryProjection, ManualDelivery,
+    CheckOriginRequest, CheckPatchRequest, DeliveryProjection, ManualClaimReply, ManualDelivery,
     NextRunRequest, OccurrenceClaim, RunJobNow, RunJobRefusal, RunJobReply,
     RunsCloserThanRequest, ValidateScheduleRequest,
 };

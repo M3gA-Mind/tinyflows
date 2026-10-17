@@ -3,8 +3,8 @@ use super::*;
 use crate::{DeliveryStatus, JobType, Schedule};
 use anyhow::Result;
 
-/// Run with one stable id across retries and delivery. No run claim is taken;
-/// manual entry points must acquire `RunClaim` before calling this function.
+/// Run with one stable id across retries and delivery. Admission is a separate
+/// durable occurrence lease owned by the caller.
 pub async fn execute_with_retry(
     ports: &RuntimePorts,
     config: &SchedulerConfig,
@@ -53,15 +53,25 @@ pub async fn execute_with_retry(
 pub(super) async fn execute_and_persist(
     ports: &RuntimePorts,
     config: &SchedulerConfig,
-    job: &CronJob,
-) -> Result<()> {
-    let run_id = uuid::Uuid::new_v4().to_string();
-    let started_at = ports.clock.now();
+    claim: &tinyflows_bus::schedule::OccurrenceClaim,
+    delivery: tinyflows_bus::schedule::ManualDelivery,
+    advance_schedule: bool,
+) -> Result<super::ManualRunOutcome> {
+    let job = &claim.job;
+    let run_id = claim
+        .run_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let started_at = claim.started_at;
     let attempt = execute_with_retry(ports, config, job, &run_id).await?;
-    let finished_at = ports.clock.now();
-    let (delivery_status, delivery_error) = match ports.delivery.send(job, &run_id, &attempt).await {
-        Ok(status) => (Some(status), None),
-        Err(error) => (Some(DeliveryStatus::Failed), Some(error)),
+    let (delivery_status, delivery_error) = match delivery {
+        tinyflows_bus::schedule::ManualDelivery::NotRequested => (None, None),
+        tinyflows_bus::schedule::ManualDelivery::Requested => {
+            match ports.delivery.send(job, &run_id, &attempt).await {
+                Ok(status) => (Some(status), None),
+                Err(error) => (Some(DeliveryStatus::Failed), Some(error)),
+            }
+        }
     };
     let success = attempt.success
         && (job.delivery.best_effort
@@ -69,49 +79,54 @@ pub(super) async fn execute_and_persist(
     if let Some(error) = delivery_error {
         tracing::warn!(job_id = %job.id, %error, "scheduled delivery failed");
     }
-    ports
-        .delivery
-        .deliver(&tinyflows_bus::schedule::DeliveryProjection {
-            job: job.clone(),
-            run_id: run_id.clone(),
-            attempt: attempt.clone(),
-            success,
-            delivery_status: delivery_status.clone(),
-        })
-        .await?;
-    ports
-        .store
-        .record_run(RunRecord {
-            run_id,
-            job_id: job.id.clone(),
-            job_created_at: job.created_at,
-            started_at,
-            finished_at,
-            status: if success { "ok" } else { "error" }.into(),
-            output: attempt.output.clone(),
-            delivery_status,
-        })
-        .await?;
-    let one_shot = matches!(job.schedule, Schedule::At { .. });
-    let remove = one_shot && job.delete_after_run && success;
-    let next_run = if one_shot {
-        None
-    } else {
-        Some(next_run_for_schedule(&job.schedule, ports.clock.now())?)
+    let projection = tinyflows_bus::schedule::DeliveryProjection {
+        job: job.clone(),
+        run_id: run_id.clone(),
+        attempt: attempt.clone(),
+        success,
+        delivery_status: delivery_status.clone(),
     };
     ports
-        .store
-        .complete(
-            job,
-            Completion {
-                advance_schedule: true,
-                remove,
-                disable: one_shot && !remove,
-                next_run,
-                finished_at,
-                success,
-                output: attempt.output,
-            },
-        )
-        .await
+        .delivery
+        .deliver(&projection)
+        .await?;
+    let finished_at = ports.clock.now();
+    let one_shot = matches!(job.schedule, Schedule::At { .. });
+    let remove = advance_schedule && one_shot && job.delete_after_run && success;
+    let next_run = if !advance_schedule || one_shot {
+        None
+    } else {
+        Some(next_run_for_schedule(&job.schedule, finished_at)?)
+    };
+    let record = RunRecord {
+        run_id,
+        job_id: job.id.clone(),
+        job_created_at: job.created_at,
+        started_at,
+        finished_at,
+        status: if success { "ok" } else { "error" }.into(),
+        output: attempt.output.clone(),
+        delivery_status: delivery_status.clone(),
+    };
+    let completion = Completion {
+        advance_schedule,
+        remove,
+        disable: advance_schedule && one_shot && !remove,
+        next_run,
+        finished_at,
+        success,
+        output: attempt.output.clone(),
+    };
+    anyhow::ensure!(
+        ports
+            .store
+            .complete_occurrence(claim, record, completion)
+            .await?,
+        "scheduler lost the occurrence before terminal commit"
+    );
+    Ok(super::ManualRunOutcome {
+        attempt,
+        success,
+        delivery_status,
+    })
 }

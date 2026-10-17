@@ -141,8 +141,8 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
     let mut first = Scheduler::new("lease-recovery", SchedulerConfig::default(), ports.clone());
     assert_eq!(first.dispatch(vec![job.clone()]).await.unwrap(), 1);
     held.started.notified().await;
-    first.shutdown().await;
-    *frozen.0.lock().unwrap() = now + chrono::Duration::seconds(30);
+    drop(first);
+    *frozen.0.lock().unwrap() = now + chrono::Duration::hours(3);
 
     let mut restarted = Scheduler::new("lease-recovery", SchedulerConfig::default(), ports);
     let recovered = restarted.tick().await.unwrap();
@@ -152,7 +152,10 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
 
 #[tokio::test]
 async fn interrupted_recurring_occurrence_is_recovered_before_next_recurrence() {
-    assert_interrupted_occurrence_recovers(Schedule::Every { every_ms: 60_000 }).await;
+    assert_interrupted_occurrence_recovers(Schedule::Every {
+        every_ms: 24 * 60 * 60 * 1_000,
+    })
+    .await;
 }
 
 #[tokio::test]

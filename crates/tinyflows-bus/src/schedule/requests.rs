@@ -69,6 +69,16 @@ pub enum RunJobRefusal {
     DefinitionChanged,
 }
 
+/// Typed reply for atomic force-run claim callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ManualClaimReply {
+    /// The expected saved definition was claimed.
+    Claimed { claim: OccurrenceClaim },
+    /// Admission refused without creating a queue row.
+    Refused { reason: RunJobRefusal },
+}
+
 /// Receipt returned only by the scoped storage callback after an atomic claim.
 /// `receipt` is opaque to the model and may only be passed back to lease calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]

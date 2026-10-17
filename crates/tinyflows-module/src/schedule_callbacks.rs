@@ -5,7 +5,10 @@ use chrono::{DateTime, Utc};
 use serde::{Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 use tinybus::Connection;
-use tinyflows_bus::schedule::{CALLBACK_INTERFACE, CallbackAddress, callbacks};
+use tinyflows_bus::schedule::{
+    CALLBACK_INTERFACE, CallbackAddress, ManualClaimReply, OccurrenceClaim, RunJobRefusal,
+    callbacks,
+};
 use tinyflows_schedule::{CronJob, DeliveryStatus, runtime::*};
 
 /// How long the host may take to run, report, deliver or trigger one job.
@@ -72,6 +75,77 @@ impl JobStore for HostCallbacks {
     }
     async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()> {
         self.call(callbacks::CLAIM_SLOT, &(job, next_run)).await
+    }
+    async fn claim_due_occurrence(
+        &self,
+        job_id: &str,
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Option<OccurrenceClaim>> {
+        self.call(
+            callbacks::CLAIM_DUE_OCCURRENCE,
+            &(job_id, owner, now, lease.num_milliseconds()),
+        )
+        .await
+    }
+    async fn claim_manual_occurrence(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
+        match self
+            .call::<_, ManualClaimReply>(
+                callbacks::CLAIM_MANUAL_OCCURRENCE,
+                &(job, owner, now, lease.num_milliseconds()),
+            )
+            .await?
+        {
+            ManualClaimReply::Claimed { claim } => Ok(Ok(claim)),
+            ManualClaimReply::Refused { reason } => Ok(Err(reason)),
+        }
+    }
+    async fn renew_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<bool> {
+        self.call(
+            callbacks::RENEW_OCCURRENCE,
+            &(&claim.receipt, now, lease.num_milliseconds()),
+        )
+        .await
+    }
+    async fn release_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        self.call(callbacks::RELEASE_OCCURRENCE, &(&claim.receipt, now))
+            .await
+    }
+    async fn queue_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        record: RunRecord,
+    ) -> Result<bool> {
+        self.call(callbacks::QUEUE_OCCURRENCE, &(&claim.receipt, record))
+            .await
+    }
+    async fn complete_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        record: RunRecord,
+        completion: Completion,
+    ) -> Result<bool> {
+        self.call(
+            callbacks::COMPLETE_OCCURRENCE,
+            &(&claim.receipt, record, completion),
+        )
+        .await
     }
     async fn record_run(&self, record: RunRecord) -> Result<()> {
         self.call(callbacks::RECORD_RUN, &(record,)).await

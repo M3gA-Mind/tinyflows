@@ -182,7 +182,7 @@ impl Scheduler {
             let cancellation = self.cancellation.subscribe();
             self.tasks.spawn(async move {
                 let _permit = permits.acquire_owned().await?;
-                run_claim_with_renewal(&ports, &config, claim, delivery, cancellation).await
+                run_claim_with_renewal(&ports, &config, claim, delivery, true, cancellation).await
             });
             count += 1;
         }
@@ -200,6 +200,7 @@ impl Scheduler {
             &self.config,
             claim,
             delivery,
+            false,
             self.cancellation.subscribe(),
         )
         .await
@@ -265,9 +266,16 @@ async fn run_claim_with_renewal(
     config: &SchedulerConfig,
     claim: OccurrenceClaim,
     delivery: ManualDelivery,
+    advance_schedule: bool,
     mut cancellation: watch::Receiver<bool>,
 ) -> Result<ManualRunOutcome> {
-    let work = execution::execute_and_persist(ports, config, &claim, delivery);
+    let work = execution::execute_and_persist(
+        ports,
+        config,
+        &claim,
+        delivery,
+        advance_schedule,
+    );
     tokio::pin!(work);
     loop {
         tokio::select! {
@@ -291,12 +299,6 @@ async fn run_claim_with_renewal(
                 );
             }
         }
-    }
-}
-
-impl Drop for Scheduler {
-    fn drop(&mut self) {
-        let _ = self.cancellation.send(true);
     }
 }
 
