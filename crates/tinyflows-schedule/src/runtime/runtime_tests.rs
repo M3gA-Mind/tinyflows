@@ -363,7 +363,7 @@ async fn required_delivery_failure_disables_failed_one_shot_without_deleting() {
 #[tokio::test]
 async fn durable_claim_blocks_a_second_dispatch_without_advancing_the_occurrence() {
     let f = Fixture::new();
-    let job = f.job();
+    let mut job = f.job();
     job.policy.single_flight = true;
     let scope = job.id.clone();
     let held = f
