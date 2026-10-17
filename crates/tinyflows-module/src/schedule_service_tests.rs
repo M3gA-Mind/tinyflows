@@ -368,6 +368,10 @@ async fn module_job_storage_preserves_policy_updates_and_run_history() {
 #[path = "../tests/support/document_callbacks.rs"]
 pub(super) mod document_callbacks;
 
+#[cfg(test)]
+#[path = "schedule_queue_tests.rs"]
+mod queue_tests;
+
 #[tokio::test]
 async fn module_document_store_retries_policy_migration_conflicts_without_losing_seeded_jobs() {
     use tinystoragedrivers_core::{MemoryStorage, Precondition, Scope, StorageBackend};
