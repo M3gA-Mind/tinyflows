@@ -116,7 +116,7 @@ pub trait FlowStore: Send + Sync {
 
 /// The validation, gate and sandbox policy a host enforces on a graph.
 #[async_trait]
-pub trait BuilderGates: Send + Sync {
+pub trait BuilderGates: SandboxRunner {
     /// Structural validation of a candidate graph, every problem at once.
     async fn validate(&self, graph: Value) -> FlowValidation;
     /// The full hard-gate stack; empty means every gate passed.

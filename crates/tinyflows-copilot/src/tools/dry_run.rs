@@ -100,7 +100,6 @@ pub struct DryRunWorkflowTool {
     drafts: Arc<dyn DraftStore>,
     flows: Arc<dyn FlowStore>,
     gates: Arc<dyn BuilderGates>,
-    sandbox: Arc<dyn SandboxRunner>,
 }
 
 impl DryRunWorkflowTool {
@@ -108,13 +107,11 @@ impl DryRunWorkflowTool {
         drafts: Arc<dyn DraftStore>,
         flows: Arc<dyn FlowStore>,
         gates: Arc<dyn BuilderGates>,
-        sandbox: Arc<dyn SandboxRunner>,
     ) -> Self {
         Self {
             drafts,
             flows,
             gates,
-            sandbox,
         }
     }
 }
@@ -217,7 +214,7 @@ impl Tool for DryRunWorkflowTool {
         );
         let permissions_manifest = self.gates.approval_manifest(&graph).await;
         let result = self
-            .sandbox
+            .gates
             .run(SandboxRunRequest {
                 graph: serde_json::to_value(&graph)?,
                 input,
