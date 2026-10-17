@@ -3,6 +3,17 @@
 use super::*;
 use chrono::{Duration, Utc};
 use serde_json::json;
+use tinyflows_schedule::runtime::Clock as _;
+
+#[tokio::test(start_paused = true)]
+async fn retry_sleep_uses_tokio_time_without_changing_the_calendar_instant() {
+    let now = Utc::now();
+    let clock = clock::FixedClock(now);
+    let began = tokio::time::Instant::now();
+    clock.sleep(std::time::Duration::from_secs(10)).await;
+    assert_eq!(began.elapsed(), std::time::Duration::from_secs(10));
+    assert_eq!(clock.now(), now);
+}
 
 #[tokio::test]
 async fn a_manual_pass_uses_the_supplied_time_for_due_jobs_and_run_records() {
