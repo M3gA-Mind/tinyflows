@@ -44,11 +44,11 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
         .expect("manual run may force the saved disabled future job");
     assert_eq!(claim.job().id, job.id);
     assert!(
-        !store
+        store
             .claim_job_now(&job, "second-manual", now, Duration::minutes(1))
             .await
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(store.queue_claimed_run(&claim, now).await.unwrap());
     let queued = store.list_runs(&job.id, 10).await.unwrap();
@@ -75,7 +75,7 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
     );
     assert_eq!(history[0].status, "ok");
     assert_eq!(history[0].output.as_deref(), Some("ran once"));
-    assert_eq!(store.get_job(&job.id).await.unwrap().enabled, false);
+    assert!(!store.get_job(&job.id).await.unwrap().enabled);
 
     let cancelled_at = now + Duration::seconds(2);
     let cancelled = store
