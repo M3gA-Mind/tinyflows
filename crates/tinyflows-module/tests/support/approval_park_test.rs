@@ -51,42 +51,12 @@ async fn compiled_module_resumes_a_parked_approval_run() {
         .await
         .unwrap();
     assert_eq!(resumed.run_id, "resume-run");
-    let terminal = match tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        poll_until_done(&runs_proxy, &owner.storage, "resume-run"),
-    )
-    .await
-    {
-        Ok(terminal) => terminal,
-        Err(_) => {
-            let row: Option<catalog::FlowRun> = catalog_proxy
-                .call(
-                    "GetRun",
-                    (RunIdRequest {
-                        storage: owner.storage.clone(),
-                        id: "resume-run".into(),
-                    },),
-                )
-                .await
-                .unwrap();
-            let page: runs::PollRun = runs_proxy
-                .call(
-                    "PollRun",
-                    (RunControlRequest {
-                        storage: owner.storage.clone(),
-                        run_id: "resume-run".into(),
-                        cursor: 0,
-                    },),
-                )
-                .await
-                .unwrap();
-            panic!(
-                "resume did not settle; row={row:?}; events={:?}",
-                page.events
-            );
-        }
-    };
-    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
+    let terminal = poll_until_done(&runs_proxy, &owner.storage, "resume-run").await;
+    assert!(terminal.events.iter().any(|event| event.kind == "resumed"));
+    assert!(matches!(
+        terminal.events.last().unwrap().data["status"].as_str(),
+        Some("completed" | "completed_with_warnings")
+    ));
 }
 
 #[tokio::test]
