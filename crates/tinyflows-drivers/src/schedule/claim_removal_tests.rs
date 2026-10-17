@@ -70,6 +70,7 @@ async fn removal_already_in_flight_spares_the_replacement_and_its_history() {
         transactions: true,
         fail_batch: AtomicBool::new(false),
         batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+        faults: Default::default(),
     });
     let deleting = CronDocuments::new(docs.clone());
     let deletion = tokio::spawn(async move { deleting.remove_completed_claim(&old).await });

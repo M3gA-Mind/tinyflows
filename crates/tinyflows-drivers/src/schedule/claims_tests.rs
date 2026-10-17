@@ -369,6 +369,7 @@ async fn competing_claims_with_overlapping_snapshots_have_one_winner() {
             transactions: true,
             fail_batch: AtomicBool::new(false),
             batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+            faults: Default::default(),
         }))
     };
     let a = handle();
@@ -401,6 +402,7 @@ async fn completion_already_in_flight_cannot_write_into_a_recreated_job() {
         transactions: true,
         fail_batch: AtomicBool::new(false),
         batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+        faults: Default::default(),
     });
     let completing = CronDocuments::new(docs.clone());
     let finish = tokio::spawn(async move {

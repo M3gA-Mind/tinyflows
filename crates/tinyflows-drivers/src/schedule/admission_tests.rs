@@ -73,6 +73,7 @@ async fn unsupported_backends_keep_unlimited_crud_but_refuse_policy_and_claims()
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     });
     let a = CronDocuments::new(docs);
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
@@ -115,6 +116,7 @@ async fn transaction_refusal_and_completion_failure_leave_jobs_unchanged() {
         transactions: true,
         fail_batch: AtomicBool::new(true),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     });
     let a = CronDocuments::new(docs.clone());
     assert!(a.set_max_active_jobs(Some(1)).await.is_err());
@@ -175,6 +177,7 @@ async fn malformed_admission_and_capability_downgrades_fail_closed() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     assert!(b.add_shell_job(None, daily(), "bypass").await.is_err());
     a.docs
@@ -251,6 +254,7 @@ async fn installing_policy_fences_an_unlimited_write_already_in_flight() {
         transactions: true,
         fail_batch: AtomicBool::new(false),
         batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+        faults: Default::default(),
     });
     let b = CronDocuments::new(docs.clone());
     let create = tokio::spawn(async move { b.add_shell_job(None, daily(), "racer").await });

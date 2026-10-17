@@ -241,6 +241,7 @@ async fn a_refused_import_on_a_non_transactional_backend_writes_no_job() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let job = legacy_job().await;
     assert!(target.import_job(&job).await.is_err());
