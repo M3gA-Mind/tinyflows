@@ -10,6 +10,8 @@ mod document_callbacks;
 mod run_artifact_tests;
 #[path = "support/wiring_warning_artifact.rs"]
 mod wiring_warning_artifact;
+#[path = "support/portability_artifact.rs"]
+mod portability_artifact;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
@@ -479,6 +481,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert!(failures[0].contains("=nodes.fetch.item.json.title"));
 
     wiring_warning_artifact::verify_surface(&proxy).await;
+    portability_artifact::verify_surface(&connection).await;
 
     wiring_warning_artifact::verify_authoring_gates(&proxy).await;
     copilot_artifact::verify_surface(&connection).await;
