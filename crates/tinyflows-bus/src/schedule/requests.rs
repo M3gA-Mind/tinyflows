@@ -74,7 +74,10 @@ pub enum RunJobRefusal {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManualClaimReply {
     /// The expected saved definition was claimed.
-    Claimed { claim: OccurrenceClaim },
+    Claimed {
+        /// Boxed to keep refusal replies as small as their wire shape.
+        claim: Box<OccurrenceClaim>,
+    },
     /// Admission refused without creating a queue row.
     Refused { reason: RunJobRefusal },
 }
