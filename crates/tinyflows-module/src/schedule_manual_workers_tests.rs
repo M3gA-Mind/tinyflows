@@ -46,11 +46,19 @@ fn duplicate_start_is_idempotent_but_a_changed_binding_is_refused() {
     let handle = workers.prepare(prepare("profile-a", "request-2"));
     let entry = workers.get(&handle).unwrap().entry;
     let binding = serde_json::json!({"callback":"agent-a","store":"store-a"});
-    assert!(entry.begin_start(binding.clone()).unwrap());
-    assert!(!entry.begin_start(binding).unwrap());
     assert!(
         entry
-            .begin_start(serde_json::json!({"callback":"agent-b","store":"store-a"}))
+            .begin_start_with_run_id(binding.clone(), "run-1")
+            .unwrap()
+            .0
+    );
+    assert!(!entry.begin_start_with_run_id(binding, "run-1").unwrap().0);
+    assert!(
+        entry
+            .begin_start_with_run_id(
+                serde_json::json!({"callback":"agent-b","store":"store-a"}),
+                "run-2"
+            )
             .is_err()
     );
     assert!(matches!(
@@ -69,7 +77,7 @@ fn active_worker_state_is_not_expired_by_the_inert_reservation_ttl() {
     let handle = workers.prepare(prepare("profile-a", "request-3"));
     let entry = workers.get(&handle).unwrap().entry;
     entry
-        .begin_start(serde_json::json!({"job":"job-a"}))
+        .begin_start_with_run_id(serde_json::json!({"job":"job-a"}), "run-a")
         .unwrap();
     {
         let mut control = entry.control.lock().unwrap();
@@ -87,7 +95,7 @@ fn stop_before_worker_subscription_is_retained_for_the_worker() {
     let handle = workers.prepare(prepare("profile-a", "request-stop-before-subscribe"));
     let entry = workers.get(&handle).unwrap().entry;
     entry
-        .begin_start(serde_json::json!({"job":"job-a"}))
+        .begin_start_with_run_id(serde_json::json!({"job":"job-a"}), "run-a")
         .unwrap();
 
     entry.request_stop();
@@ -156,9 +164,8 @@ async fn supervisor_releases_a_known_claim_after_worker_panic_before_terminal() 
     let claim_slot = std::sync::Arc::new(tokio::sync::Mutex::new(Some(held)));
     let entry = std::sync::Arc::new(ManualWorkerEntry::prepared());
     entry
-        .begin_start(serde_json::json!({"request":"panic"}))
+        .begin_start_with_run_id(serde_json::json!({"request":"panic"}), "panic-run")
         .unwrap();
-    entry.set_run_id("panic-run".into());
     let worker = async {
         panic!("injected module worker panic");
         #[allow(unreachable_code)]

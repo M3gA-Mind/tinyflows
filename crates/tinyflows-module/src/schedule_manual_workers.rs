@@ -50,11 +50,6 @@ impl ManualWorkerEntry {
             .clone()
     }
 
-    pub(super) fn begin_start(&self, fingerprint: serde_json::Value) -> anyhow::Result<bool> {
-        self.begin_start_with_run_id(fingerprint, "")
-            .map(|(should_start, _)| should_start)
-    }
-
     pub(super) fn begin_start_with_run_id(
         &self,
         fingerprint: serde_json::Value,
@@ -94,13 +89,6 @@ impl ManualWorkerEntry {
             .lock()
             .expect("manual worker control poisoned")
             .stop_requested
-    }
-
-    pub(super) fn set_run_id(&self, run_id: String) {
-        self.control
-            .lock()
-            .expect("manual worker control poisoned")
-            .run_id = Some(run_id);
     }
 
     fn run_id(&self) -> Option<String> {
