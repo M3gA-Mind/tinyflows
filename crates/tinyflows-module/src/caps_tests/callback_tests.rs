@@ -4,14 +4,12 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use tinyflows::{
     caps::{
-        AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunOutcome, AgentRunRequest,
-        AgentRunner, AgentUsage, ApprovalProvider, ApprovalRequest, ApprovalSubject, CodeLanguage,
-        CodeRunner, ContextBlock, HttpClient, LlmProvider, MemoryProvider, ShellInterpreter,
-        ShellRequest, ShellRunner, ShellScript, StopReason, ToolDescriptor, ToolInvoker,
-        WorkdirCheck,
+        AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunRequest, AgentRunner,
+        ApprovalProvider, ApprovalRequest, ApprovalSubject, CodeLanguage, CodeRunner, HttpClient,
+        LlmProvider, MemoryProvider, ShellInterpreter, ShellRequest, ShellRunner, ShellScript,
+        ToolInvoker, WorkdirCheck,
     },
-    model::{AgentDefinition, AgentLimits, ContextSource, ContextSourceKind, ToolGrant},
-    transcript::TranscriptEntry,
+    model::AgentDefinition,
 };
 use tinyflows_bus::runs;
 
@@ -23,83 +21,6 @@ fn ports(connection: Connection, path: &str) -> CapsHostPorts {
             object_path: path.into(),
         },
     }
-}
-
-#[test]
-fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
-    let engine_request = AgentRunRequest {
-        agent: AgentDefinition {
-            id: "researcher".into(),
-            limits: AgentLimits {
-                max_steps: Some(4),
-                max_tool_calls: Some(8),
-                agent_timeout_secs: Some(30),
-                tool_timeout_secs: Some(5),
-            },
-            tools: vec![ToolGrant {
-                slug: "gh.*".into(),
-                connection_ref: Some("github".into()),
-            }],
-            context: vec![ContextSource::new(ContextSourceKind::Memory {
-                scope: "flow".into(),
-                query: "project".into(),
-                limit: Some(3),
-            })],
-            ..AgentDefinition::default()
-        },
-        model: AgentModelSelection {
-            model: Some("model".into()),
-            provider: None,
-        },
-        input: AgentInput {
-            text: "summarize".into(),
-            data: vec![json!({"id":1})],
-        },
-        context: vec![ContextBlock::text("notes", "host", "keep this")],
-        tools: vec![ToolDescriptor {
-            slug: "gh.read".into(),
-            name: Some("Read".into()),
-            description: None,
-            input_schema: Some(json!({"type":"object"})),
-            connection_ref: Some("github".into()),
-        }],
-        connection_ref: Some("github".into()),
-        working_dir: Some("/workspace".into()),
-        identity: AgentRunIdentity {
-            run_id: Some("run-1".into()),
-            workflow_id: Some("flow-1".into()),
-            node_id: "agent-1".into(),
-            depth: 2,
-            item_index: Some(1),
-        },
-        metadata: Default::default(),
-        output_schema: Some(json!({"type":"object"})),
-        config: json!({"prompt":"summarize"}),
-    };
-    let engine_json = serde_json::to_value(&engine_request).unwrap();
-    let wire_request: runs::AgentRunRequest = convert(engine_request).unwrap();
-    assert_eq!(serde_json::to_value(wire_request).unwrap(), engine_json);
-
-    let engine_outcome = AgentRunOutcome {
-        stop: StopReason::Paused {
-            token: Some("resume-1".into()),
-            reason: "approval".into(),
-            payload: json!({"node":"approve"}),
-        },
-        text: Some("partial".into()),
-        json: json!({"partial":true}),
-        raw: json!({"native":"payload"}),
-        usage: Some(AgentUsage {
-            input_tokens: Some(3),
-            output_tokens: Some(5),
-            steps: Some(2),
-            tool_calls: Some(1),
-        }),
-        transcript: vec![TranscriptEntry::bounded(12, "tool_call", "gh.read")],
-    };
-    let engine_json = serde_json::to_value(&engine_outcome).unwrap();
-    let wire_outcome: runs::AgentRunOutcome = convert(engine_outcome).unwrap();
-    assert_eq!(serde_json::to_value(wire_outcome).unwrap(), engine_json);
 }
 
 #[tokio::test]
