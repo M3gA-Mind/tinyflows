@@ -219,10 +219,12 @@ async fn execute(
         &prepared.compiled,
         input,
         capabilities,
-        active.token.clone(),
-        Arc::new(prepared.checkpointer.clone()),
-        &request.run_id,
-        journal,
+        tinyflows::engine::JournaledRunOptions {
+            token: active.token.clone(),
+            checkpointer: Arc::new(prepared.checkpointer.clone()),
+            thread_id: request.run_id.clone(),
+            journal,
+        },
         &observer_dyn,
     );
     tokio::pin!(run);
