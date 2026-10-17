@@ -100,7 +100,7 @@ impl JobStore for HostCallbacks {
             )
             .await?
         {
-            ManualClaimReply::Claimed { claim } => Ok(Ok(claim)),
+            ManualClaimReply::Claimed { claim } => Ok(Ok(*claim)),
             ManualClaimReply::Refused { reason } => Ok(Err(reason)),
         }
     }
