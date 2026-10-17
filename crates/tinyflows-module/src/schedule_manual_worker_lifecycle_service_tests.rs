@@ -120,8 +120,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("a live handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
@@ -240,8 +239,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("a live handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             completed = Some(current);
             break;
