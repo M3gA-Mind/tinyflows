@@ -210,6 +210,13 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         if completed && completion.remove {
             self.0.remove_completed_claim(&claim).await?;
         }
+        if !completed {
+            let current = self.0.find_job(&claim.job.id).await?;
+            anyhow::ensure!(
+                current.is_some_and(|current| current.created_at == claim.job.created_at),
+                "removed job creation before terminal commit"
+            );
+        }
         Ok(completed)
     }
 }
