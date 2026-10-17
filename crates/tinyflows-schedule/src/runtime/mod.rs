@@ -182,7 +182,9 @@ impl Scheduler {
             let cancellation = self.cancellation.subscribe();
             self.tasks.spawn(async move {
                 let _permit = permits.acquire_owned().await?;
-                run_claim_with_renewal(&ports, &config, claim, delivery, true, cancellation).await
+                run_claim_with_renewal(&ports, &config, claim, delivery, true, cancellation)
+                    .await
+                    .map(|_| ())
             });
             count += 1;
         }
