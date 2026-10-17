@@ -1,13 +1,17 @@
 //! Separate Schedule object in the same loadable TinyFlows module.
 #[path = "schedule_clock.rs"]
 mod clock;
+#[path = "schedule_manual_workers.rs"]
+mod manual_workers;
 use super::schedule_callbacks::HostCallbacks;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
-    self, CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunJobNow, RunJobReply,
-    RunsCloserThanRequest, StartScheduler, TooFrequent, ValidateScheduleRequest,
+    self, AcknowledgeManualRun, CheckOriginRequest, CheckPatchRequest, ManualRunHandle,
+    ManualRunOutcome, ManualRunRequest, ManualRunState, NextRunRequest, PrepareManualRun,
+    RunJobNow, RunJobReply, RunsCloserThanRequest, StartManualRun, StartScheduler,
+    StopManualRun, TooFrequent, ValidateScheduleRequest, WaitManualRun,
 };
 use tinyflows_schedule::{
     DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
@@ -28,6 +32,7 @@ enum Running {
 pub(super) struct ScheduleService {
     connection: Connection,
     runtimes: Mutex<HashMap<String, Running>>,
+    manual_workers: Mutex<manual_workers::ManualWorkers>,
 }
 impl Drop for ScheduleService {
     fn drop(&mut self) {
@@ -36,6 +41,7 @@ impl Drop for ScheduleService {
                 task.abort();
             }
         }
+        self.manual_workers.get_mut().request_stop_all();
     }
 }
 impl ScheduleService {
@@ -43,6 +49,7 @@ impl ScheduleService {
         Self {
             connection,
             runtimes: Mutex::new(HashMap::new()),
+            manual_workers: Mutex::new(manual_workers::ManualWorkers::default()),
         }
     }
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
@@ -55,6 +62,165 @@ impl ScheduleService {
 }
 fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
+}
+
+async fn run_manual_worker(
+    connection: Connection,
+    scope: String,
+    request: ManualRunRequest,
+    entry: Arc<manual_workers::ManualWorkerEntry>,
+) {
+    let claim = Arc::new(Mutex::new(None));
+    let worker_claim = claim.clone();
+    let worker_entry = entry.clone();
+    let worker = tokio::spawn(async move {
+        run_manual_worker_body(
+            connection,
+            scope,
+            request,
+            worker_entry,
+            worker_claim,
+        )
+        .await
+    });
+    let outcome = match worker.await {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(error)) => ManualRunOutcome::Failed {
+            run_id: None,
+            message: error.to_string(),
+        },
+        Err(error) => ManualRunOutcome::Failed {
+            run_id: None,
+            message: format!("manual worker task failed: {error}"),
+        },
+    };
+    if let Some(claim) = claim.lock().await.take() {
+        release_until_safe(&entry, claim).await;
+    }
+    entry.set_state(ManualRunState::Terminal { outcome });
+}
+
+async fn run_manual_worker_body(
+    connection: Connection,
+    scope: String,
+    request: ManualRunRequest,
+    entry: Arc<manual_workers::ManualWorkerEntry>,
+    claim_slot: Arc<Mutex<Option<HeldClaim>>>,
+) -> anyhow::Result<ManualRunOutcome> {
+    if entry.stopped() {
+        return Ok(ManualRunOutcome::Stopped { run_id: None });
+    }
+    let config: SchedulerConfig = serde_json::from_value(request.config).map_err(anyhow::Error::from)?;
+    let mut ports = HostCallbacks::ports(connection.clone(), request.callback);
+    ports.store = Arc::new(
+        super::schedule_store::Store::new(connection, request.storage).await?,
+    );
+    if entry.stopped() {
+        return Ok(ManualRunOutcome::Stopped { run_id: None });
+    }
+    let run_id = if request.run_id.trim().is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        request.run_id
+    };
+    let owner = uuid::Uuid::new_v4().to_string();
+    let mut claim = match ports
+        .store
+        .claim_manual_occurrence(
+            &request.job,
+            &owner,
+            ports.clock.now(),
+            chrono::Duration::hours(2),
+        )
+        .await?
+    {
+        Ok(claim) => claim,
+        Err(reason) => {
+            return Ok(ManualRunOutcome::Refused { run_id, reason });
+        }
+    };
+    claim.run_id = Some(run_id.clone());
+    *claim_slot.lock().await = Some(HeldClaim {
+        claim: claim.clone(),
+        store: ports.store.clone(),
+        clock: ports.clock.clone(),
+    });
+    if entry.stopped() {
+        return Ok(ManualRunOutcome::Stopped {
+            run_id: Some(run_id),
+        });
+    }
+    let queued_at = ports.clock.now();
+    let queued = RunRecord {
+        run_id: run_id.clone(),
+        job_id: claim.job.id.clone(),
+        job_created_at: claim.job.created_at,
+        started_at: claim.started_at,
+        finished_at: queued_at,
+        status: "queued".into(),
+        output: String::new(),
+        delivery_status: None,
+    };
+    if !ports.store.queue_occurrence(&claim, queued).await? {
+        return Ok(ManualRunOutcome::Refused {
+            run_id,
+            reason: tinyflows_bus::schedule::RunJobRefusal::DefinitionChanged,
+        });
+    }
+    entry.set_running(run_id.clone());
+    if entry.stopped() {
+        return Ok(ManualRunOutcome::Stopped {
+            run_id: Some(run_id),
+        });
+    }
+    let scheduler = Scheduler::new(scope, config, ports);
+    match scheduler
+        .run_manual_claim_cooperative(claim, request.delivery, entry.stop.subscribe())
+        .await?
+    {
+        Some(outcome) => {
+            claim_slot.lock().await.take();
+            Ok(ManualRunOutcome::Completed {
+                run_id,
+                attempt: outcome.attempt,
+                success: outcome.success,
+                delivery_status: outcome.delivery_status,
+            })
+        }
+        None => Ok(ManualRunOutcome::Stopped {
+            run_id: Some(run_id),
+        }),
+    }
+}
+
+async fn release_until_safe(
+    entry: &manual_workers::ManualWorkerEntry,
+    held: HeldClaim,
+) {
+    let mut delay = std::time::Duration::from_millis(250);
+    loop {
+        match held
+            .store
+            .release_occurrence(&held.claim, held.clock.now())
+            .await
+        {
+            Ok(_) => return,
+            Err(error) => {
+                entry.set_state(ManualRunState::CleanupPending {
+                    run_id: held.claim.run_id.clone(),
+                });
+                tracing::warn!(%error, run_id = ?held.claim.run_id, "manual worker claim release will retry");
+                held.clock.sleep(delay).await;
+                delay = delay.saturating_mul(2).min(std::time::Duration::from_secs(30));
+            }
+        }
+    }
+}
+
+struct HeldClaim {
+    claim: tinyflows_bus::schedule::OccurrenceClaim,
+    store: Arc<dyn JobStore>,
+    clock: Arc<dyn Clock>,
 }
 
 async fn persist_manual_queue(
@@ -245,6 +411,63 @@ impl ScheduleService {
             });
             Ok(RunJobReply::Accepted { run_id })
         }
+    }
+
+    async fn prepare_manual_run(&self, request: PrepareManualRun) -> Result<ManualRunHandle> {
+        Ok(self.manual_workers.lock().await.prepare(request))
+    }
+
+    async fn start_manual_run(&self, request: StartManualRun) -> Result<ManualRunState> {
+        let mut workers = self.manual_workers.lock().await;
+        let reservation = workers
+            .get(&request.handle)
+            .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))?;
+        let fingerprint = serde_json::to_value(&request.request).map_err(failure)?;
+        let should_spawn = reservation
+            .entry
+            .begin_start(fingerprint)
+            .map_err(failure)?;
+        let state = reservation.entry.state();
+        if should_spawn {
+            let connection = self.connection.clone();
+            let entry = reservation.entry.clone();
+            let scope = reservation.scope.clone();
+            let run_request = request.request;
+            tokio::spawn(async move {
+                run_manual_worker(connection, scope, run_request, entry).await;
+            });
+        }
+        // The entry is already atomically Starting before the worker task is
+        // scheduled. Duplicate identical starts only observe this state.
+        let _ = &reservation.request_id;
+        drop(workers);
+        Ok(state)
+    }
+
+    async fn wait_manual_run(&self, request: WaitManualRun) -> Result<ManualRunState> {
+        self.manual_workers
+            .lock()
+            .await
+            .get(&request.handle)
+            .map(|reservation| reservation.entry.state())
+            .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))
+    }
+
+    async fn stop_manual_run(&self, request: StopManualRun) -> Result<ManualRunState> {
+        self.manual_workers
+            .lock()
+            .await
+            .get(&request.handle)
+            .map(|reservation| reservation.entry.request_stop())
+            .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))
+    }
+
+    async fn acknowledge_manual_run(&self, request: AcknowledgeManualRun) -> Result<bool> {
+        Ok(self
+            .manual_workers
+            .lock()
+            .await
+            .acknowledge(&request.handle))
     }
 
     async fn parse_human_delay(&self, delay: String) -> Result<i64> {

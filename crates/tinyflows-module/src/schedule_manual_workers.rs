@@ -68,6 +68,17 @@ impl ManualWorkerEntry {
         control.state = state;
     }
 
+    pub(super) fn set_running(&self, run_id: String) {
+        let mut control = self.control.lock().expect("manual worker control poisoned");
+        control.state = if control.stop_requested {
+            ManualRunState::Stopping {
+                run_id: Some(run_id),
+            }
+        } else {
+            ManualRunState::Running { run_id }
+        };
+    }
+
     pub(super) fn request_stop(&self) -> ManualRunState {
         let mut control = self.control.lock().expect("manual worker control poisoned");
         match &control.state {
@@ -100,11 +111,11 @@ impl ManualWorkerEntry {
     }
 
     fn expired(&self, now: Instant) -> bool {
-        self.control
-            .lock()
-            .expect("manual worker control poisoned")
-            .expires_at
-            <= now
+        let control = self.control.lock().expect("manual worker control poisoned");
+        matches!(
+            control.state,
+            ManualRunState::Prepared | ManualRunState::Terminal { .. }
+        ) && control.expires_at <= now
     }
 }
 
@@ -164,6 +175,12 @@ impl ManualWorkers {
         true
     }
 
+    pub(super) fn request_stop_all(&mut self) {
+        for reservation in self.by_handle.values() {
+            reservation.entry.request_stop();
+        }
+    }
+
     fn prune_expired(&mut self) {
         let now = Instant::now();
         let expired: Vec<_> = self
@@ -185,3 +202,7 @@ pub(super) struct ReservationView {
     pub(super) request_id: String,
     pub(super) entry: std::sync::Arc<ManualWorkerEntry>,
 }
+
+#[cfg(test)]
+#[path = "schedule_manual_workers_tests.rs"]
+mod tests;
