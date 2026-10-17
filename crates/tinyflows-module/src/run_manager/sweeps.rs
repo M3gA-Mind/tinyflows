@@ -12,7 +12,7 @@ use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
 use super::preparation::catalog;
-use super::{PARKED, active, key, unregister};
+use super::{PARKED, active, active_lease, key, unregister};
 use crate::catalog_documents::Documents;
 
 const BOOT_REASON: &str = "Run interrupted by module restart; no local actor owns this run.";
@@ -35,14 +35,17 @@ pub(super) async fn expire_parked(
             ),
         )
         .await?;
+    let mut terminal_error = None;
     for (run_id, _) in &expired {
+        let run = catalog.get_flow_run(run_id).await?;
+        let snapshot = catalog.flow_run_snapshot(run_id).await?;
         if let Some(run) = active(&key(&request.storage, run_id))
             && run.phase.load(std::sync::atomic::Ordering::Acquire) == PARKED
         {
             unregister(&run);
         }
-        settle_terminal_event(&catalog, run_id, "cancelled", "parked run expired").await?;
-        if let Some(run) = catalog.get_flow_run(run_id).await? {
+        settle_snapshot_dedup(&catalog, snapshot.as_ref(), run_id).await;
+        if let Some(run) = run {
             let documents: Arc<dyn DocumentStore> = Arc::new(
                 Documents::new(connection.clone(), request.storage.callback.clone()).await?,
             );
@@ -51,6 +54,16 @@ pub(super) async fn expire_parked(
                 tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
             }
         }
+        if let Err(error) =
+            settle_terminal_event(&catalog, run_id, "cancelled", "parked run expired").await
+        {
+            terminal_error.get_or_insert_with(|| {
+                anyhow::anyhow!("settling expired run {run_id}: {error:#}")
+            });
+        }
+    }
+    if let Some(error) = terminal_error {
+        return Err(error);
     }
     Ok(ExpireParkedResponse { expired })
 }
@@ -76,8 +89,19 @@ pub(super) async fn boot_sweep(
     );
     let checkpointer = DriverCheckpointer::<Value>::new(checkpointer_docs);
     let mut interrupted = Vec::new();
+    let mut terminal_error = None;
     for (run_id, _) in candidates {
         if active(&key(&request.storage, &run_id)).is_some() {
+            continue;
+        }
+        let snapshot = catalog.flow_run_snapshot(&run_id).await?;
+        if snapshot
+            .as_ref()
+            .and_then(|value| value.get("lease"))
+            .and_then(Value::as_str)
+            .and_then(active_lease)
+            .is_some()
+        {
             continue;
         }
         if !catalog
@@ -86,13 +110,21 @@ pub(super) async fn boot_sweep(
         {
             continue;
         }
+        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
         if let Some(run) = catalog.get_flow_run(&run_id).await?
             && let Err(error) = checkpointer.delete_thread(&run.thread_id).await
         {
             tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
         }
-        settle_terminal_event(&catalog, &run_id, "interrupted", BOOT_REASON).await?;
+        if let Err(error) = settle_terminal_event(&catalog, &run_id, "interrupted", BOOT_REASON).await {
+            terminal_error.get_or_insert_with(|| {
+                anyhow::anyhow!("settling interrupted run {run_id}: {error:#}")
+            });
+        }
         interrupted.push(run_id);
+    }
+    if let Some(error) = terminal_error {
+        return Err(error);
     }
     Ok(BootSweepResponse { interrupted })
 }
@@ -122,4 +154,28 @@ async fn settle_terminal_event(
         anyhow::bail!("terminal event cursor was not committed")
     }
     Ok(())
+}
+
+async fn settle_snapshot_dedup(
+    catalog: &FlowCatalogDocuments,
+    snapshot: Option<&Value>,
+    run_id: &str,
+) {
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+    let decoded = (|| {
+        Some((
+            tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?,
+            serde_json::from_value::<tinyflows_bus::runs::RunContext>(
+                snapshot.get("context")?.clone(),
+            )
+            .ok()?,
+        ))
+    })();
+    if let Some((graph, context)) = decoded {
+        super::actor::settle_dedup(catalog.clone(), &context, &graph, false, run_id).await;
+    } else {
+        tracing::warn!(run_id, "run snapshot could not be decoded for dedup cleanup");
+    }
 }
