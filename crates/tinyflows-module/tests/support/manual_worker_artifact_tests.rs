@@ -231,7 +231,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
             },),
         )
         .await
-        .unwrap().expect("known worker handle remains observable");
+        .unwrap()
+        .expect("known worker handle remains observable");
     let completed_start = StartManualRun {
         handle: completed_handle.clone(),
         request: ManualRunRequest {
