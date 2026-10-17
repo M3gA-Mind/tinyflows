@@ -31,6 +31,7 @@ async fn live_run_renews_its_durable_lease_on_a_controlled_tick() {
         release: Semaphore::new(0),
         active: AtomicUsize::new(0),
         peak: AtomicUsize::new(0),
+        completed: AtomicUsize::new(0),
     });
     let clock = Arc::new(ControlledLeaseClock {
         now: fixture.now(),
@@ -65,6 +66,7 @@ async fn queued_occurrence_renews_and_never_executes_after_takeover() {
         release: Semaphore::new(0),
         active: AtomicUsize::new(0),
         peak: AtomicUsize::new(0),
+        completed: AtomicUsize::new(0),
     });
     let clock = Arc::new(ControlledLeaseClock {
         now: fixture.now(),
@@ -258,6 +260,7 @@ async fn dispatch_returns_before_execution_and_limits_concurrent_jobs() {
         release: Semaphore::new(0),
         active: AtomicUsize::new(0),
         peak: AtomicUsize::new(0),
+        completed: AtomicUsize::new(0),
     });
     let mut ports = f.ports();
     ports.executor = executor.clone();
@@ -289,6 +292,7 @@ async fn shutdown_waits_for_inflight_job_and_releases_queued_claims() {
             release: Semaphore::new(0),
             active: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
+            completed: AtomicUsize::new(0),
         });
         let mut ports = f.ports();
         ports.executor = executor.clone();
@@ -339,6 +343,11 @@ async fn shutdown_waits_for_inflight_job_and_releases_queued_claims() {
         let mut scheduler = shutdown.await.unwrap();
 
         assert_eq!(executor.active.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            executor.completed.load(Ordering::SeqCst),
+            1,
+            "the in-flight Execute callback returned instead of being aborted"
+        );
         assert!(
             ids.iter()
                 .all(|id| !f.leases.lock().unwrap().contains_key(id))
