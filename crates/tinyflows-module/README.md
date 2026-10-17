@@ -139,3 +139,11 @@ and run a stored flow through direct trigger/delivery/history persistence:
 ```bash
 bash scripts/verify-module-artifact.sh
 ```
+# Portability service
+
+The compiled module provides `ai.tinyhumans.tinyflows.Portability` from
+`tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
+case-insensitive app-event binding, and literal pinned trigger inputs. The host
+continues to resolve and authorize credentials; the module only formats the
+provided scheme and prepares the request.
+

@@ -25,6 +25,9 @@ pub const METHODS: &[&str] = &[
     "WiringWarnings",
 ];
 
+/// Portable host-integration helpers implemented by the compiled module.
+pub mod portability;
+
 /// Copilot service interface for the tool belt implemented by `tinyflows-copilot`.
 pub mod copilot {
     use serde::{Deserialize, Serialize};

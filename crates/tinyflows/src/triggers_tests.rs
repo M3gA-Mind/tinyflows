@@ -62,3 +62,31 @@ fn host_supplied_firing_set_overrides_the_default() {
     let graph = graph_with_trigger(json!({"trigger_kind": "webhook"}));
     assert!(graph_trigger_warnings_for(&graph, |_| true).is_empty());
 }
+
+#[test]
+fn app_event_binding_is_single_trigger_and_case_insensitive() {
+    let graph = graph_with_trigger(json!({
+        "trigger_kind":"app_event", "toolkit":"GitHub", "trigger_slug":"ISSUE_CREATED"
+    }));
+    assert!(app_event_binding(&graph, "github", "issue_created"));
+    assert!(!app_event_binding(&graph, "slack", "issue_created"));
+    assert!(!app_event_binding(&graph, "github", "issue_updated"));
+
+    let multiple = serde_json::from_value(json!({
+        "name":"t", "nodes":[
+            {"id":"a","kind":"trigger","name":"A","config":{"trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED"}},
+            {"id":"b","kind":"trigger","name":"B","config":{"trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED"}}
+        ], "edges":[]
+    })).unwrap();
+    assert!(!app_event_binding(&multiple, "GitHub", "ISSUE_CREATED"));
+}
+
+#[test]
+fn pinned_inputs_are_literal_objects_and_invalid_shapes_are_empty() {
+    let graph = graph_with_trigger(json!({
+        "trigger_kind":"app_event", "inputs":{"value":"=1 + 1", "object":{"x":1}}
+    }));
+    assert_eq!(pinned_inputs(&graph)["value"], "=1 + 1");
+    assert_eq!(pinned_inputs(&graph)["object"], json!({"x":1}));
+    assert!(pinned_inputs(&graph_with_trigger(json!({"inputs":[]}))).is_empty());
+}

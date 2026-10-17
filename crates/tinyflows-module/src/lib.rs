@@ -16,6 +16,7 @@ mod exports;
 mod schedule_callbacks;
 mod schedule_service;
 
+mod portability_service;
 mod run_manager;
 mod runs_service;
 mod schedule_documents;

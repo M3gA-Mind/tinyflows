@@ -266,6 +266,7 @@ pub(super) async fn setup(connection: Connection) -> Result<()> {
         .await
         .map_err(|error| Error::failed(error.to_string()))?;
     super::runs_service::setup(&connection).await?;
+    super::portability_service::setup(&connection).await?;
     Ok(())
 }
 

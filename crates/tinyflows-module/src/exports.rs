@@ -57,6 +57,10 @@ fn manifest() -> TbSlice {
                     tinyflows_bus::schedule::INTERFACE,
                     tinyflows_bus::schedule::METHODS,
                 ),
+                provided(
+                    tinyflows_bus::portability::INTERFACE,
+                    tinyflows_bus::portability::METHODS,
+                ),
             ],
             requires: vec![
                 Dependency {

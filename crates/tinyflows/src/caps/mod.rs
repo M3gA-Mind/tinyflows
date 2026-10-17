@@ -2,13 +2,14 @@
 //!
 //! tinyflows stays host-agnostic: everything that touches the outside world is
 //! expressed as a trait the embedding application implements. OpenHuman's
-//! adapter seam (`src/openhuman/tinyflows/`) wires these to its inference stack,
-//! curated Composio tools, `HttpRequestTool`, and sandboxed code runtimes.
+//! host adapter wires these to its inference stack, curated tools, outbound HTTP,
+//! and sandboxed code runtimes.
 
 pub mod agent;
 pub mod approval;
 #[cfg(any(test, feature = "host-caps"))]
 pub mod host;
+pub mod http_credential;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 // Kept apart from `mock` because it answers a different question. `mock` echoes,
@@ -36,6 +37,7 @@ pub use self::agent::{
 pub use self::approval::{
     ApprovalDecision, ApprovalOutcome, ApprovalProvider, ApprovalRequest, ApprovalSubject,
 };
+pub use self::http_credential::{HttpCredential, HttpCredentialTemplate, inject_credential};
 pub use self::schema::sample_for_schema;
 pub use self::shell::{ShellInterpreter, ShellOutcome, ShellRequest, ShellRunner, ShellScript};
 pub use self::tasks::{TaskExecutor, TaskRunner, TaskSpec, TaskState, TokioTaskRunner};

@@ -55,7 +55,7 @@ use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 
 let catalog = FlowCatalogDocuments::new(Arc::clone(scoped_storage.documents()));
 let flow = catalog.create_flow("Digest".into(), graph, true, false).await?;
-let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
+let state = Arc::new(FlowStateDocuments::open(catalog.clone(), flow.id.clone()).await?);
 ```
 
 | Collection | One document per |
@@ -96,7 +96,9 @@ let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
 - Graphs, steps, drafts and state values are JSON strings, optional fields
   are omitted rather than `null`, and ordering uses epoch-nanosecond fields.
 
-`FlowStateDocuments` is one flow's namespaced state over the same `flows_kv`
+`FlowStateDocuments::open` proves the catalog collections can be opened before
+returning a handle; a storage failure propagates instead of selecting an
+unscoped or process-local fallback. `FlowStateDocuments` is one flow's namespaced state over the same `flows_kv`
 documents as `kv_get` / `kv_set` / `kv_delete`. It is the engine's
 `StateStore` and the host's synchronous `DedupKv`; the latter runs on the
 storage crates' `Blocking` bridge (one per process, or the host's own via
