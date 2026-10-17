@@ -15,6 +15,7 @@ struct HeldClaimWrite {
     inner: Arc<dyn DocumentStore>,
     entered: Notify,
     release: Notify,
+    lose_fence_reply: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -101,11 +102,33 @@ impl DocumentStore for HeldClaimWrite {
             } => collection == "cron_jobs" && doc["occurrence_lease"]["owner"] == "late-owner",
             _ => false,
         });
+        let fence = ops.iter().any(|op| match op {
+            WriteOp::Put {
+                collection, doc, ..
+            } => {
+                collection == "cron_jobs"
+                    && doc["claim_generation"]
+                        .as_u64()
+                        .is_some_and(|generation| generation > 0)
+                    && doc.get("occurrence_lease").is_none()
+            }
+            _ => false,
+        });
         if late_claim {
             self.entered.notify_one();
             self.release.notified().await;
         }
-        self.inner.atomic_batch(ops).await
+        let result = self.inner.atomic_batch(ops).await?;
+        if fence
+            && self
+                .lose_fence_reply
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(tinystoragedrivers_core::StorageError::backend(
+                "injected lost admission fence response",
+            ));
+        }
+        Ok(result)
     }
 
     async fn drop_collection(&self, collection: &str) -> tinystoragedrivers_core::Result<()> {
@@ -121,6 +144,7 @@ async fn admission_fence_rejects_claim_transaction_that_commits_after_reconcilia
         inner: scoped.documents().clone(),
         entered: Notify::new(),
         release: Notify::new(),
+        lose_fence_reply: std::sync::atomic::AtomicBool::new(false),
     });
     let store = CronDocuments::new(held_docs.clone());
     let now = Utc::now();
@@ -170,4 +194,72 @@ async fn admission_fence_rejects_claim_transaction_that_commits_after_reconcilia
         .unwrap()
         .expect("a fresh snapshot remains admissible after the fence");
     assert!(store.release_claim(&fresh_claim, now).await.unwrap());
+}
+
+#[tokio::test]
+async fn reconciliation_does_not_fence_changed_snapshots_and_lost_fence_reply_is_idempotent() {
+    let backend = MemoryStorage::new();
+    let scoped = backend.for_scope(&Scope::local()).unwrap();
+    let held_docs = Arc::new(HeldClaimWrite {
+        inner: scoped.documents().clone(),
+        entered: Notify::new(),
+        release: Notify::new(),
+        lose_fence_reply: std::sync::atomic::AtomicBool::new(false),
+    });
+    let store = CronDocuments::new(held_docs.clone());
+    let now = Utc::now();
+    let captured = store
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: now + Duration::hours(1),
+            },
+            "echo original",
+        )
+        .await
+        .unwrap();
+    let changed = store
+        .update_job(
+            &captured.id,
+            tinyflows_schedule::CronJobPatch {
+                command: Some("echo changed".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&captured, "stale-owner", now)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.get_job(&changed.id).await.unwrap().claim_generation,
+        changed.claim_generation
+    );
+
+    held_docs
+        .lose_fence_reply
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&changed, "fence-owner", now)
+            .await
+            .is_err()
+    );
+    let fenced = store.get_job(&changed.id).await.unwrap();
+    assert_eq!(fenced.claim_generation, changed.claim_generation + 1);
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&changed, "fence-owner", now)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.get_job(&changed.id).await.unwrap().claim_generation,
+        fenced.claim_generation
+    );
 }

@@ -26,6 +26,24 @@ async fn reconciles_manual_claim_receipt_after_an_ambiguous_claim_reply() {
         .await
         .unwrap()
         .unwrap();
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&job, "other-owner", now + Duration::seconds(1))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.get_job(&job.id).await.unwrap().claim_generation,
+        job.claim_generation,
+        "a live lease owned by someone else is left untouched"
+    );
+    assert!(
+        store
+            .renew_claim(&committed, now + Duration::seconds(1), Duration::minutes(1))
+            .await
+            .unwrap()
+    );
     let reconciled = store
         .reconcile_manual_claim_admission(&job, "ambiguous-owner", now + Duration::seconds(1))
         .await
