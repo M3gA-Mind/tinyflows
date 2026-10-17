@@ -38,13 +38,13 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
         "scheduled admission must continue to reject disabled future jobs"
     );
     let claim = store
-        .claim_job_now(&job.id, "manual-owner", now, Duration::minutes(1))
+        .claim_job_now(&job, "manual-owner", now, Duration::minutes(1))
         .await
         .unwrap()
         .expect("manual run may force the saved disabled future job");
     assert_eq!(claim.job().id, job.id);
     assert!(!store
-        .claim_job_now(&job.id, "second-manual", now, Duration::minutes(1))
+        .claim_job_now(&job, "second-manual", now, Duration::minutes(1))
         .await
         .unwrap()
         .is_some());

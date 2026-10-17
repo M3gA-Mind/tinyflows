@@ -110,24 +110,26 @@ impl CronDocuments {
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
-        self.claim_occurrence(job_id, owner, now, duration, false).await
+        self.claim_occurrence(job_id, None, owner, now, duration, false).await
     }
 
     /// Atomically claims a saved definition for an explicit manual run,
     /// including disabled jobs and jobs scheduled in the future.
     pub async fn claim_job_now(
         &self,
-        job_id: &str,
+        expected: &CronJob,
         owner: &str,
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
-        self.claim_occurrence(job_id, owner, now, duration, true).await
+        self.claim_occurrence(&expected.id, Some(expected), owner, now, duration, true)
+            .await
     }
 
     async fn claim_occurrence(
         &self,
         job_id: &str,
+        expected: Option<&CronJob>,
         owner: &str,
         now: DateTime<Utc>,
         duration: Duration,
@@ -147,6 +149,15 @@ impl CronDocuments {
                 return Ok(None);
             };
             let job = doc_to_job(&stored)?;
+            if expected.is_some_and(|expected| {
+                job.created_at != expected.created_at
+                    || job.claim_generation != expected.claim_generation
+                    || !job.same_execution_definition(expected)
+                    || job.schedule != expected.schedule
+                    || job.next_run != expected.next_run
+            }) {
+                return Ok(None);
+            }
             if !force && (!job.enabled || job.next_run > now) {
                 return Ok(None);
             }
@@ -393,6 +404,33 @@ impl CronDocuments {
         output: &str,
         delivery_status: Option<DeliveryStatus>,
     ) -> Result<bool> {
+        self.complete_claim_mode(claim, finished_at, success, output, delivery_status, true)
+            .await
+    }
+
+    /// Atomically record a manual run without advancing or mutating its saved
+    /// schedule, enabled state, or delete-after-run policy.
+    pub async fn complete_manual_claim(
+        &self,
+        claim: &ClaimedOccurrence,
+        finished_at: DateTime<Utc>,
+        success: bool,
+        output: &str,
+        delivery_status: Option<DeliveryStatus>,
+    ) -> Result<bool> {
+        self.complete_claim_mode(claim, finished_at, success, output, delivery_status, false)
+            .await
+    }
+
+    async fn complete_claim_mode(
+        &self,
+        claim: &ClaimedOccurrence,
+        finished_at: DateTime<Utc>,
+        success: bool,
+        output: &str,
+        delivery_status: Option<DeliveryStatus>,
+        advance_schedule: bool,
+    ) -> Result<bool> {
         self.docs
             .capabilities()
             .require(Capability::Transactions)
@@ -421,11 +459,13 @@ impl CronDocuments {
             body.remove(LEASE);
             body.insert(COMPLETED.into(), serde_json::to_value(&claim.lease)?);
             set_last_run(body, finished_at, success, truncate_cron_output(output));
-            reschedule(
-                body,
-                next_run_for_schedule(&job.schedule, finished_at)?,
-                matches!(job.schedule, Schedule::At { .. }),
-            );
+            if advance_schedule {
+                reschedule(
+                    body,
+                    next_run_for_schedule(&job.schedule, finished_at)?,
+                    matches!(job.schedule, Schedule::At { .. }),
+                );
+            }
             let seq = self.next_run_number().await?;
             let run = run_to_doc(
                 seq,
