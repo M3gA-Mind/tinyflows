@@ -53,3 +53,22 @@ impl BuilderGateHost for HostPorts {
             .map_err(|error| EngineError::Capability(error.to_string()))
     }
 }
+
+#[async_trait::async_trait]
+impl tinyflows::wiring::ToolContractLookup for HostPorts {
+    async fn lookup(&self, slug: &str) -> Option<tinyflows::wiring::ToolContract> {
+        let contract: Option<tinyflows_bus::ToolContract> = self
+            .proxy()
+            .ok()?
+            .call(host::LOOKUP_TOOL_CONTRACT, (slug,))
+            .await
+            .ok()?;
+        contract.map(|contract| tinyflows::wiring::ToolContract {
+            output_fields: contract.output_fields,
+            output_schema: contract.output_schema,
+            primary_array_path: contract.primary_array_path,
+            envelope_prefix: contract.envelope_prefix,
+            metadata_fields: contract.metadata_fields,
+        })
+    }
+}

@@ -13,7 +13,7 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Authoring";
 /// Served authoring object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Authoring";
 /// Version of this wire contract.
-pub const CONTRACT_VERSION: u32 = 2;
+pub const CONTRACT_VERSION: u32 = 3;
 /// Authoring members provided by the module.
 pub const METHODS: &[&str] = &[
     "ValidateGraph",
@@ -22,6 +22,7 @@ pub const METHODS: &[&str] = &[
     "UnresolvableToolArgs",
     "BuilderFailures",
     "ImportGraph",
+    "WiringWarnings",
 ];
 
 /// Context-bound host callback interface. It serves a saved-workflow lookup
@@ -51,6 +52,8 @@ pub mod host {
     pub const CONNECTIONS: &str = "connections";
     /// Tool catalog contracts.
     pub const TOOL_CONTRACTS: &str = "tool_contracts";
+    /// Scope-bound output contract lookup for advisory wiring diagnostics.
+    pub const LOOKUP_TOOL_CONTRACT: &str = "LookupToolContract";
 }
 
 /// Stable authoring member names.
@@ -67,6 +70,32 @@ pub mod methods {
     pub const UNRESOLVABLE_TOOL_ARGS: &str = "UnresolvableToolArgs";
     /// Ordered engine and host gates followed by mock argument preflight.
     pub const BUILDER_FAILURES: &str = "BuilderFailures";
+    /// Best-effort generic output, envelope, and split path diagnostics.
+    pub const WIRING_WARNINGS: &str = "WiringWarnings";
+}
+
+/// Host-published output contract for one tool, used only for advisory checks.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ToolContract {
+    /// Published top-level payload fields, when known.
+    pub output_fields: Vec<String>,
+    /// JSON schema describing the tool output, when known.
+    pub output_schema: Option<Value>,
+    /// Dotted payload path of the primary array, when known.
+    pub primary_array_path: Option<String>,
+    /// Payload envelope prefix, such as `data` or `payload`.
+    pub envelope_prefix: Option<String>,
+    /// Top-level metadata fields outside the payload envelope.
+    pub metadata_fields: Vec<String>,
+}
+
+/// Graph and scope-bound host lookup for the advisory wiring operation.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct WiringWarningsRequest {
+    /// Candidate workflow graph JSON.
+    pub graph: Value,
+    /// Host callback scoped to this author's catalog and identity.
+    pub host: AuthoringHost,
 }
 
 /// Request to migrate, validate, and check compatibility of a candidate graph.

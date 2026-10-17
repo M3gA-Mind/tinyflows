@@ -32,12 +32,26 @@ impl HostCallback {
             vec![]
         })
     }
+    async fn lookup_tool_contract(
+        &self,
+        slug: String,
+    ) -> tinybus::Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(
+            (slug == "provider:issues").then(|| tinyflows_bus::ToolContract {
+                output_fields: vec!["issues".into()],
+                output_schema: Some(json!({"type":"object"})),
+                primary_array_path: Some("issues".into()),
+                envelope_prefix: Some("data".into()),
+                metadata_fields: vec!["request_id".into()],
+            }),
+        )
+    }
 }
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
-    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 3);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
@@ -443,6 +457,26 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("=nodes.fetch.item.json.title"));
+
+    let warnings: Vec<String> = proxy
+        .call(
+            methods::WIRING_WARNINGS,
+            (tinyflows_bus::WiringWarningsRequest {
+                graph: json!({"nodes":[
+                    {"id":"tool","name":"Tool","kind":"tool_call","config":{"slug":"provider:issues"}},
+                    {"id":"next","name":"Next","kind":"transform","config":{"value":"=nodes.tool.item.json.data.missing"}}
+                ],"edges":[]}),
+                host: tinyflows_bus::AuthoringHost {
+                    bus_name: "test.ArtifactAuthoringHost".into(),
+                    object_path: "/authoring_host".into(),
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("missing"));
+    assert!(warnings[0].contains("issues"));
 
     let failures: Vec<String> = proxy
         .call(

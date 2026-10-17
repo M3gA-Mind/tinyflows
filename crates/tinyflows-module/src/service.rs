@@ -105,6 +105,19 @@ impl Authoring {
         let graph = tinyflows::migrate::deserialize_graph(graph).map_err(Error::failed)?;
         Ok(tinyflows::gates::binding_failures(&graph))
     }
+
+    /// Report best-effort generic output-field, envelope, and split path warnings.
+    async fn wiring_warnings(
+        &self,
+        request: tinyflows_bus::WiringWarningsRequest,
+    ) -> Result<Vec<String>> {
+        let graph = tinyflows::migrate::deserialize_graph(request.graph).map_err(Error::failed)?;
+        let ports = super::host::HostPorts {
+            connection: self.connection.clone(),
+            host: request.host,
+        };
+        Ok(tinyflows::wiring::wiring_warnings(&graph, &ports).await)
+    }
 }
 
 /// Serve the authoring object and claim its bus identity.

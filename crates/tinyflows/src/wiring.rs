@@ -2,6 +2,9 @@
 
 use serde_json::Value;
 
+mod authoring;
+pub use authoring::{ToolContract, ToolContractLookup, wiring_warnings};
+
 /// Given a tool's output JSON schema and a `split_out` node's configured path
 /// (`"json.data"` or `"json.data.issues"`), resolves whether the path lands on
 /// something that is definitely not an array.
