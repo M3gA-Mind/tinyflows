@@ -59,10 +59,23 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
     let first_attempt = proxy
         .call::<()>("MigrateStorage", &(storage.clone(),))
         .await;
-    assert!(first_attempt.is_err(), "the injected mid-migration error is reported");
+    assert!(
+        first_attempt.is_err(),
+        "the injected mid-migration error is reported"
+    );
     assert!(!fail_revision_put.load(Ordering::SeqCst));
-    assert!(docs.get("flows_revisions", "legacy-revision").await.unwrap().is_some());
-    assert!(docs.get("flows.revisions", "legacy-revision").await.unwrap().is_none());
+    assert!(
+        docs.get("flows_revisions", "legacy-revision")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        docs.get("flows.revisions", "legacy-revision")
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     let (retry_a, retry_b) = tokio::join!(
         proxy.call::<()>("MigrateStorage", &(storage.clone(),)),
@@ -85,7 +98,12 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
         .unwrap();
     assert_eq!(migrated_revision.doc["created_ms"], revision_created_ms);
     assert_eq!(migrated_revision.meta.created_ms, revision_created_ms);
-    assert!(docs.get("flows_definitions", "legacy-flow").await.unwrap().is_none());
+    assert!(
+        docs.get("flows_definitions", "legacy-flow")
+            .await
+            .unwrap()
+            .is_none()
+    );
     let catalog_state = Key::of(["flows", "kv:legacy-flow", "k"]).unwrap();
     let state = Key::of(["flows", "state", "state-key"]).unwrap();
     assert_eq!(
@@ -124,12 +142,28 @@ async fn catalog_migration_refuses_missing_record_metadata_before_writing() {
     .unwrap();
     let proxy = put_proxy(&host).unwrap();
 
-    assert!(proxy.call::<()>("MigrateStorage", &(storage,)).await.is_err());
-    assert!(docs.get("flows_definitions", "legacy-flow").await.unwrap().is_some());
-    assert!(docs.get("flows.definitions", "legacy-flow").await.unwrap().is_none());
-    assert!(docs
-        .get("tsd.migrations", "flows/flows.definitions/definitions_v2")
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        proxy
+            .call::<()>("MigrateStorage", &(storage,))
+            .await
+            .is_err()
+    );
+    assert!(
+        docs.get("flows_definitions", "legacy-flow")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        docs.get("flows.definitions", "legacy-flow")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        docs.get("tsd.migrations", "flows/flows.definitions/definitions_v2")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }

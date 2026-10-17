@@ -2,8 +2,8 @@ use serde_json::{Value, json};
 use std::sync::{Arc, atomic::AtomicBool};
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
 use tinyflows_bus::catalog::{
-    CallbackAddress, CatalogStorage, GetRevisionRequest, ListRevisionsRequest, ListWorkflowsResult,
-    Workflow, WorkflowRevision,
+    CallbackAddress, CatalogStorage, ListRevisionsRequest, ListWorkflowsResult, Workflow,
+    WorkflowRevision,
 };
 use tinyflows_drivers::schedule::CronDocuments;
 use tinystoragedrivers_core::{
