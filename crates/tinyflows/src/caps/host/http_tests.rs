@@ -169,6 +169,14 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
     .render()
     .unwrap();
     assert_eq!((custom.header.as_str(), custom.value.as_str()), ("X-API-Key", "key"));
+
+    let resolved = HttpCredentialTemplate::Resolved {
+        header: "X-Resolved".into(),
+        value: "already formatted".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!(resolved.value, "already formatted");
 }
 
 #[test]
