@@ -53,7 +53,10 @@ impl FlowCatalogDocuments {
                         .unwrap_or("[]"),
                 )
                 .ok()?;
-                let last = events.last().and_then(|event| event["seq"].as_u64()).unwrap_or(0);
+                let last = events
+                    .last()
+                    .and_then(|event| event["seq"].as_u64())
+                    .unwrap_or(0);
                 if seq != last.checked_add(1)? {
                     return None;
                 }
@@ -80,7 +83,10 @@ impl FlowCatalogDocuments {
                             .unwrap_or("[]"),
                     )
                     .context("flow run events are corrupt")?;
-                    let last = events.last().and_then(|event| event["seq"].as_u64()).unwrap_or(0);
+                    let last = events
+                        .last()
+                        .and_then(|event| event["seq"].as_u64())
+                        .unwrap_or(0);
                     if seq <= last {
                         return Ok(());
                     }
@@ -117,11 +123,19 @@ impl FlowCatalogDocuments {
         let mut page = Vec::new();
         let mut expected = cursor;
         for event in events.into_iter().filter(|event| {
-            event.get("seq").and_then(Value::as_u64).is_some_and(|seq| seq > cursor)
+            event
+                .get("seq")
+                .and_then(Value::as_u64)
+                .is_some_and(|seq| seq > cursor)
         }) {
-            let seq = event["seq"].as_u64().context("run event sequence is invalid")?;
+            let seq = event["seq"]
+                .as_u64()
+                .context("run event sequence is invalid")?;
             if seq != expected.saturating_add(1) {
-                bail!("run event cursor gap: expected {}, received {seq}", expected + 1);
+                bail!(
+                    "run event cursor gap: expected {}, received {seq}",
+                    expected + 1
+                );
             }
             expected = seq;
             page.push(event);

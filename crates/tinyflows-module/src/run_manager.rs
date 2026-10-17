@@ -1,20 +1,20 @@
 //! Owner-scoped admission and control for module-owned workflow actors.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::{Context, Result, bail};
 use tinybus::Connection;
+use tinyflows::engine::CancellationToken;
 use tinyflows_bus::runs::{
     CancelRunResponse, PollRun, RunControlRequest, StartRun, StartRunResponse,
 };
-use tinyflows::engine::CancellationToken;
 
 mod actor;
+mod cancellation;
 mod events;
 mod preparation;
-mod cancellation;
 
 const RUNNING: u8 = 1;
 const PARKED: u8 = 2;
@@ -92,10 +92,7 @@ fn unregister(run: &Arc<ActiveRun>) {
 
 /// Validates synchronously, inserts a row and registers its cancellation token,
 /// then starts exactly one actor before returning the host-chosen id.
-pub(super) async fn start(
-    connection: &Connection,
-    request: StartRun,
-) -> Result<StartRunResponse> {
+pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<StartRunResponse> {
     let prepared = preparation::prepare(connection, &request).await?;
     let run_key = key(&request.storage, &request.run_id);
     if let Some(existing) = active(&run_key) {
@@ -108,7 +105,12 @@ pub(super) async fn start(
             });
         }
     }
-    if prepared.catalog.get_flow_run(&request.run_id).await?.is_some() {
+    if prepared
+        .catalog
+        .get_flow_run(&request.run_id)
+        .await?
+        .is_some()
+    {
         bail!("run id already exists in this owner scope")
     }
     let active = match register(run_key) {
@@ -164,10 +166,7 @@ pub(super) async fn start(
 
 /// Returns a bounded event page; the durable row gates `done` and parked runs
 /// remain nonterminal until a later ResumeRun slice settles them.
-pub(super) async fn poll(
-    connection: &Connection,
-    request: RunControlRequest,
-) -> Result<PollRun> {
+pub(super) async fn poll(connection: &Connection, request: RunControlRequest) -> Result<PollRun> {
     if request.run_id.trim().is_empty() {
         bail!("run id must not be empty")
     }

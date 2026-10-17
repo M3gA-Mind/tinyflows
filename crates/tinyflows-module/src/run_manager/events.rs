@@ -2,14 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::caps::RunProgressSink;
 use anyhow::Result;
 use serde_json::{Value, json};
-use tokio::sync::{mpsc, oneshot};
 use tinyflows::observability::{ExecutionStep, Run, RunObserver, RunStatus, StepStatus};
 use tinyflows_bus::runs::RunEvent;
 use tinyflows_catalog::FlowRunStep;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
-use crate::caps::RunProgressSink;
+use tokio::sync::{mpsc, oneshot};
 
 async fn persist_event(
     catalog: &FlowCatalogDocuments,
@@ -141,7 +141,9 @@ impl EventWriter {
                 ack: Some(ack),
             })
             .map_err(|_| anyhow::anyhow!("run event writer stopped"))?;
-        result.await.map_err(|_| anyhow::anyhow!("run event writer stopped"))??;
+        result
+            .await
+            .map_err(|_| anyhow::anyhow!("run event writer stopped"))??;
         Ok(())
     }
 
@@ -150,7 +152,9 @@ impl EventWriter {
         if self.sender.send(WriteCommand::Barrier(ack)).is_err() {
             return Some("run event writer stopped".into());
         }
-        result.await.unwrap_or_else(|_| Some("run event writer stopped".into()))
+        result
+            .await
+            .unwrap_or_else(|_| Some("run event writer stopped".into()))
     }
 
     fn step(&self, step: FlowRunStep) {
@@ -192,7 +196,8 @@ impl RunObserver for Observer {
     }
 
     fn on_step_start(&self, node_id: &str) {
-        self.writer.emit("step_started", json!({"node_id": node_id}));
+        self.writer
+            .emit("step_started", json!({"node_id": node_id}));
     }
 
     fn on_step_finish(&self, step: &ExecutionStep) {
@@ -226,7 +231,9 @@ impl RunObserver for Observer {
             RunStatus::CompletedWithErrors => "completed_with_errors",
             RunStatus::Failed => "failed",
         };
-        self.writer
-            .emit("engine_settled", json!({"engine_run_id": run.id,"status":status}));
+        self.writer.emit(
+            "engine_settled",
+            json!({"engine_run_id": run.id,"status":status}),
+        );
     }
 }

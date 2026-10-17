@@ -13,8 +13,8 @@ use tinyflows::{
     nodes::control_flow::dedup_settle,
 };
 use tinyflows_bus::runs::{RunContext, StartRun};
-use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tinyflows_catalog::run_summary;
+use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tokio::time::sleep;
 
 use super::events::{EventWriter, Observer};
@@ -49,9 +49,7 @@ pub(super) async fn drive(
     )
     .await;
     let result = match capabilities {
-        Ok(capabilities) => {
-            execute(&request, &prepared, &capabilities, &active, &observer).await
-        }
+        Ok(capabilities) => execute(&request, &prepared, &capabilities, &active, &observer).await,
         Err(error) => Err(anyhow::anyhow!("building run capabilities: {error}")),
     };
     let observed = observer.steps();
@@ -81,7 +79,9 @@ pub(super) async fn drive(
                     writer.graph_observation(observation);
                 }
             }
-            Err(error) => tracing::warn!(%error, run_id = %request.run_id, "reading graph observations"),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %request.run_id, "reading graph observations")
+            }
         }
     }
     if let Some(error) = writer.flush().await {
@@ -101,18 +101,23 @@ pub(super) async fn drive(
         run_summary::terminal_status(&settled_steps, &[]).status
     };
     let error_text = if timed_out {
-        Some(format!("run exceeded its {} ms timeout", request.timeout_ms))
+        Some(format!(
+            "run exceeded its {} ms timeout",
+            request.timeout_ms
+        ))
     } else if cancelled && failure.is_none() {
         Some("run cancelled".to_owned())
     } else {
         failure
     };
-    let graph_hash = pending.then(|| {
-        tinyflows_catalog::graph_hash::compute_graph_hash(
-            &prepared.compiled.graph,
-            prepared.require_approval,
-        )
-    }).flatten();
+    let graph_hash = pending
+        .then(|| {
+            tinyflows_catalog::graph_hash::compute_graph_hash(
+                &prepared.compiled.graph,
+                prepared.require_approval,
+            )
+        })
+        .flatten();
     let finish = prepared
         .catalog
         .finish_flow_run(
@@ -140,14 +145,12 @@ pub(super) async fn drive(
     }
 
     if pending {
-        active.phase.store(PARKED, std::sync::atomic::Ordering::Release);
+        active
+            .phase
+            .store(PARKED, std::sync::atomic::Ordering::Release);
         if active.token.is_cancelled() {
-            if let Err(error) = super::cancellation::cancel_parked(
-                &prepared,
-                &request.run_id,
-                &writer,
-            )
-            .await
+            if let Err(error) =
+                super::cancellation::cancel_parked(&prepared, &request.run_id, &writer).await
             {
                 tracing::error!(%error, run_id = %request.run_id, "settling cancellation after park");
             }
@@ -166,12 +169,7 @@ pub(super) async fn drive(
     )
     .await;
     if cancelled || timed_out {
-        delete_checkpoints(
-            &prepared.checkpointer,
-            &request.run_id,
-            &request.run_id,
-        )
-        .await;
+        delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
     }
     if let Err(error) = writer
         .emit_terminal(

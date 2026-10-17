@@ -9,19 +9,14 @@ use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
 use tinyflows_bus::{
     BUS_NAME,
-    catalog::{
-        self, CatalogStorage, PutWorkflowRequest, PutWorkflowResponse, RunIdRequest,
-        storage::{self as storage_methods},
-    },
+    catalog::{self, CatalogStorage, PutWorkflowRequest, PutWorkflowResponse, RunIdRequest},
     runs::{
         self, AgentDefinition, AgentEventsRequest, AgentEventsResponse, AgentProgressEvent,
-        AgentRunHandle, AgentRunOutcome, AgentRunRequest, FlowRunTrigger, RunControlRequest,
-        RunContext, StartRun,
+        AgentRunHandle, AgentRunOutcome, AgentRunRequest, FlowRunTrigger, RunContext,
+        RunControlRequest, StartRun,
     },
 };
-use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Scope, StorageBackend,
-};
+use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 use tokio::sync::Notify;
 
 struct OwnerDocuments {
@@ -33,7 +28,7 @@ impl OwnerDocuments {
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.docs
-                .ensure_collection(&decode(&request["spec"])? )
+                .ensure_collection(&decode(&request["spec"])?)
                 .await,
         ))
     }
@@ -53,7 +48,7 @@ impl OwnerDocuments {
                     text(&request, "collection"),
                     text(&request, "id"),
                     request["doc"].clone(),
-                    decode(&request["precondition"])? ,
+                    decode(&request["precondition"])?,
                 )
                 .await,
         ))
@@ -65,7 +60,7 @@ impl OwnerDocuments {
                 .delete(
                     text(&request, "collection"),
                     text(&request, "id"),
-                    decode(&request["precondition"])? ,
+                    decode(&request["precondition"])?,
                 )
                 .await,
         ))
@@ -74,10 +69,7 @@ impl OwnerDocuments {
     async fn doc_query(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.docs
-                .query(
-                    text(&request, "collection"),
-                    &decode(&request["query"])? ,
-                )
+                .query(text(&request, "collection"), &decode(&request["query"])?)
                 .await,
         ))
     }
@@ -85,17 +77,16 @@ impl OwnerDocuments {
     async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.docs
-                .delete_where(
-                    text(&request, "collection"),
-                    &decode(&request["filter"])? ,
-                )
+                .delete_where(text(&request, "collection"), &decode(&request["filter"])?)
                 .await,
         ))
     }
 }
 
 fn text<'a>(value: &'a Value, field: &str) -> &'a str {
-    value[field].as_str().expect("valid document callback field")
+    value[field]
+        .as_str()
+        .expect("valid document callback field")
 }
 
 fn decode<T: DeserializeOwned>(value: &Value) -> tinybus::Result<T> {
@@ -166,7 +157,9 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = tinybus::broker::Broker::new();
     let module_host = ModuleHost::new(broker.clone());
-    module_host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
     let (client, transport) = MemoryTransport::pair();
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
@@ -187,9 +180,20 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let alice_start = request(&alice, alice_flow, run_id, graph(true), 20_000);
     let bob_start = request(&bob, bob_flow, run_id, graph(true), 20_000);
 
-    let invalid = request(&alice, alice_start.context.flow_id.clone(), "preflight", graph(false), 20_000);
-    let error = runs_proxy.call::<runs::StartRunResponse>("StartRun", (invalid,)).await;
-    assert!(error.is_err(), "missing declared input must reject synchronously");
+    let invalid = request(
+        &alice,
+        alice_start.context.flow_id.clone(),
+        "preflight",
+        graph(false),
+        20_000,
+    );
+    let error = runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (invalid,))
+        .await;
+    assert!(
+        error.is_err(),
+        "missing declared input must reject synchronously"
+    );
     let missing = catalog_proxy
         .call::<Option<catalog::FlowRun>>(
             "GetRun",
@@ -199,7 +203,11 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             },),
         )
         .await;
-    assert_eq!(missing.unwrap(), None, "preflight failure must leave no row");
+    assert_eq!(
+        missing.unwrap(),
+        None,
+        "preflight failure must leave no row"
+    );
 
     let started: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -216,10 +224,8 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert!(duplicate.already_running);
     assert_eq!(alice_agent.calls.load(Ordering::SeqCst), 1);
 
-    let bob_started: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (bob_start,))
-        .await
-        .unwrap();
+    let bob_started: runs::StartRunResponse =
+        runs_proxy.call("StartRun", (bob_start,)).await.unwrap();
     assert!(!bob_started.already_running);
     bob_agent.started.notified().await;
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
@@ -229,7 +235,12 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         run_id: run_id.into(),
         cursor: 0,
     };
-    assert!(runs_proxy.call::<runs::PollRun>("PollRun", (wrong_owner,)).await.is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::PollRun>("PollRun", (wrong_owner,))
+            .await
+            .is_err()
+    );
 
     let alice_cancel: runs::CancelRunResponse = runs_proxy
         .call(
@@ -248,8 +259,18 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
 
     let alice_poll = poll_until_done(&runs_proxy, &alice.storage, run_id).await;
     let bob_poll = poll_until_done(&runs_proxy, &bob.storage, run_id).await;
-    assert!(alice_poll.events.iter().any(|event| event.kind == "agent_progress"));
-    assert!(alice_poll.events.iter().any(|event| event.kind == "graph_observation"));
+    assert!(
+        alice_poll
+            .events
+            .iter()
+            .any(|event| event.kind == "agent_progress")
+    );
+    assert!(
+        alice_poll
+            .events
+            .iter()
+            .any(|event| event.kind == "graph_observation")
+    );
     assert!(alice_poll.events.iter().any(|event| event.kind == "step"));
     assert_eq!(
         alice_poll.events.last().unwrap().data["status"],
@@ -283,6 +304,13 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(bob_row.status, "completed");
     assert!(alice_row.steps.iter().any(|step| step.node_id == "agent"));
     assert!(bob_row.steps.iter().any(|step| step.node_id == "agent"));
+    let output = bob_row
+        .steps
+        .iter()
+        .find(|step| step.node_id == "output")
+        .expect("downstream transform ran");
+    assert_eq!(output.output[0]["json"]["declared"], "declared-value");
+    assert_eq!(output.output[0]["json"]["payload"], "trigger-value");
     let terminal_cancel: runs::CancelRunResponse = runs_proxy
         .call(
             "CancelRun",
@@ -316,7 +344,10 @@ async fn owner(connection: &Connection, name: &str) -> Owner {
         )
         .await
         .unwrap();
-    connection.request_name("test.CatalogStorage").await.unwrap();
+    connection
+        .request_name("test.CatalogStorage")
+        .await
+        .unwrap();
     Owner {
         storage: CatalogStorage {
             callback: catalog::CallbackAddress {
@@ -366,15 +397,17 @@ async fn create_flow(proxy: &tinybus::Proxy, storage: &CatalogStorage, name: &st
 }
 
 fn graph(include_agent: bool) -> Value {
-    let mut nodes = vec![
-        json!({"id":"trigger","name":"Trigger","kind":"trigger","config":{}}),
-    ];
+    let mut nodes = vec![json!({"id":"trigger","name":"Trigger","kind":"trigger","config":{}})];
     let mut edges = Vec::new();
     if include_agent {
         nodes.push(json!({"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"test-agent","prompt":"work"}}));
         nodes.push(json!({"id":"output","name":"Output","kind":"transform","config":{"set":{"declared":"=inputs.declared","payload":"=run.trigger.payload"}}}));
-        edges.push(json!({"from_node":"trigger","from_port":"main","to_node":"agent","to_port":"main"}));
-        edges.push(json!({"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}));
+        edges.push(
+            json!({"from_node":"trigger","from_port":"main","to_node":"agent","to_port":"main"}),
+        );
+        edges.push(
+            json!({"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}),
+        );
     }
     json!({
         "inputs":[{"name":"declared","type":"string","required":true}],
@@ -383,7 +416,13 @@ fn graph(include_agent: bool) -> Value {
     })
 }
 
-fn request(owner: &Owner, flow_id: String, run_id: &str, graph: Value, timeout_ms: u64) -> StartRun {
+fn request(
+    owner: &Owner,
+    flow_id: String,
+    run_id: &str,
+    graph: Value,
+    timeout_ms: u64,
+) -> StartRun {
     let mut inputs = serde_json::Map::new();
     inputs.insert("declared".into(), json!("declared-value"));
     StartRun {

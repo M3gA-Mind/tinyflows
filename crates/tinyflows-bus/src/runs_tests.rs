@@ -78,9 +78,7 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},"run_id":"run-1","cursor":4}),
     );
     pin(
-        CancelRunResponse {
-            signalled: true,
-        },
+        CancelRunResponse { signalled: true },
         serde_json::json!({"signalled":true}),
     );
     pin(

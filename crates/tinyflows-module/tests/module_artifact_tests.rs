@@ -76,11 +76,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .manifest
         .provides
         .iter()
-        .find(|provided| {
-            provided.version.interface.as_str() == tinyflows_bus::runs::INTERFACE
-        })
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::runs::INTERFACE)
         .expect("run-control interface is provided");
-    let mut actual: Vec<_> = runs_interface.methods.iter().map(ToString::to_string).collect();
+    let mut actual: Vec<_> = runs_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     let mut expected: Vec<_> = tinyflows_bus::runs::METHODS
         .iter()
         .map(|member| member.to_string())

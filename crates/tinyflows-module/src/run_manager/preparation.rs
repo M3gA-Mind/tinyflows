@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Map, Value, json};
+use tinybus::Connection;
 use tinyflows::{
     caps::WorkflowResolver,
     compiler::{self, CompiledWorkflow},
@@ -15,7 +16,6 @@ use tinyflows::{
 use tinyflows_bus::{catalog::CatalogStorage, runs::StartRun};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
-use tinybus::Connection;
 
 use super::super::catalog_documents::Documents;
 
@@ -33,14 +33,15 @@ pub(super) async fn catalog(
     storage: CatalogStorage,
 ) -> Result<FlowCatalogDocuments> {
     let documents = Arc::new(Documents::new(connection.clone(), storage.callback).await?);
-    Ok(FlowCatalogDocuments::new(documents as Arc<dyn DocumentStore>))
+    Ok(FlowCatalogDocuments::new(
+        documents as Arc<dyn DocumentStore>,
+    ))
 }
 
 pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Result<Prepared> {
     validate_addresses(request)?;
-    let documents = Arc::new(
-        Documents::new(connection.clone(), request.storage.callback.clone()).await?,
-    );
+    let documents =
+        Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let document_port = Arc::clone(&documents) as Arc<dyn DocumentStore>;
     let catalog = FlowCatalogDocuments::new(Arc::clone(&document_port));
     let saved = catalog

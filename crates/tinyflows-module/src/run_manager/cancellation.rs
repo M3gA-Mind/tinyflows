@@ -5,10 +5,10 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use tinybus::Connection;
+use tinyflows::graph::checkpoint::Checkpointer as _;
 use tinyflows_bus::runs::{CancelRunResponse, RunControlRequest, RunEvent};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
-use tinyflows::graph::checkpoint::Checkpointer as _;
 
 use super::events::EventWriter;
 use super::preparation::Prepared;
@@ -26,9 +26,8 @@ pub(super) async fn cancel_parked_or_stale(
         active.token.cancel();
         return Ok(CancelRunResponse { signalled: true });
     }
-    let docs = Arc::new(
-        Documents::new(connection.clone(), request.storage.callback.clone()).await?,
-    );
+    let docs =
+        Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let document_port = Arc::clone(&docs) as Arc<dyn DocumentStore>;
     let catalog = FlowCatalogDocuments::new(Arc::clone(&document_port));
     let Some(run) = catalog.get_flow_run(&request.run_id).await? else {
@@ -76,13 +75,7 @@ pub(super) async fn cancel_parked_or_stale(
     if !changed {
         return Ok(CancelRunResponse { signalled: false });
     }
-    cancel_snapshot(
-        &catalog,
-        &checkpointer,
-        &request.run_id,
-        &run.thread_id,
-    )
-    .await?;
+    cancel_snapshot(&catalog, &checkpointer, &request.run_id, &run.thread_id).await?;
     append_cancelled_event(&catalog, &request.run_id, error).await?;
     if let Some(active) = active {
         unregister(&active);
@@ -154,14 +147,7 @@ async fn cancel_snapshot(
                 .context("run snapshot omitted context")?,
         )
         .context("decoding run context snapshot")?;
-        super::actor::settle_dedup(
-            catalog.clone(),
-            &context,
-            &graph,
-            false,
-            run_id,
-        )
-        .await;
+        super::actor::settle_dedup(catalog.clone(), &context, &graph, false, run_id).await;
     }
     checkpointer.delete_thread(thread_id).await?;
     Ok(())
@@ -172,7 +158,10 @@ async fn append_cancelled_event(
     run_id: &str,
     reason: &str,
 ) -> Result<()> {
-    let seq = catalog.flow_run_event_last_seq(run_id).await?.saturating_add(1);
+    let seq = catalog
+        .flow_run_event_last_seq(run_id)
+        .await?
+        .saturating_add(1);
     catalog
         .append_flow_run_event(
             run_id,

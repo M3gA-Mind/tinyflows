@@ -23,7 +23,10 @@ async fn run_events_append_in_order_and_poll_after_cursor() {
             .await
             .unwrap();
     }
-    assert_eq!(catalog.flow_run_event_last_seq("event-run").await.unwrap(), 3);
+    assert_eq!(
+        catalog.flow_run_event_last_seq("event-run").await.unwrap(),
+        3
+    );
     assert_eq!(
         catalog
             .flow_run_events_after("event-run", 1, 2)
@@ -57,9 +60,14 @@ async fn run_event_retry_is_idempotent_and_sequence_gaps_are_rejected() {
         .append_flow_run_event("event-run", event)
         .await
         .unwrap();
-    assert!(catalog
-        .append_flow_run_event("event-run", json!({"seq":3,"kind":"step"}))
-        .await
-        .is_err());
-    assert_eq!(catalog.flow_run_event_last_seq("event-run").await.unwrap(), 1);
+    assert!(
+        catalog
+            .append_flow_run_event("event-run", json!({"seq":3,"kind":"step"}))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        catalog.flow_run_event_last_seq("event-run").await.unwrap(),
+        1
+    );
 }

@@ -4,9 +4,9 @@
 //! trusted host for one run; the module uses that exact address for every
 //! callback and never chooses an ambient default from graph or trigger data.
 
+use crate::catalog::CatalogStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::catalog::CatalogStorage;
 
 mod caps_agent_types;
 mod caps_types;
