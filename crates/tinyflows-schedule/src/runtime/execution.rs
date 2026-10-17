@@ -42,6 +42,9 @@ async fn execute_with_retry_impl(
             return Ok(None);
         }
         ensure_claim_owned(ports, claim, "retry attempt").await?;
+        if stop.as_deref().is_some_and(|stop| *stop.borrow()) {
+            return Ok(None);
+        }
         let result = if matches!(job.job_type, JobType::Flow) {
             ports.triggers.schedule(job, run_id).await
         } else {
@@ -77,6 +80,9 @@ async fn execute_with_retry_impl(
                 return Ok(None);
             }
             ensure_claim_owned(ports, claim, "final failure callback").await?;
+            if stop.as_deref().is_some_and(|stop| *stop.borrow()) {
+                return Ok(None);
+            }
             ports.executor.failed(job, run_id, &result).await;
             return Ok(Some(result));
         }
