@@ -158,6 +158,7 @@ async fn supervisor_releases_a_known_claim_after_worker_panic_before_terminal() 
     entry
         .begin_start(serde_json::json!({"request":"panic"}))
         .unwrap();
+    entry.set_run_id("panic-run".into());
     let worker = async {
         panic!("injected module worker panic");
         #[allow(unreachable_code)]
@@ -170,7 +171,10 @@ async fn supervisor_releases_a_known_claim_after_worker_panic_before_terminal() 
     assert!(matches!(
         entry.state(),
         ManualRunState::Terminal {
-            outcome: ManualRunOutcome::Failed { .. }
-        }
+            outcome: ManualRunOutcome::Failed {
+                run_id: Some(run_id),
+                ..
+            }
+        } if run_id == "panic-run"
     ));
 }

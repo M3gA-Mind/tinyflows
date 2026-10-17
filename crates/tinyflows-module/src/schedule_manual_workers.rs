@@ -24,6 +24,7 @@ struct Control {
     fingerprint: Option<serde_json::Value>,
     stop_requested: bool,
     expires_at: Instant,
+    run_id: Option<String>,
 }
 
 impl ManualWorkerEntry {
@@ -35,6 +36,7 @@ impl ManualWorkerEntry {
                 fingerprint: None,
                 stop_requested: false,
                 expires_at: Instant::now() + PREPARED_TTL,
+                run_id: None,
             }),
             stop,
         }
@@ -71,6 +73,21 @@ impl ManualWorkerEntry {
             .lock()
             .expect("manual worker control poisoned")
             .stop_requested
+    }
+
+    pub(super) fn set_run_id(&self, run_id: String) {
+        self.control
+            .lock()
+            .expect("manual worker control poisoned")
+            .run_id = Some(run_id);
+    }
+
+    fn run_id(&self) -> Option<String> {
+        self.control
+            .lock()
+            .expect("manual worker control poisoned")
+            .run_id
+            .clone()
     }
 
     pub(super) fn set_state(&self, state: ManualRunState) {
@@ -216,9 +233,16 @@ pub(super) struct ReservationView {
 pub(super) async fn run_manual_worker(
     connection: Connection,
     scope: String,
-    request: ManualRunRequest,
+    mut request: ManualRunRequest,
     entry: std::sync::Arc<ManualWorkerEntry>,
 ) {
+    let run_id = if request.run_id.trim().is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        request.run_id.clone()
+    };
+    request.run_id = run_id.clone();
+    entry.set_run_id(run_id);
     let claim = std::sync::Arc::new(AsyncMutex::new(None));
     let worker_claim = claim.clone();
     let worker_entry = entry.clone();
@@ -236,14 +260,16 @@ async fn supervise_manual_worker<F>(
     F: Future<Output = anyhow::Result<ManualRunOutcome>> + Send + 'static,
 {
     let worker = tokio::spawn(worker);
-    let outcome = match worker.await {
+    let result = worker.await;
+    let run_id = entry.run_id();
+    let outcome = match result {
         Ok(Ok(outcome)) => outcome,
         Ok(Err(error)) => ManualRunOutcome::Failed {
-            run_id: None,
+            run_id: run_id.clone(),
             message: error.to_string(),
         },
         Err(error) => ManualRunOutcome::Failed {
-            run_id: None,
+            run_id,
             message: format!("manual worker task failed: {error}"),
         },
     };
@@ -270,11 +296,7 @@ async fn run_manual_worker_body(
     if entry.stopped() {
         return Ok(ManualRunOutcome::Stopped { run_id: None });
     }
-    let run_id = if request.run_id.trim().is_empty() {
-        uuid::Uuid::new_v4().to_string()
-    } else {
-        request.run_id
-    };
+    let run_id = request.run_id;
     let owner = uuid::Uuid::new_v4().to_string();
     *claim_slot.lock().await = Some(HeldClaim::Claiming {
         job: request.job.clone(),

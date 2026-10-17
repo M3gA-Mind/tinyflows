@@ -29,6 +29,8 @@ struct Fixture {
     release_execution: Notify,
     pause_execution: bool,
     claim_lost: std::sync::atomic::AtomicBool,
+    fail_next_renewal: std::sync::atomic::AtomicBool,
+    released_claims: AtomicUsize,
     executions: AtomicUsize,
     failed_callbacks: AtomicUsize,
     deliveries: AtomicUsize,
@@ -100,6 +102,10 @@ impl JobStore for Fixture {
         _: DateTime<Utc>,
         _: chrono::Duration,
     ) -> Result<bool> {
+        if self.fail_next_renewal.swap(false, Ordering::SeqCst) {
+            self.renewal_failed.notify_one();
+            return Err(anyhow::anyhow!("injected heartbeat transport error"));
+        }
         if self.claim_lost.load(Ordering::SeqCst) {
             self.renewal_failed.notify_one();
             return Ok(false);
@@ -120,6 +126,7 @@ impl JobStore for Fixture {
     }
 
     async fn release_occurrence(&self, _: &OccurrenceClaim, _: DateTime<Utc>) -> Result<bool> {
+        self.released_claims.fetch_add(1, Ordering::SeqCst);
         Ok(true)
     }
 
@@ -218,6 +225,8 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
         release_execution: Notify::new(),
         pause_execution: false,
         claim_lost: std::sync::atomic::AtomicBool::new(false),
+        fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
+        released_claims: AtomicUsize::new(0),
         executions: AtomicUsize::new(0),
         failed_callbacks: AtomicUsize::new(0),
         deliveries: AtomicUsize::new(0),
@@ -243,6 +252,8 @@ fn terminal_heartbeat_fixture(heartbeat_renew_error: bool) -> Arc<Fixture> {
         release_execution: Notify::new(),
         pause_execution: false,
         claim_lost: std::sync::atomic::AtomicBool::new(false),
+        fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
+        released_claims: AtomicUsize::new(0),
         executions: AtomicUsize::new(0),
         failed_callbacks: AtomicUsize::new(0),
         deliveries: AtomicUsize::new(0),
@@ -355,6 +366,8 @@ async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks(
         release_execution: Notify::new(),
         pause_execution: true,
         claim_lost: std::sync::atomic::AtomicBool::new(false),
+        fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
+        released_claims: AtomicUsize::new(0),
         executions: AtomicUsize::new(0),
         failed_callbacks: AtomicUsize::new(0),
         deliveries: AtomicUsize::new(0),
@@ -382,6 +395,62 @@ async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks(
     assert_eq!(fixture.failed_callbacks.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.deliveries.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.persisted_completions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim() {
+    let fixture = Arc::new(Fixture {
+        now: "2026-01-01T00:00:00Z".parse().unwrap(),
+        block_on_renewal: usize::MAX,
+        renewals: AtomicUsize::new(0),
+        renewal_entered: Notify::new(),
+        release_renewal: Notify::new(),
+        heartbeat_tick: Notify::new(),
+        renewal_failed: Notify::new(),
+        terminal_commit_entered: Notify::new(),
+        release_terminal_commit: Notify::new(),
+        persisted_completions: AtomicUsize::new(0),
+        pause_terminal_commit: false,
+        heartbeat_renew_error: false,
+        execution_entered: Notify::new(),
+        release_execution: Notify::new(),
+        pause_execution: true,
+        claim_lost: std::sync::atomic::AtomicBool::new(false),
+        fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
+        released_claims: AtomicUsize::new(0),
+        executions: AtomicUsize::new(0),
+        failed_callbacks: AtomicUsize::new(0),
+        deliveries: AtomicUsize::new(0),
+        fail_execution: true,
+    });
+    let ports = fixture.ports();
+    let config = SchedulerConfig::default();
+    let claim = fixture.claim();
+    let worker = tokio::spawn(async move {
+        run_claim_with_renewal(
+            &ports,
+            &config,
+            claim,
+            ManualDelivery::Requested,
+            false,
+            None,
+            watch::channel(false).1,
+        )
+        .await
+    });
+    fixture.execution_entered.notified().await;
+    fixture.fail_next_renewal.store(true, Ordering::SeqCst);
+    fixture.heartbeat_tick.notify_one();
+    fixture.renewal_failed.notified().await;
+    fixture.claim_lost.store(true, Ordering::SeqCst);
+    fixture.release_execution.notify_one();
+
+    assert!(worker.await.unwrap().is_err());
+    assert_eq!(fixture.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.failed_callbacks.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.deliveries.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.persisted_completions.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.released_claims.load(Ordering::SeqCst), 1);
 }
 
 async fn stop_during_renewal(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
