@@ -1,33 +1,21 @@
-//! `wf_definitions`: saved workflows, with the revision of whatever a write
+//! `flows.workflows`: saved workflows, with the revision of whatever a write
 //! replaces captured first.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinyflows::store::types::{WorkflowError, WorkflowId, WorkflowRecord, WorkflowSummary};
 use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Precondition, Query, Sort, Versioned};
 
-use super::{CAS_ATTEMPTS, DEFINITIONS, Inner, doc_id, malformed, storage};
+use super::codec::{definition_body, definition_from_body};
+use super::{CAS_ATTEMPTS, DEFINITIONS, Inner, doc_id, put_doc, storage};
 
 /// The record as the definition document keeps it.
 pub(super) fn to_doc(record: &WorkflowRecord) -> Result<Value, WorkflowError> {
-    let mut persisted = record.clone();
-    // Where a record was read from is not part of what it is.
-    persisted.source_path = None;
-    let record_json = serde_json::to_string(&persisted)
-        .map_err(|error| malformed("serializing workflow", error))?;
-    Ok(json!({ "id": record.id, "name": record.name, "record_json": record_json }))
+    definition_body(record)
 }
 
-/// Decodes a stored record, migrating its graph to the current schema first so
-/// a definition saved by an older build keeps loading.
-pub(super) fn decode(raw: &str) -> Result<WorkflowRecord, String> {
-    let mut value: Value =
-        serde_json::from_str(raw).map_err(|error| format!("invalid JSON: {error}"))?;
-    if let Some(graph) = value.get_mut("graph") {
-        let migrated =
-            tinyflows::migrate::migrate(graph.take()).map_err(|error| error.to_string())?;
-        *graph = migrated;
-    }
-    serde_json::from_value(value).map_err(|error| format!("invalid workflow: {error}"))
+/// Decodes a stored record.
+pub(super) fn decode(stored: &Value) -> Result<WorkflowRecord, String> {
+    definition_from_body(stored.clone())
 }
 
 impl Inner {
@@ -60,12 +48,7 @@ impl Inner {
     /// The record `stored` holds, judged by the host policy and the engine's
     /// validation.
     fn judged(&self, stored: &Versioned<Value>) -> Result<WorkflowRecord, String> {
-        let raw = stored
-            .doc
-            .get("record_json")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "document has no `record_json`".to_string())?;
-        let record = decode(raw)?;
+        let record = decode(&stored.doc)?;
         self.policy
             .check_defaults(&record.defaults)
             .map_err(|error| format!("invalid `defaults`: {error}"))?;
@@ -120,10 +103,14 @@ impl Inner {
             let precondition = stored
                 .as_ref()
                 .map_or(Precondition::Absent, Versioned::unchanged);
-            match self
-                .docs
-                .put(DEFINITIONS, &id, doc.clone(), precondition)
-                .await
+            match put_doc(
+                self.docs.as_ref(),
+                DEFINITIONS,
+                &id,
+                doc.clone(),
+                precondition,
+            )
+            .await
             {
                 Ok(_) => {
                     if let Some(revision) = revision {
@@ -164,10 +151,14 @@ impl Inner {
                 return Ok(false);
             }
             let revision = self.capture(&current).await?;
-            match self
-                .docs
-                .put(DEFINITIONS, &id, doc.clone(), stored.unchanged())
-                .await
+            match put_doc(
+                self.docs.as_ref(),
+                DEFINITIONS,
+                &id,
+                doc.clone(),
+                stored.unchanged(),
+            )
+            .await
             {
                 Ok(_) => {
                     self.commit_capture(&record.id, &revision).await;
@@ -228,8 +219,7 @@ impl Inner {
 
     /// The record `stored` holds if it is one worth keeping a revision of.
     fn superseded(&self, stored: &Versioned<Value>) -> Option<WorkflowRecord> {
-        let raw = stored.doc.get("record_json")?.as_str()?;
-        decode(raw).ok()
+        decode(&stored.doc).ok()
     }
 }
 

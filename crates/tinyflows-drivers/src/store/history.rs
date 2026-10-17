@@ -1,45 +1,31 @@
-//! `wf_revisions`: superseded copies of a workflow, so an edit can be taken
+//! `flows.workflow_revisions`: superseded copies of a workflow, so an edit can be taken
 //! back, capped at [`MAX_REVISIONS`] per workflow.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinyflows::store::types::{WorkflowError, WorkflowRecord, WorkflowRevision};
 use tinyflows::store::{MAX_REVISIONS, mint_revision_id};
 use tinystoragedrivers_core::{DocumentStoreExt, Filter, Precondition, Query, Sort, Versioned};
 
-use super::{Inner, REVISIONS, malformed, now_ms, stamp, storage};
+use super::codec::{revision_body, revision_record};
+use super::{Inner, REVISIONS, now_ms, put_doc, stamp, storage};
 
 fn decode(stored: &Versioned<Value>) -> Result<WorkflowRevision, String> {
-    let record_json = stored
-        .doc
-        .get("record_json")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "revision has no `record_json`".to_string())?;
     let superseded_at = stored
         .doc
-        .get("superseded_at")
+        .get("superseded_ms")
         .and_then(Value::as_i64)
         .and_then(|at| u64::try_from(at).ok())
         .unwrap_or_default();
     Ok(WorkflowRevision {
         id: stored.id.clone(),
         superseded_at,
-        record: super::definitions::decode(record_json)?,
+        record: revision_record(&stored.doc)?,
     })
 }
 
 /// The revision document for `record`, superseded at `superseded_at` (epoch ms).
 pub(super) fn to_doc(record: &WorkflowRecord, superseded_at: u64) -> Result<Value, WorkflowError> {
-    let mut kept = record.clone();
-    // The path a record was read from is where it lived, not part of what it
-    // was.
-    kept.source_path = None;
-    let record_json =
-        serde_json::to_string(&kept).map_err(|error| malformed("serializing revision", error))?;
-    Ok(json!({
-        "workflow_id": record.id,
-        "superseded_at": stamp(superseded_at),
-        "record_json": record_json,
-    }))
+    revision_body(record, stamp(superseded_at))
 }
 
 fn newest_first(workflow_id: &str) -> Query {
@@ -55,10 +41,15 @@ impl Inner {
         let superseded_at = now_ms();
         let id = mint_revision_id(superseded_at);
         let doc = to_doc(record, superseded_at)?;
-        self.docs
-            .put(REVISIONS, &id, doc, Precondition::Absent)
-            .await
-            .map_err(storage)?;
+        put_doc(
+            self.docs.as_ref(),
+            REVISIONS,
+            &id,
+            doc,
+            Precondition::Absent,
+        )
+        .await
+        .map_err(storage)?;
         Ok(id)
     }
 

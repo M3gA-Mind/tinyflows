@@ -1,4 +1,4 @@
-//! `wf_notes`: one workflow's journal, kept as a single document updated by
+//! `flows.workflow_notes`: one workflow's journal, kept as a single document updated by
 //! compare-and-swap.
 //!
 //! Notes are only ever read as a whole set (a brief wants all of them or none)
@@ -7,17 +7,18 @@
 use serde_json::{Value, json};
 use tinyflows::store::prune_notes;
 use tinyflows::store::types::{WorkflowError, WorkflowNote};
-use tinystoragedrivers_core::{Precondition, Versioned};
+use tinystoragedrivers_core::{Key, Precondition, Versioned};
 
+use super::codec::{journal_body, journal_from_body};
 use super::definitions::is_race;
-use super::{CAS_ATTEMPTS, Inner, NOTES, QUARANTINE, doc_id, malformed, storage};
+use super::{CAS_ATTEMPTS, Inner, NOTES, QUARANTINE, doc_id, put_doc, storage};
 
 impl Inner {
     /// The journal document of `workflow_id` and the notes it holds. A journal
     /// that cannot be parsed reads as empty: one bad document must not make a
     /// workflow unreadable everywhere its notes are shown, which is a worse
     /// failure than forgetting what it learned. The unreadable document is moved
-    /// to `wf_quarantine`, not overwritten, so whatever an operator could still
+    /// to `flows.workflow_quarantine`, not overwritten, so whatever an operator could still
     /// recover is not destroyed by the next append.
     async fn journal(
         &self,
@@ -32,15 +33,10 @@ impl Inner {
         else {
             return Ok((None, Vec::new()));
         };
-        let parsed = stored
-            .doc
-            .get("notes_json")
-            .and_then(Value::as_str)
-            .map(serde_json::from_str::<Vec<WorkflowNote>>);
-        match parsed {
-            Some(Ok(notes)) => Ok((Some(stored), notes)),
-            Some(Err(_)) | None => {
-                let token = uuid::Uuid::new_v4().to_string();
+        match journal_from_body(&stored.doc) {
+            Ok(notes) => Ok((Some(stored), notes)),
+            Err(_) => {
+                let token = Key::ulid().as_str().to_owned();
                 tracing::warn!(
                     target: "workflows",
                     workflow_id,
@@ -48,10 +44,15 @@ impl Inner {
                     "[workflows] workflow journal is unreadable; set aside and starting a new one"
                 );
                 let kept = json!({ "workflow_id": workflow_id, "journal": stored.doc });
-                self.docs
-                    .put(QUARANTINE, &token, kept, Precondition::Absent)
-                    .await
-                    .map_err(storage)?;
+                put_doc(
+                    self.docs.as_ref(),
+                    QUARANTINE,
+                    &token,
+                    kept,
+                    Precondition::Absent,
+                )
+                .await
+                .map_err(storage)?;
                 // Moved, not copied: leaving it would set it aside again on
                 // every read. A concurrent writer that replaced it first wins.
                 match self
@@ -125,13 +126,11 @@ impl Inner {
             if !change(&mut notes) {
                 return Ok(false);
             }
-            let notes_json = serde_json::to_string(&notes)
-                .map_err(|error| malformed("serializing journal", error))?;
-            let doc = json!({ "workflow_id": workflow_id, "notes_json": notes_json });
+            let doc = journal_body(workflow_id, &notes);
             let precondition = stored
                 .as_ref()
                 .map_or(Precondition::Absent, Versioned::unchanged);
-            match self.docs.put(NOTES, &id, doc, precondition).await {
+            match put_doc(self.docs.as_ref(), NOTES, &id, doc, precondition).await {
                 Ok(_) => return Ok(true),
                 Err(error) if is_race(error.kind()) => {}
                 Err(error) => return Err(storage(error)),
