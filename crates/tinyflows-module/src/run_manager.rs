@@ -346,13 +346,12 @@ pub(super) async fn cancel(
         bail!("run id must not be empty")
     }
     let scoped = key(&request.storage, &request.run_id);
-    if let Some(active) = active(&scoped) {
-        if active.phase.load(Ordering::Acquire) == RESERVING
-            || active.phase.load(Ordering::Acquire) == RUNNING
-        {
-            active.token.cancel();
-            return Ok(CancelRunResponse { signalled: true });
-        }
+    if let Some(active) = active(&scoped)
+        && (active.phase.load(Ordering::Acquire) == RESERVING
+            || active.phase.load(Ordering::Acquire) == RUNNING)
+    {
+        active.token.cancel();
+        return Ok(CancelRunResponse { signalled: true });
     }
     cancellation::cancel_parked_or_stale(connection, request, active(&scoped)).await
 }

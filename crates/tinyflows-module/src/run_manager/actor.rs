@@ -73,7 +73,7 @@ pub(super) async fn drive(
     }
     if let Some(error) = writer.flush().await {
         tracing::error!(%error, run_id = %request.run_id, "run observer writes did not drain cleanly");
-        failure.get_or_insert_with(|| error);
+        failure.get_or_insert(error);
     }
 
     let settled_steps = run_summary::settle_steps(observed, &output);
