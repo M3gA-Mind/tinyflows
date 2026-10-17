@@ -245,6 +245,7 @@ pub const STORE_OPERATIONS: &[&str] = &[
     "set_max_active_jobs",
     "import_job",
     "import_run",
+    "migrate",
 ];
 
 /// Context-bound document callback interface. The only member is `Document`;
