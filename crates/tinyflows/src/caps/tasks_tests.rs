@@ -28,6 +28,20 @@ impl TaskExecutor for PanickingExecutor {
     }
 }
 
+struct BlockingExecutor {
+    started: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl TaskExecutor for BlockingExecutor {
+    async fn execute(&self, _spec: TaskSpec) -> Result<Value> {
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(json!("late"))
+    }
+}
+
 async fn settled(runner: &TokioTaskRunner, ticket: &str) -> TaskState {
     for _ in 0..128 {
         let state = runner.poll(ticket).await.unwrap();
@@ -141,9 +155,16 @@ async fn executor_panics_settle_as_a_redacted_capability_failure() {
 
 #[tokio::test]
 async fn cancelling_a_pending_executor_task_keeps_the_terminal_state_stable() {
-    let runner = TokioTaskRunner::with_executor(Arc::new(ValueExecutor(json!("late"))));
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let runner = TokioTaskRunner::with_executor(Arc::new(BlockingExecutor {
+        started: Arc::clone(&started),
+        release: Arc::clone(&release),
+    }));
     let ticket = runner.start(spec()).await.unwrap();
+    started.notified().await;
     runner.cancel(&ticket).await.unwrap();
+    release.notify_one();
     let cancelled = runner.poll(&ticket).await.unwrap();
     assert_eq!(cancelled, TaskState::Failed("cancelled".into()));
     tokio::task::yield_now().await;

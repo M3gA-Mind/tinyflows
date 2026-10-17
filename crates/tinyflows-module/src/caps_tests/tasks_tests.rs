@@ -141,3 +141,33 @@ async fn task_runner_cancellation_settles_an_in_flight_callback_ticket() {
     assert_eq!(state, TaskState::Failed("cancelled".into()));
     assert_eq!(runner.poll(&ticket).await.unwrap(), state);
 }
+
+#[tokio::test]
+async fn inline_child_workflow_refuses_legacy_unsupported_engine_topology() {
+    let (module, host) = support::memory_bus().await;
+    support::serve_caps(&host, "alice", "/caps/alice", false).await;
+    host.request_name("test.CatalogStorage").await.unwrap();
+    let (storage, _) = super::scope_tests::storage_callback(&host, "alice").await;
+    let capabilities = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/alice"),
+        RunScope {
+            flow_id: "flow-1".into(),
+            storage,
+        },
+    )
+    .await
+    .unwrap();
+    let runner = capabilities.tasks.as_ref().unwrap();
+    let ticket = runner
+        .start(TaskSpec::Workflow {
+            graph: support::unsafe_child_graph(),
+            input: json!({}),
+        })
+        .await
+        .unwrap();
+    let TaskState::Failed(message) = await_task(runner.as_ref(), &ticket).await else {
+        panic!("unsupported topology must not run")
+    };
+    assert!(message.contains("unsupported_nested_conditional_fan_in"));
+}
