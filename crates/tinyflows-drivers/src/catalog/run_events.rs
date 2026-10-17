@@ -29,9 +29,7 @@ impl FlowCatalogDocuments {
     /// Commits the terminal cursor only after the event itself is durable.
     pub async fn mark_flow_run_terminal_event(&self, id: &str, seq: u64) -> Result<bool> {
         let marked = compare_and_swap(self.docs().await?, RUNS, id, |doc| {
-            let Some(status) = doc.get("status").and_then(Value::as_str) else {
-                return None;
-            };
+            let status = doc.get("status").and_then(Value::as_str)?;
             if !matches!(
                 status,
                 "completed" | "completed_with_warnings" | "failed" | "cancelled" | "interrupted"
