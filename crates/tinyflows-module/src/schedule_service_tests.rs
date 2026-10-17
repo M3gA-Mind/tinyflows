@@ -103,8 +103,53 @@ async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_deliver
 }
 
 #[tokio::test]
-async fn manual_execution_routes_flow_directly_and_preserves_run_identity() {
+async fn run_job_now_is_a_typed_module_owned_admission_operation() {
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+    use tinyflows_bus::schedule::{ManualDelivery, RunJobNow, RunJobReply, StoreConfig};
+
     let (_server, host, state) = connections().await;
+    let backend = MemoryStorage::new();
+    let scoped = backend
+        .for_scope(&Scope::new("manual-admission-scope").unwrap())
+        .unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            Some("manual-job".into()),
+            Schedule::At {
+                at: now + chrono::Duration::hours(1),
+            },
+            "echo manual",
+        )
+        .await
+        .unwrap();
+    let job = documents
+        .update_job(
+            &job.id,
+            tinyflows_schedule::CronJobPatch {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend": {"kind":"documents", "callback": {
+            "destination":"test.ScheduleHost", "object_path":"/test/Documents"
+        }}
+    }))
+    .unwrap();
     let proxy = host
         .proxy(
             schedule::BUS_NAME,
@@ -112,44 +157,116 @@ async fn manual_execution_routes_flow_directly_and_preserves_run_identity() {
             schedule::INTERFACE,
         )
         .unwrap();
-    for kind in ["shell", "flow"] {
-        let result: Value = proxy
-            .call(
-                "ExecuteJob",
-                &("scope", callback(), json!({}), job(kind), "stable-run"),
-            )
-            .await
-            .unwrap();
-        assert_eq!(result["success"], true);
-    }
-    assert_eq!(*state.executions.lock().await, ["stable-run"]);
-    assert_eq!(*state.triggers.lock().await, ["flow-a"]);
+    let result: RunJobReply = proxy
+        .call(
+            "RunJobNow",
+            &(RunJobNow {
+                scope: "manual-admission-scope".into(),
+                callback: callback(),
+                config: json!({}),
+                storage,
+                job: job.clone(),
+                run_id: "manual-run".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: true,
+            },),
+        )
+        .await;
+    let RunJobReply::Completed {
+        run_id,
+        success,
+        delivery_status,
+        ..
+    } = result.unwrap()
+    else {
+        panic!("blocking Run Now should return a terminal result")
+    };
+    assert_eq!(run_id, "manual-run");
+    assert!(success);
+    assert_eq!(delivery_status, None);
+    assert_eq!(*state.executions.lock().await, ["manual-run"]);
+    let after = documents.get_job(&job.id).await.unwrap();
+    assert_eq!(after.next_run, job.next_run);
+    assert_eq!(after.enabled, false);
+    assert_eq!(after.delete_after_run, job.delete_after_run);
+    let history = documents.list_runs(&job.id, 10).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].status, "success");
+    assert_eq!(history[0].delivery_status, None);
 }
 
 #[tokio::test]
-async fn run_job_now_is_a_typed_module_owned_admission_operation() {
+async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
+    use chrono::Duration as ChronoDuration;
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+    use tinyflows_bus::schedule::{ManualDelivery, RunJobNow, RunJobRefusal, RunJobReply, StoreConfig};
+
     let (_server, host, _) = connections().await;
-    let proxy = host
-        .proxy(
-            schedule::BUS_NAME,
-            schedule::OBJECT_PATH,
-            schedule::INTERFACE,
+    let backend = MemoryStorage::new();
+    let scoped = backend.for_scope(&Scope::new("held-scheduled-run").unwrap()).unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: now + ChronoDuration::hours(1),
+            },
+            "echo held",
         )
+        .await
         .unwrap();
-    let result = proxy
-        .call::<Value>(
+    let active = documents
+        .claim_job_now(&job, "scheduled-owner", now, ChronoDuration::hours(2))
+        .await
+        .unwrap()
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend": {"kind":"documents", "callback": {
+            "destination":"test.ScheduleHost", "object_path":"/test/Documents"
+        }}
+    }))
+    .unwrap();
+    let proxy = host
+        .proxy(schedule::BUS_NAME, schedule::OBJECT_PATH, schedule::INTERFACE)
+        .unwrap();
+    let reply: RunJobReply = proxy
+        .call(
             "RunJobNow",
-            &(json!({
-                "scope": "manual-admission-scope",
-                "callback": callback(),
-                "config": {},
-                "job": job("shell"),
-                "run_id": "manual-run",
-                "delivery": "requested"
-            }),),
+            &(RunJobNow {
+                scope: "held-scheduled-run".into(),
+                callback: callback(),
+                config: json!({}),
+                storage,
+                job: job.clone(),
+                run_id: "refused-run".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: true,
+            },),
         )
-        .await;
-    assert!(result.is_ok(), "RunJobNow must be served by the module: {result:?}");
+        .await
+        .unwrap();
+    assert!(matches!(
+        reply,
+        RunJobReply::Refused {
+            reason: RunJobRefusal::AlreadyRunning
+        }
+    ));
+    assert!(documents.list_runs(&job.id, 10).await.unwrap().is_empty());
+    assert!(documents
+        .release_claim(&active, chrono::Utc::now())
+        .await
+        .unwrap());
 }
 
 #[tokio::test]
