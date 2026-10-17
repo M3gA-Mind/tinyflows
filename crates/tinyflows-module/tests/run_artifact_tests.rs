@@ -3,7 +3,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
@@ -19,10 +19,17 @@ use tinyflows_bus::{
 use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 use tokio::sync::Notify;
 
+#[path = "run_artifact_poll.rs"]
+mod run_artifact_poll;
+use run_artifact_poll::{poll_until_done, poll_until_kind};
+
 struct OwnerDocuments {
     docs: Arc<dyn DocumentStore>,
     terminal_write_started: Option<Arc<Notify>>,
     release_terminal_write: Option<Arc<Notify>>,
+    fail_run_insert: Option<Arc<AtomicBool>>,
+    run_insert_started: Option<Arc<Notify>>,
+    release_run_insert: Option<Arc<Notify>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
@@ -44,6 +51,26 @@ impl OwnerDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows_runs"
+            && request["doc"]["status"] == "running"
+            && self
+                .fail_run_insert
+                .as_ref()
+                .is_some_and(|fail| fail.swap(false, Ordering::SeqCst))
+        {
+            if let Some(started) = &self.run_insert_started {
+                started.notify_one();
+            }
+            if let Some(release) = &self.release_run_insert {
+                release.notified().await;
+            }
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected run-row insert failure"
+                }
+            }));
+        }
         if let Some(events_json) = request["doc"]["events_json"].as_str()
             && serde_json::from_str::<Vec<Value>>(events_json)
                 .ok()
@@ -192,9 +219,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             terminal_write_started.clone(),
             release_terminal_write.clone(),
         )),
+        None,
     )
     .await;
-    let bob = owner(&connection, "bob", None).await;
+    let bob = owner(&connection, "bob", None, None).await;
     let alice_flow = create_flow(&catalog_proxy, &alice.storage, "Alice").await;
     let bob_flow = create_flow(&catalog_proxy, &bob.storage, "Bob").await;
     let alice_agent = serve_agent(&connection, "alice").await;
@@ -256,7 +284,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
 
     let wrong_owner = RunControlRequest {
-        storage: owner(&connection, "mallory").await.storage,
+        storage: owner(&connection, "mallory", None, None).await.storage,
         run_id: run_id.into(),
         cursor: 0,
     };
@@ -364,6 +392,57 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .await
         .unwrap();
     assert!(!terminal_cancel.signalled);
+
+    let insert_started = Arc::new(Notify::new());
+    let release_insert = Arc::new(Notify::new());
+    let fail_insert = Arc::new(AtomicBool::new(true));
+    let retry_owner = owner(
+        &connection,
+        "retry",
+        None,
+        Some((
+            fail_insert,
+            insert_started.clone(),
+            release_insert.clone(),
+        )),
+    )
+    .await;
+    let retry_flow = create_flow(&catalog_proxy, &retry_owner.storage, "Retry").await;
+    let retry_agent = serve_agent(&connection, "retry").await;
+    let retry_request = request(&retry_owner, retry_flow, "rollback-id", graph(true), 20_000);
+    let retry_proxy = connection
+        .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
+        .unwrap();
+    let first_attempt = {
+        let request = retry_request.clone();
+        tokio::spawn(async move {
+            retry_proxy
+                .call::<runs::StartRunResponse>("StartRun", (request,))
+                .await
+        })
+    };
+    insert_started.notified().await;
+    release_insert.notify_one();
+    assert!(first_attempt.await.unwrap().is_err());
+    let failed_row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: retry_owner.storage.clone(),
+                id: "rollback-id".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failed_row, None);
+    let retry_started: runs::StartRunResponse = runs_proxy
+        .call("StartRun", (retry_request,))
+        .await
+        .unwrap();
+    assert!(!retry_started.already_running);
+    retry_agent.started.notified().await;
+    retry_agent.release.notify_one();
+    let _ = poll_until_done(&runs_proxy, &retry_owner.storage, "rollback-id").await;
 }
 
 struct Owner {
@@ -375,6 +454,7 @@ async fn owner(
     connection: &Connection,
     name: &str,
     terminal_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+    run_insert_gate: Option<(Arc<AtomicBool>, Arc<Notify>, Arc<Notify>)>,
 ) -> Owner {
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
@@ -387,6 +467,11 @@ async fn owner(
                 docs: scoped.documents().clone(),
                 terminal_write_started: terminal_gate.as_ref().map(|(started, _)| started.clone()),
                 release_terminal_write: terminal_gate.map(|(_, release)| release),
+                fail_run_insert: run_insert_gate.as_ref().map(|(fail, _, _)| fail.clone()),
+                run_insert_started: run_insert_gate
+                    .as_ref()
+                    .map(|(_, started, _)| started.clone()),
+                release_run_insert: run_insert_gate.map(|(_, _, release)| release),
             },
         )
         .await
@@ -407,39 +492,6 @@ async fn owner(
             object_path: format!("/test/caps/{name}"),
         },
     }
-}
-
-async fn poll_until_kind(
-    proxy: &tinybus::Proxy,
-    storage: &CatalogStorage,
-    run_id: &str,
-    kind: &str,
-) -> Vec<runs::RunEvent> {
-    tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        let mut cursor = 0;
-        let mut all = Vec::new();
-        loop {
-            let page: runs::PollRun = proxy
-                .call(
-                    "PollRun",
-                    (RunControlRequest {
-                        storage: storage.clone(),
-                        run_id: run_id.into(),
-                        cursor,
-                    },),
-                )
-                .await
-                .unwrap();
-            cursor = page.next_cursor;
-            all.extend(page.events);
-            if all.iter().any(|event| event.kind == kind) {
-                return all;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("requested run event should reach PollRun")
 }
 
 async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
@@ -523,38 +575,3 @@ fn request(
     }
 }
 
-async fn poll_until_done(
-    proxy: &tinybus::Proxy,
-    storage: &CatalogStorage,
-    run_id: &str,
-) -> runs::PollRun {
-    tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        let mut cursor = 0;
-        let mut all = Vec::new();
-        loop {
-            let page: runs::PollRun = proxy
-                .call(
-                    "PollRun",
-                    (RunControlRequest {
-                        storage: storage.clone(),
-                        run_id: run_id.into(),
-                        cursor,
-                    },),
-                )
-                .await
-                .unwrap();
-            cursor = page.next_cursor;
-            all.extend(page.events);
-            if page.done {
-                return runs::PollRun {
-                    events: all,
-                    next_cursor: cursor,
-                    done: true,
-                };
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("run actor should flush terminal events")
-}
