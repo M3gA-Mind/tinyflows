@@ -11,7 +11,8 @@ pub mod types;
 pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
-    CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunsCloserThanRequest,
+    CheckOriginRequest, CheckPatchRequest, DeliveryProjection, ManualClaimReply, ManualDelivery,
+    NextRunRequest, OccurrenceClaim, RunJobNow, RunJobRefusal, RunJobReply, RunsCloserThanRequest,
     ValidateScheduleRequest,
 };
 pub use store_types::{
@@ -34,9 +35,9 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// `sqlite` store backend; storage is the host's document port only. 3 moved
 /// the job/run/policy records and the callback records into this crate
 /// (`types`, `Attempt`/`RunRecord`/`Completion`, `AgentJobSpec`,
-/// `StoreOperation`) and added the schedule-maths and validation members and
-/// the `set_max_active_jobs`/`import_job`/`import_run` store operations.
-pub const CONTRACT_VERSION: u32 = 3;
+/// `StoreOperation`) and added occurrence leases, module-owned manual run
+/// admission and explicit send/terminal delivery phases.
+pub const CONTRACT_VERSION: u32 = 4;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     members::SCHEDULE_STORE,
@@ -44,7 +45,7 @@ pub const METHODS: &[&str] = &[
     members::STOP_SCHEDULER,
     members::TICK_SCHEDULER,
     members::DRAIN_SCHEDULER,
-    members::EXECUTE_JOB,
+    members::RUN_JOB_NOW,
     members::PARSE_HUMAN_DELAY,
     members::VALIDATE_DELIVERY,
     members::NEXT_RUN,
@@ -70,8 +71,8 @@ pub mod members {
     pub const TICK_SCHEDULER: &str = "TickScheduler";
     /// `(handle: string) -> ()`; manual-tick schedulers only.
     pub const DRAIN_SCHEDULER: &str = "DrainScheduler";
-    /// `(scope, CallbackAddress, config, job, run_id) -> Attempt`.
-    pub const EXECUTE_JOB: &str = "ExecuteJob";
+    /// `(RunJobNow) -> RunJobReply`; durable admission precedes acknowledgement.
+    pub const RUN_JOB_NOW: &str = "RunJobNow";
     /// `(delay: string) -> milliseconds: i64`.
     pub const PARSE_HUMAN_DELAY: &str = "ParseHumanDelay";
     /// `(DeliveryConfig, Option<JobOrigin>, Option<Vec<String>>) -> ()`.
@@ -132,20 +133,27 @@ pub mod callbacks {
     /// `(now: RFC3339, excluded: string[]) -> jobs: JSON[]`. Apply exclusions
     /// before the batch limit; required when an active job defers a due slot.
     pub const DUE_JOBS_EXCLUDING: &str = "DueJobsExcluding";
-    /// `(job: JSON, next_run: RFC3339) -> ()`: claim or return an error.
-    /// Preserve concurrent edits; disable one-shots durably before success.
-    pub const CLAIM_SLOT: &str = "ClaimSlot";
-    /// `(record: JSON) -> ()`; fields match runtime run records.
-    pub const RECORD_RUN: &str = "RecordRun";
-    /// `(job: JSON, completion: JSON) -> ()`; apply the computed mutation.
-    pub const COMPLETE: &str = "Complete";
+    /// `(captured_job, owner, now, lease_ms) -> Option<OccurrenceClaim>`.
+    pub const CLAIM_DUE_OCCURRENCE: &str = "ClaimDueOccurrence";
+    /// `(job, owner, now, lease_ms) -> ManualClaimReply`; manual force-run.
+    pub const CLAIM_MANUAL_OCCURRENCE: &str = "ClaimManualOccurrence";
+    /// `(receipt, now, lease_ms) -> bool`.
+    pub const RENEW_OCCURRENCE: &str = "RenewOccurrence";
+    /// `(receipt, now) -> bool`.
+    pub const RELEASE_OCCURRENCE: &str = "ReleaseOccurrence";
+    /// `(receipt, record) -> bool`; durable queued history before acknowledgement.
+    pub const QUEUE_OCCURRENCE: &str = "QueueOccurrence";
+    /// `(receipt, record, completion) -> bool`; atomic terminal commit.
+    pub const COMPLETE_OCCURRENCE: &str = "CompleteOccurrence";
     /// `(job: JSON, run_id: string) -> {success, output, retryable}`.
     pub const EXECUTE: &str = "Execute";
     /// `(job: JSON, run_id: string, attempt: JSON) -> ()` after final failure.
     pub const FAILED: &str = "Failed";
-    /// `(job: JSON, run_id: string, attempt: JSON) -> delivery-status string.
+    /// `(job, run_id, attempt) -> delivery-status`; performs the one actual send.
+    pub const SEND: &str = "Send";
+    /// `(DeliveryProjection) -> ()`; observes final state and never sends.
     pub const DELIVER: &str = "Deliver";
-    /// `(flow_id: string, run_id: string) -> {success, output, retryable}`.
+    /// `(captured_job: CronJob, run_id: string) -> Attempt`.
     pub const SCHEDULE_TRIGGER: &str = "ScheduleTrigger";
 }
 

@@ -40,6 +40,7 @@ async fn completion_keeps_a_schedule_edited_after_the_slot_was_claimed() {
         .complete_run(
             &job,
             &Completion {
+                advance_schedule: true,
                 remove: false,
                 disable: false,
                 next_run: Some(job.next_run + chrono::Duration::hours(1)),
@@ -82,6 +83,7 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
             .unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
@@ -132,6 +134,7 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
             .unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
@@ -247,6 +250,7 @@ async fn completion_preserves_auto_delete_canceled_during_execution() {
         .complete_run(
             &job,
             &Completion {
+                advance_schedule: true,
                 remove: true,
                 disable: false,
                 next_run: None,
@@ -299,6 +303,7 @@ async fn completion_preserves_one_shot_reenabled_during_execution() {
             .await
             .unwrap();
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
@@ -376,6 +381,7 @@ async fn old_one_shot_completion_cannot_delete_a_subsequent_claim() {
     assert!(store.claim_slot(&newer, newer.next_run).await.unwrap());
     assert_eq!(store.get_job(&job.id).await.unwrap().claim_generation, 2);
     let completion = Completion {
+        advance_schedule: true,
         remove: true,
         disable: false,
         next_run: None,

@@ -1,9 +1,120 @@
 //! Request types for the pure schedule-maths and validation members. The
 //! algorithms (cron parsing, time zones, active hours, cadence floor) execute
 //! in the module; hosts only send these and read the replies.
-use super::types::{CronJob, CronJobPatch, DeliveryConfig, JobOrigin, Schedule, SessionTarget};
+use super::types::{
+    CronJob, CronJobPatch, DeliveryConfig, DeliveryStatus, JobOrigin, Schedule, SessionTarget,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+/// Module-owned manual admission. An accepted request is durably queued before
+/// the reply; `wait` selects a blocking tool call or a detached RPC response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunJobNow {
+    /// The scheduler/store scope, bound by the caller.
+    pub scope: String,
+    /// Context-bound host execution and delivery callbacks.
+    pub callback: super::CallbackAddress,
+    /// Retry and timing configuration.
+    pub config: serde_json::Value,
+    /// Scoped module-owned document store; leased cron paths require transactions.
+    pub storage: super::StoreConfig,
+    /// Saved snapshot to execute, even when disabled or scheduled in the future.
+    pub job: CronJob,
+    /// Stable identity chosen by the module or caller for this accepted run.
+    pub run_id: String,
+    /// Do not send a delivery into the current cron tool turn.
+    #[serde(default)]
+    pub delivery: ManualDelivery,
+    /// Wait for terminal persistence; false returns after durable queueing.
+    #[serde(default)]
+    pub wait: bool,
+}
+
+/// Whether a manual run sends its normal product delivery.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManualDelivery {
+    /// Send through the context-bound host callback.
+    #[default]
+    Requested,
+    /// The caller is already the response channel (for example CronRunTool).
+    NotRequested,
+}
+
+/// Typed result of module-owned manual admission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RunJobReply {
+    /// The durable queue row and occurrence claim exist.
+    Accepted { run_id: String },
+    /// A blocking call completed with its terminal outcome.
+    Completed {
+        run_id: String,
+        attempt: super::Attempt,
+        success: bool,
+        delivery_status: Option<DeliveryStatus>,
+    },
+    /// Admission refused without pretending that a run was queued.
+    Refused { reason: RunJobRefusal },
+}
+
+/// Machine-readable manual admission refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunJobRefusal {
+    /// Another scheduled or manual run currently owns the scoped job claim.
+    AlreadyRunning,
+    /// The saved definition was removed, replaced, or edited before claim.
+    DefinitionChanged,
+}
+
+/// Typed reply for atomic force-run claim callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ManualClaimReply {
+    /// The expected saved definition was claimed.
+    Claimed {
+        /// Boxed to keep refusal replies as small as their wire shape.
+        claim: Box<OccurrenceClaim>,
+    },
+    /// Admission refused without creating a queue row.
+    Refused { reason: RunJobRefusal },
+}
+
+/// Receipt returned only by the scoped storage callback after an atomic claim.
+/// `receipt` is opaque to the model and may only be passed back to lease calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OccurrenceClaim {
+    /// Storage-owned fencing receipt.
+    pub receipt: String,
+    /// Exact definition snapshot captured by the successful claim.
+    pub job: CronJob,
+    /// Scheduled occurrence instant captured at acquisition.
+    pub occurrence: DateTime<Utc>,
+    /// Start instant captured with the lease.
+    pub started_at: DateTime<Utc>,
+    /// Owner chosen by the module for renewal and fencing.
+    pub owner: String,
+    /// Caller-chosen manual identity; automatic runs leave it absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+}
+
+/// Host's product-side terminal projection after send and final success are known.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryProjection {
+    /// Captured definition used for this occurrence.
+    pub job: CronJob,
+    /// Stable invocation identity.
+    pub run_id: String,
+    /// Final host-classified attempt, including retained raw detail.
+    pub attempt: super::Attempt,
+    /// Runtime decision after actual send outcome and best-effort policy.
+    pub success: bool,
+    /// Actual result of the send phase; absent when delivery was not requested.
+    pub delivery_status: Option<DeliveryStatus>,
+}
 
 /// `NextRun`: the first occurrence of `schedule` strictly after `from`.
 /// Reply: `DateTime<Utc>` (RFC3339). Errors on an unparseable schedule.

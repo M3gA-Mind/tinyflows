@@ -14,6 +14,10 @@ pub struct Attempt {
     pub output: String,
     /// False for host-classified permanent failures; stops retry immediately.
     pub retryable: bool,
+    /// Opaque host-classification detail. The module retains the last
+    /// non-empty value across retries and relays it unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_detail: Option<String>,
 }
 
 /// Persisted outcome after execution and delivery.
@@ -41,6 +45,13 @@ pub struct RunRecord {
 /// Final mutation computed by the runtime. Stores apply it mechanically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Completion {
+    /// Whether a scheduled run advances or disables its saved occurrence.
+    /// Manual Run Now keeps the schedule untouched.
+    #[serde(
+        default = "advance_schedule_default",
+        skip_serializing_if = "advance_schedule_is_default"
+    )]
+    pub advance_schedule: bool,
     /// Remove a successful auto-delete one-shot, including its stored history,
     /// unless a concurrent edit re-enabled or otherwise retained it.
     pub remove: bool,
@@ -55,4 +66,12 @@ pub struct Completion {
     pub success: bool,
     /// Result text passed unchanged to delivery and run-history persistence.
     pub output: String,
+}
+
+fn advance_schedule_default() -> bool {
+    true
+}
+
+fn advance_schedule_is_default(value: &bool) -> bool {
+    *value
 }

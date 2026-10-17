@@ -1,5 +1,7 @@
 #[path = "support/authoring_contract_calls.rs"]
 mod authoring_contract_calls;
+#[path = "support/authoring_surface_artifact.rs"]
+mod authoring_surface_artifact;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
 #[path = "support/copilot_artifact.rs"]
@@ -10,6 +12,14 @@ mod document_callbacks;
 mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
+#[path = "support/schedule_v4_artifact.rs"]
+mod schedule_v4_artifact;
+#[path = "support/schedule_v4_delivery_artifact.rs"]
+mod schedule_v4_delivery_artifact;
+#[path = "support/schedule_v4_manual_artifact.rs"]
+mod schedule_v4_manual_artifact;
+#[path = "support/schedule_v4_recovery_artifact.rs"]
+mod schedule_v4_recovery_artifact;
 #[path = "support/wiring_warning_artifact.rs"]
 mod wiring_warning_artifact;
 use serde_json::json;
@@ -18,7 +28,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
-use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS, OBJECT_PATH, methods};
+use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS};
 
 struct HostCallback;
 
@@ -60,6 +70,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert_eq!(tinyflows_bus::CONTRACT_VERSION, 3);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 4);
+    assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
     assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 19);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
@@ -362,8 +373,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let id = flow["id"].as_str().unwrap();
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run_ms"] = json!(0);
-    body["next_run_ns"] = json!(0);
+    let due_at = chrono::Utc::now() - chrono::Duration::minutes(1);
+    body["next_run"] = json!(due_at.to_rfc3339());
+    body["next_run_ms"] = json!(due_at.timestamp_millis());
+    body["next_run_ns"] = json!(due_at.timestamp_nanos_opt().unwrap());
     docs.put("cron_jobs", id, body, stored.unchanged())
         .await
         .unwrap();
@@ -403,86 +416,22 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
-    assert_eq!(
-        stored.doc["claim_generation"], 1,
-        "compiled scheduler must durably advance the claim generation"
+    assert!(
+        stored.doc["next_run_ms"].as_i64().unwrap() > due_at.timestamp_millis(),
+        "compiled scheduler advances the occurrence only at terminal completion"
     );
+    assert!(stored.doc.get("occurrence_lease").is_none());
     assert_eq!(
         *state.triggers.lock().unwrap(),
         ["artifact-flow", "stored-flow"]
     );
+    schedule_v4_artifact::verify_captured_triggers(&state, id);
     assert_eq!(
         state.records.lock().unwrap().len(),
         1,
         "configured storage bypasses the host cron-store callback"
     );
 
-    let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
-    let catalog_proxy = connection
-        .proxy(
-            BUS_NAME,
-            tinyflows_bus::catalog::OBJECT_PATH,
-            tinyflows_bus::catalog::INTERFACE,
-        )
-        .unwrap();
-    connection
-        .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
-        .await
-        .unwrap();
-    connection
-        .request_name("test.ArtifactAuthoringHost")
-        .await
-        .unwrap();
-    let failures: Vec<String> = proxy
-        .call(
-            methods::BUILDER_FAILURES,
-            (
-                json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
-                tinyflows_bus::AuthoringHost {
-                    bus_name: "test.ArtifactAuthoringHost".into(),
-                    object_path: "/authoring_host".into(),
-                },
-                Vec::<String>::new(),
-            ),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures, ["artifact callback refused account"]);
-
-    let graph = authoring_contract_calls::verify_surface(&proxy, &catalog_proxy).await;
-    let manifest = authoring_contract_calls::approval_manifest(&connection, &catalog_proxy).await;
-    assert_eq!(manifest.len(), 1);
-    assert_eq!(manifest[0]["node_id"], "code");
-    let failures: Vec<String> = proxy
-        .call(methods::BINDING_FAILURES, (graph,))
-        .await
-        .unwrap();
-    assert_eq!(failures, Vec::<String>::new());
-
-    let failures: Vec<String> = proxy
-        .call(
-            methods::BINDING_FAILURES,
-            (json!({
-                "nodes": [
-                    {"id":"fetch", "name":"Fetch", "kind":"agent",
-                     "config":{"prompt":"Fetch the title"}},
-                    {"id":"notify", "name":"Notify", "kind":"tool_call",
-                     "config":{"slug":"demo:echo",
-                               "args":{"text":"=nodes.fetch.item.title"}}},
-                    {"id":"code", "name":"Code", "kind":"code",
-                     "config":{"language":"shell"}}
-                ],
-                "edges": []
-            }),),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("=nodes.fetch.item.json.title"));
-
-    wiring_warning_artifact::verify_surface(&proxy).await;
-    portability_artifact::verify_surface(&connection).await;
-
-    wiring_warning_artifact::verify_authoring_gates(&proxy).await;
-    copilot_artifact::verify_surface(&connection).await;
+    authoring_surface_artifact::verify(&connection).await;
+    schedule_v4_artifact::verify(&schedule_proxy, docs, storage, state).await;
 }
