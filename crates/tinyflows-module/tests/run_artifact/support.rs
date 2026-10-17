@@ -29,6 +29,10 @@ struct OwnerDocuments {
     release_run_insert: Option<Arc<Notify>>,
     fail_snapshot: Option<Arc<AtomicBool>>,
     fail_checkpoint_delete: Option<Arc<AtomicBool>>,
+    fail_parked_expiry: Option<(String, Arc<AtomicBool>)>,
+    cleanup_started: Option<Arc<Notify>>,
+    release_cleanup: Option<Arc<Notify>>,
+    cleanup_pending: Option<Arc<AtomicBool>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
@@ -50,6 +54,22 @@ impl OwnerDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows_runs"
+            && request["doc"]["status"] == "cancelled"
+            && request["doc"]["error"]
+                .as_str()
+                .is_some_and(|error| error.starts_with("parked run expired"))
+            && self.fail_parked_expiry.as_ref().is_some_and(|(id, fail)| {
+                id == text(&request, "id") && fail.swap(false, Ordering::SeqCst)
+            })
+        {
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected parked expiry failure"
+                }
+            }));
+        }
         if request["collection"] == "flows_runs"
             && request["doc"]["status"] == "running"
             && self
@@ -115,6 +135,20 @@ impl OwnerDocuments {
     }
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows_kv"
+            && self
+                .cleanup_pending
+                .as_ref()
+                .is_some_and(|pending| pending.swap(false, Ordering::SeqCst))
+            && let (Some(started), Some(release)) = (&self.cleanup_started, &self.release_cleanup)
+        {
+            started.notify_one();
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                release.notified(),
+            )
+            .await;
+        }
         if request["collection"] == "flows_graph_checkpoints"
             && self
                 .fail_checkpoint_delete
@@ -297,6 +331,10 @@ pub(super) async fn owner(
                 release_run_insert: run_insert_gate.map(|(_, _, release)| release),
                 fail_snapshot,
                 fail_checkpoint_delete,
+                fail_parked_expiry: None,
+                cleanup_started: None,
+                release_cleanup: None,
+                cleanup_pending: None,
             },
         )
         .await
@@ -339,8 +377,66 @@ pub(super) async fn alias_owner(
                 release_run_insert: None,
                 fail_snapshot: None,
                 fail_checkpoint_delete: None,
+                fail_parked_expiry: None,
+                cleanup_started: None,
+                release_cleanup: None,
+                cleanup_pending: None,
             },
         )
+        .await
+        .unwrap();
+    Owner {
+        storage: CatalogStorage {
+            callback: catalog::CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
+        },
+        caps: runs::CallbackAddress {
+            destination: "test.CapsHost".into(),
+            object_path: format!("/test/caps/{}", name.replace('-', "_")),
+        },
+        docs,
+    }
+}
+
+pub(super) async fn owner_with_lifecycle_gates(
+    connection: &Connection,
+    name: &str,
+    expiry_failure_id: Option<&str>,
+    cleanup_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+) -> Owner {
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new(name).unwrap())
+        .unwrap();
+    let docs = scoped.documents().clone();
+    let path = format!("/test/catalog/{}", name.replace('-', "_"));
+    let expiry_failure = expiry_failure_id.map(|id| (id.to_owned(), Arc::new(AtomicBool::new(true))));
+    connection
+        .serve_at(
+            path.parse().unwrap(),
+            OwnerDocuments {
+                docs: docs.clone(),
+                terminal_write_started: None,
+                release_terminal_write: None,
+                terminal_write_pending: None,
+                fail_run_insert: None,
+                run_insert_started: None,
+                release_run_insert: None,
+                fail_snapshot: None,
+                fail_checkpoint_delete: None,
+                fail_parked_expiry: expiry_failure,
+                cleanup_started: cleanup_gate.as_ref().map(|(started, _)| started.clone()),
+                release_cleanup: cleanup_gate.as_ref().map(|(_, release)| release.clone()),
+                cleanup_pending: cleanup_gate
+                    .as_ref()
+                    .map(|_| Arc::new(AtomicBool::new(true))),
+            },
+        )
+        .await
+        .unwrap();
+    connection
+        .request_name("test.CatalogStorage")
         .await
         .unwrap();
     Owner {
