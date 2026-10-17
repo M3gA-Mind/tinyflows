@@ -64,6 +64,7 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
         precondition: CatalogDocumentPrecondition::Absent,
         schema: 2,
         expires_ms: Some(1_700_000_000_000),
+        created_ms: Some(1_600_000_000_000),
     });
     wire_round_trip(DocDeleteRequest {
         collection: "flows.definitions".into(),
@@ -301,6 +302,7 @@ fn catalog_and_storage_member_json_shapes_are_pinned() {
             precondition: CatalogDocumentPrecondition::Version(7),
             schema: 0,
             expires_ms: None,
+            created_ms: None,
         })
         .unwrap(),
         json!({"collection":"flows.definitions","id":"flow-1","doc":{"name":"Example"},"precondition":{"kind":"version","version":7}})
@@ -313,6 +315,7 @@ fn catalog_and_storage_member_json_shapes_are_pinned() {
             precondition: CatalogDocumentPrecondition::Absent,
             schema: 2,
             expires_ms: None,
+            created_ms: None,
         })
         .unwrap(),
         json!({"collection":"flows.definitions","id":"flow-1","doc":{"name":"Example"},"precondition":{"kind":"absent"},"schema":2}),
