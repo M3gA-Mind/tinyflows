@@ -154,6 +154,36 @@ impl CronDocuments {
             .await
     }
 
+    /// Reconcile an ambiguous manual-claim response by reading the live lease
+    /// for the unique owner chosen by the caller. This method is read-only and
+    /// reconstructs the receipt needed to release or renew that claim.
+    pub async fn find_owned_manual_claim(
+        &self,
+        expected: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<ClaimedOccurrence>> {
+        if owner.trim().is_empty() {
+            bail!("cron store: lease owner must not be empty");
+        }
+        let Some(stored) = self
+            .docs
+            .get(JOBS, &expected.id)
+            .await
+            .map_err(storage_error)?
+        else {
+            return Ok(None);
+        };
+        let job = doc_to_job(&stored)?;
+        let Some(lease) = lease(&stored.doc)? else {
+            return Ok(None);
+        };
+        if lease.owner != owner || lease.expires_at <= now {
+            return Ok(None);
+        }
+        Ok(Some(ClaimedOccurrence { job, lease }))
+    }
+
     async fn claim_occurrence(
         &self,
         job_id: &str,

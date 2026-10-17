@@ -49,6 +49,16 @@ pub trait JobStore: Send + Sync {
     ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
         anyhow::bail!("job store does not support durable manual admission")
     }
+    /// Read back a live manual claim by the unique owner selected before
+    /// admission, so a lost claim response can be reconciled without guessing.
+    async fn find_owned_manual_claim(
+        &self,
+        _job: &CronJob,
+        _owner: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<Option<OccurrenceClaim>> {
+        anyhow::bail!("job store does not support manual claim reconciliation")
+    }
     /// Extend a live lease; false means this worker has lost its fence.
     async fn renew_occurrence(
         &self,

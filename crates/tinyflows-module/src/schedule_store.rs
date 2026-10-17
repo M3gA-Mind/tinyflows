@@ -148,6 +148,18 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         };
         Ok(Ok(occurrence_claim(claim)?))
     }
+    async fn find_owned_manual_claim(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<OccurrenceClaim>> {
+        self.0
+            .find_owned_manual_claim(job, owner, now)
+            .await?
+            .map(occurrence_claim)
+            .transpose()
+    }
     async fn renew_occurrence(
         &self,
         claim: &OccurrenceClaim,
