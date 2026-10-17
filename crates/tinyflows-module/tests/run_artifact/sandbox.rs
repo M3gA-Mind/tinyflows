@@ -87,8 +87,8 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
         assert_eq!(response.result["sandbox"], true);
         assert_eq!(response.result["ok"], true, "{response:?}");
         assert_eq!(
-            response.result["output"]["nodes"]["agent"]["item"]["json"]["subject"],
-            ""
+            response.result["output"]["nodes"]["agent"]["item"]["json"]["subject"], "",
+            "{response:?}"
         );
     }
 
