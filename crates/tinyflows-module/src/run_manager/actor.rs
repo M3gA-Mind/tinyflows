@@ -48,9 +48,11 @@ pub(super) async fn drive(
         Some(observer.progress_sink()),
     )
     .await;
-    let result = match capabilities {
-        Ok(capabilities) => execute(&request, &prepared, &capabilities, &active, &observer).await,
-        Err(error) => Err(anyhow::anyhow!("building run capabilities: {error}")),
+    let (result, timed_out) = match capabilities {
+        Ok(capabilities) => {
+            execute(&request, &prepared, &capabilities, &active, &observer).await
+        }
+        Err(error) => (Err(anyhow::anyhow!("building run capabilities: {error}")), false),
     };
     let observed = observer.steps();
     let mut graph_run_id = None;
@@ -58,18 +60,15 @@ pub(super) async fn drive(
     let mut pending_approvals = Vec::new();
     let mut failure = None;
     let mut cancelled = active.token.is_cancelled();
-    let timed_out;
     match result {
-        Ok((outcome, graph_id, timeout)) => {
+        Ok((outcome, graph_id)) => {
             graph_run_id = graph_id;
             output = outcome.output;
             pending_approvals = outcome.pending_approvals;
             cancelled |= outcome.cancelled;
-            timed_out = timeout;
         }
         Err(error) => {
             failure = Some(error.to_string());
-            timed_out = false;
         }
     }
     if let Some(graph_id) = graph_run_id.as_deref() {
@@ -196,7 +195,7 @@ async fn execute(
     capabilities: &tinyflows::caps::Capabilities,
     active: &ActiveRun,
     observer: &Arc<Observer>,
-) -> Result<(tinyflows::engine::RunOutcome, Option<String>, bool)> {
+) -> (Result<(tinyflows::engine::RunOutcome, Option<String>)>, bool) {
     let input = RunInput::new(request.trigger_data.clone())
         .with_inputs(prepared.inputs.clone())
         .with_run_id(request.run_id.clone())
@@ -214,19 +213,26 @@ async fn execute(
     );
     tokio::pin!(run);
     let timeout = Duration::from_millis(request.timeout_ms);
-    tokio::select! {
-        outcome = &mut run => {
-            let outcome = outcome.context("executing workflow graph")?;
-            let graph_id = outcome.graph_run_ids.run_id;
-            Ok((outcome.outcome, Some(graph_id), false))
-        }
+    let (result, timed_out) = tokio::select! {
+        outcome = &mut run => (outcome, false),
         () = sleep(timeout) => {
             active.token.cancel();
-            let outcome = run.await.context("executing timed-out workflow graph")?;
-            let graph_id = outcome.graph_run_ids.run_id;
-            Ok((outcome.outcome, Some(graph_id), true))
+            (run.await, true)
         }
-    }
+    };
+    let result = result
+        .context(if timed_out {
+            "executing timed-out workflow graph"
+        } else {
+            "executing workflow graph"
+        })
+        .map(|outcome| {
+            (
+                outcome.outcome,
+                Some(outcome.graph_run_ids.run_id),
+            )
+        });
+    (result, timed_out)
 }
 
 pub(super) async fn settle_dedup(
