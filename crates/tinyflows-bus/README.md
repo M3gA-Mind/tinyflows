@@ -132,3 +132,15 @@ Draft simulation is sent directly from the compiled module to the existing
 `Runs.SandboxRun` operation, with the same request-scoped host object as the
 preflight-only `ToolInvoke` callback. The callback cannot replace the module's
 mock execution or produce simulated outputs.
+# Portability helpers
+
+`ai.tinyhumans.tinyflows.Portability` (contract v1) exposes the engine-owned
+HTTP credential preparation and trigger readers to hosts through the compiled
+module. `PrepareHttpRequest` accepts a request and a tagged Bearer, Basic,
+custom-header, or already-resolved credential template. The module renders the
+scheme, rejects malformed request/header shapes, and returns the prepared
+request; callers must keep credential values out of logs and recorded output.
+`AppEventBinding` tests the sole trigger against toolkit and slug
+case-insensitively. `PinnedInputs` returns literal object values from that
+trigger, without evaluating expressions.
+
