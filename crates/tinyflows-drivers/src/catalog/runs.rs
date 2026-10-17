@@ -33,7 +33,7 @@ fn still_the_flow(read: &Versioned<Value>, current: Option<&Versioned<Value>>) -
 /// `finish_flow_run` settles.
 const LIVE: [&str; 2] = ["running", "pending_approval"];
 
-fn status(doc: &Value) -> &str {
+pub(super) fn status(doc: &Value) -> &str {
     text(doc, "status").unwrap_or_default()
 }
 
@@ -59,7 +59,7 @@ fn to_run(stored: &Versioned<Value>) -> Result<FlowRun> {
 
 /// Whether run `doc` was parked (its `finished_at`, else `started_at`)
 /// strictly before `cutoff`.
-fn parked_before(doc: &Value, cutoff: &str) -> bool {
+pub(super) fn parked_before(doc: &Value, cutoff: &str) -> bool {
     let since = text(doc, "finished_at")
         .or_else(|| text(doc, "started_at"))
         .unwrap_or_default();
@@ -257,187 +257,6 @@ impl FlowCatalogDocuments {
         .await
         .context("Failed to finish flow run")?;
         Ok(settled.is_some())
-    }
-
-    /// Cancels every parked `pending_approval` run parked (its `finished_at`,
-    /// else `started_at`) strictly before `cutoff`, stamping `now` and
-    /// `error_msg`. Returns the `(run_id, flow_id)` this call **actually**
-    /// flipped — a run resumed in between is left alone and not returned.
-    pub async fn expire_parked_runs(
-        &self,
-        cutoff: &str,
-        now: &str,
-        error_msg: &str,
-    ) -> Result<Vec<(String, String)>> {
-        let docs = self.docs().await?;
-        let parked = docs
-            .query_all(
-                RUNS,
-                &Query::filter(Filter::eq("status", "pending_approval")),
-            )
-            .await?;
-        let flows = live_flows(docs).await?;
-        let (parked, orphans): (Vec<_>, Vec<_>) = parked
-            .into_iter()
-            .partition(|run| belongs_in(&run.doc, &flows));
-        reclaim(docs, RUNS, &orphans).await;
-        let mut swept = Vec::new();
-        for run in parked {
-            if !parked_before(&run.doc, cutoff) {
-                continue;
-            }
-            let flipped = compare_and_swap(docs, RUNS, &run.id, |doc| {
-                // Re-checked on the current document: a run resumed and
-                // parked again since the query has a newer parking time.
-                if status(doc) != "pending_approval" || !parked_before(doc, cutoff) {
-                    return None;
-                }
-                let mut next = doc.clone();
-                next["status"] = json!("cancelled");
-                set_finished(&mut next, Some(now));
-                next["error"] = json!(error_msg);
-                Some(next)
-            })
-            .await
-            .context("Failed to expire parked flow run")?;
-            match flipped {
-                Some(stored) => swept.push((
-                    stored.id.clone(),
-                    text(&stored.doc, "flow_id").unwrap_or_default().to_string(),
-                )),
-                None => tracing::debug!(
-                    target: "flows",
-                    run_id = %run.id,
-                    "[flows] TTL sweep: run left 'pending_approval' concurrently — not expiring it"
-                ),
-            }
-        }
-        if !swept.is_empty() {
-            tracing::info!(target: "flows", swept = swept.len(), "[flows] expired parked pending_approval runs past TTL");
-        }
-        Ok(swept)
-    }
-
-    /// The `(id, flow_id)` of every `running` run started strictly before
-    /// `started_before`, for the boot orphan sweep (B42).
-    pub async fn list_running_run_ids(
-        &self,
-        started_before: &str,
-    ) -> Result<Vec<(String, String)>> {
-        let docs = self.docs().await?;
-        let running = docs
-            .query_all(
-                RUNS,
-                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ns")),
-            )
-            .await?;
-        let flows = live_flows(docs).await?;
-        let (running, orphans): (Vec<_>, Vec<_>) = running
-            .into_iter()
-            .partition(|run| belongs_in(&run.doc, &flows));
-        reclaim(docs, RUNS, &orphans).await;
-        Ok(running
-            .iter()
-            .filter(|run| {
-                instant_before(
-                    text(&run.doc, "started_at").unwrap_or_default(),
-                    started_before,
-                )
-            })
-            .map(|run| {
-                (
-                    run.id.clone(),
-                    text(&run.doc, "flow_id").unwrap_or_default().to_string(),
-                )
-            })
-            .collect())
-    }
-
-    /// Test-only unconditional status write, bypassing the liveness guard, to
-    /// stage a run at an arbitrary status.
-    #[cfg(any(test, feature = "test-fixtures"))]
-    pub async fn force_run_status_for_test(
-        &self,
-        id: &str,
-        status: &str,
-        error: Option<&str>,
-    ) -> Result<()> {
-        let docs = self.docs().await?;
-        compare_and_swap(docs, RUNS, id, |doc| {
-            let mut next = doc.clone();
-            next["status"] = json!(status);
-            set_optional(&mut next, "error", error);
-            Some(next)
-        })
-        .await
-        .context("Failed to force flow run status (test fixture)")?;
-        Ok(())
-    }
-
-    /// Flips a parked run back to `running` for the duration of a resume,
-    /// only while it is still `pending_approval`; returns whether it flipped.
-    pub async fn mark_run_resuming(&self, id: &str) -> Result<bool> {
-        let docs = self.docs().await?;
-        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
-            if status(doc) != "pending_approval" {
-                return None;
-            }
-            let mut next = doc.clone();
-            next["status"] = json!("running");
-            set_finished(&mut next, None);
-            set_optional(&mut next, "error", None);
-            Some(next)
-        })
-        .await
-        .context("Failed to mark parked flow run as resuming")?;
-        if flipped.is_some() {
-            tracing::debug!(target: "flows", run_id = id, "[flows] marked parked run 'running' for the duration of the resume");
-        }
-        Ok(flipped.is_some())
-    }
-
-    /// Atomically claims a parked run and binds the lease of the actor that
-    /// will resume it. The lease update shares the same parked-status CAS, so
-    /// boot reconciliation cannot mistake the claimed run for an orphan.
-    pub async fn claim_parked_flow_run_for_resume(&self, id: &str, lease: &str) -> Result<bool> {
-        let docs = self.docs().await?;
-        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
-            if status(doc) != "pending_approval" || lease.trim().is_empty() {
-                return None;
-            }
-            let mut next = doc.clone();
-            let snapshot = next.get_mut("execution_snapshot")?.as_object_mut()?;
-            snapshot.insert("lease".into(), json!(lease));
-            next["status"] = json!("running");
-            set_finished(&mut next, None);
-            set_optional(&mut next, "error", None);
-            Some(next)
-        })
-        .await
-        .context("Failed to claim parked flow run for resume")?;
-        Ok(flipped.is_some())
-    }
-
-    /// Reconciles an orphaned `running` run to `interrupted`, only while it is
-    /// still `running`; returns whether it flipped.
-    pub async fn mark_run_interrupted(&self, id: &str, now: &str, reason: &str) -> Result<bool> {
-        let docs = self.docs().await?;
-        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
-            if status(doc) != "running" {
-                return None;
-            }
-            let mut next = doc.clone();
-            next["status"] = json!("interrupted");
-            set_finished(&mut next, Some(now));
-            next["error"] = json!(reason);
-            Some(next)
-        })
-        .await
-        .context("Failed to reconcile orphaned running flow run")?;
-        if flipped.is_some() {
-            tracing::info!(target: "flows", run_id = id, "[flows] reconciled orphaned 'running' flow run to 'interrupted'");
-        }
-        Ok(flipped.is_some())
     }
 
     /// One run with its steps.
