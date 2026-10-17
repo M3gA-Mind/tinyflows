@@ -28,7 +28,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
-use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS, OBJECT_PATH, methods};
+use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS};
 
 struct HostCallback;
 
