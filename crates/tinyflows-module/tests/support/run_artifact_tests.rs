@@ -57,13 +57,14 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let alice_start = request(&alice, alice_flow, run_id, graph(true), 20_000);
     let bob_start = request(&bob, bob_flow, run_id, graph(true), 20_000);
 
-    let invalid = request(
+    let mut invalid = request(
         &alice,
         alice_start.context.flow_id.clone(),
         "preflight",
         graph(false),
         20_000,
     );
+    invalid.inputs.clear();
     let error = runs_proxy
         .call::<runs::StartRunResponse>("StartRun", (invalid,))
         .await;
