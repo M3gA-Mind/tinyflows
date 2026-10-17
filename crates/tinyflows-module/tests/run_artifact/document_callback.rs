@@ -42,7 +42,7 @@ impl OwnerDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
-        if request["collection"] == "flows_runs"
+        if request["collection"] == "flows.runs"
             && request["doc"]["status"] == "cancelled"
             && request["doc"]["error"]
                 .as_str()
@@ -58,7 +58,7 @@ impl OwnerDocuments {
                 }
             }));
         }
-        if request["collection"] == "flows_runs"
+        if request["collection"] == "flows.runs"
             && request["doc"]["status"] == "running"
             && self
                 .fail_run_insert
@@ -80,7 +80,7 @@ impl OwnerDocuments {
                 }
             }));
         }
-        if request["collection"] == "flows_runs"
+        if request["collection"] == "flows.runs"
             && request["doc"].get("execution_snapshot").is_some()
             && self
                 .fail_snapshot
@@ -94,10 +94,9 @@ impl OwnerDocuments {
                 }
             }));
         }
-        if let Some(events_json) = request["doc"]["events_json"].as_str()
-            && serde_json::from_str::<Vec<Value>>(events_json)
-                .ok()
-                .and_then(|events| events.last().cloned())
+        if let Some(events) = request["doc"]["events"].as_array()
+            && events
+                .last()
                 .is_some_and(|event| event["kind"] == "finished")
             && self
                 .terminal_write_pending
@@ -123,7 +122,7 @@ impl OwnerDocuments {
     }
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
-        if request["collection"] == "flows_kv"
+        if request["collection"] == "tsd.kv"
             && self
                 .cleanup_pending
                 .as_ref()
@@ -134,7 +133,7 @@ impl OwnerDocuments {
             let _ =
                 tokio::time::timeout(std::time::Duration::from_secs(10), release.notified()).await;
         }
-        if request["collection"] == "flows_graph_checkpoints"
+        if request["collection"] == "graph.checkpoints"
             && self
                 .fail_checkpoint_delete
                 .as_ref()
@@ -167,7 +166,7 @@ impl OwnerDocuments {
     }
 
     async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
-        if request["collection"] == "flows_graph_checkpoints"
+        if request["collection"] == "graph.checkpoints"
             && self
                 .fail_checkpoint_delete
                 .as_ref()
