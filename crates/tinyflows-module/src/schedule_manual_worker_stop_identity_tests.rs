@@ -85,7 +85,7 @@ async fn stop_during_preflight_retains_the_admitted_run_identity() {
             .await
             .unwrap();
         let stopping: ManualRunState = proxy
-            .call(
+            .call::<Option<ManualRunState>>(
                 "StopManualRun",
                 &(StopManualRun {
                     handle: handle.clone(),
