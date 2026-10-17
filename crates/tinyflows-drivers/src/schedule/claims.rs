@@ -262,7 +262,7 @@ impl CronDocuments {
         let ttl_ms = duration.num_milliseconds().max(1);
         for _ in 0..CAS_ATTEMPTS {
             let Some(stored) = self.docs.get(JOBS, job_id).await.map_err(storage_error)? else {
-                return Ok(None);
+                { eprintln!("DBG missing"); return Ok(None) };
             };
             let job = doc_to_job(&stored)?;
             if expected.is_some_and(|expected| {
@@ -272,10 +272,10 @@ impl CronDocuments {
                     || job.schedule != expected.schedule
                     || job.next_run != expected.next_run
             }) {
-                return Ok(None);
+                { eprintln!("DBG expected mismatch {:?} {:?}", job.next_run, expected.map(|e| e.next_run)); return Ok(None) };
             }
             if !force && (!job.enabled || job.next_run > now) {
-                return Ok(None);
+                { eprintln!("DBG notdue"); return Ok(None) };
             }
             let key = lease_key(job_id, job.next_run.timestamp_millis())?;
             let token = Uuid::new_v4().to_string();
@@ -284,7 +284,7 @@ impl CronDocuments {
                 .await
                 .map_err(storage_error)?
             else {
-                return Ok(None);
+                { eprintln!("DBG lease live"); return Ok(None) };
             };
             let incarnation = incarnation(&stored.doc)
                 .map(str::to_owned)
