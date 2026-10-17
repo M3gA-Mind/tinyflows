@@ -60,7 +60,7 @@ async fn admission_waiter_rechecks_after_rollback_and_after_success() {
     let scoped_key = key(&storage, &run_id);
     let reservation = register(scoped_key.clone()).unwrap_or_else(|_| panic!("new reservation"));
 
-    let (finished, result) = tokio::sync::oneshot::channel();
+    let (finished, mut result) = tokio::sync::oneshot::channel();
     let waiter_catalog = catalog.clone();
     let waiter_key = scoped_key.clone();
     let waiter_run = Arc::clone(&reservation);
