@@ -1,7 +1,10 @@
 use super::*;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tinyflows_bus::catalog::{
     self, CallbackAddress, CatalogStorage, GetRevisionRequest, ListRevisionsRequest,
     PutWorkflowRequest, PutWorkflowResponse,
@@ -14,12 +17,14 @@ use tinystoragedrivers_core::{
 pub(super) struct HostDocuments {
     pub(super) documents: Arc<dyn DocumentStore>,
     pub(super) fail_draft_deletes: bool,
+    pub(super) record_metadata: bool,
+    pub(super) fail_revision_put: Arc<AtomicBool>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl HostDocuments {
     async fn doc_capabilities(&self) -> tinybus::Result<Value> {
-        Ok(reply(Ok(json!({"record_metadata":true}))))
+        Ok(reply(Ok(json!({"record_metadata":self.record_metadata}))))
     }
 
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
@@ -39,6 +44,13 @@ impl HostDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows.revisions"
+            && self.fail_revision_put.swap(false, Ordering::SeqCst)
+        {
+            return Ok(reply(Err(tinystoragedrivers_core::StorageError::unavailable(
+                "injected revision migration failure",
+            ))));
+        }
         let mut options = WriteOptions::new();
         if let Some(schema) = request["schema"].as_u64() {
             options = options.schema(u32::try_from(schema).unwrap_or(0));
@@ -148,15 +160,28 @@ pub(super) async fn scope_with_documents(
     host: &Connection,
     name: &str,
 ) -> (CatalogStorage, Arc<dyn DocumentStore>) {
+    let (storage, docs, _) = scope_with_test_options(host, name, true, false).await;
+    (storage, docs)
+}
+
+async fn scope_with_test_options(
+    host: &Connection,
+    name: &str,
+    record_metadata: bool,
+    fail_revision_once: bool,
+) -> (CatalogStorage, Arc<dyn DocumentStore>, Arc<AtomicBool>) {
     let scope = Scope::new(name).unwrap();
     let scoped = MemoryStorage::new().for_scope(&scope).unwrap();
     let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{name}");
+    let fail_revision_put = Arc::new(AtomicBool::new(fail_revision_once));
     host.serve_at(
         path.parse().unwrap(),
         HostDocuments {
             documents: docs.clone(),
             fail_draft_deletes: false,
+            record_metadata,
+            fail_revision_put: fail_revision_put.clone(),
         },
     )
     .await
@@ -169,6 +194,7 @@ pub(super) async fn scope_with_documents(
             },
         },
         docs,
+        fail_revision_put,
     )
 }
 
@@ -185,6 +211,8 @@ pub(super) async fn scope_with_draft_delete_failure(
         HostDocuments {
             documents: docs.clone(),
             fail_draft_deletes: true,
+            record_metadata: true,
+            fail_revision_put: Arc::new(AtomicBool::new(false)),
         },
     )
     .await
@@ -360,7 +388,8 @@ async fn catalog_bus_serves_create_update_conflict_history_and_agent_scopes() {
 #[tokio::test]
 async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state() {
     let (_server, host) = connections().await;
-    let (storage, docs) = scope_with_documents(&host, "migration").await;
+    let (storage, docs, fail_revision_put) =
+        scope_with_test_options(&host, "migration", true, true).await;
     let created_ms = 1_772_600_767_250_i64;
     for collection in ["flows_definitions", "flows_kv", "flows_state"] {
         docs.ensure_collection(&CollectionSpec::new(collection))
@@ -396,12 +425,20 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
     .unwrap();
 
     let proxy = put_proxy(&host).unwrap();
-    for _ in 0..2 {
-        let _: () = proxy
-            .call("MigrateStorage", &(storage.clone(),))
-            .await
-            .unwrap();
-    }
+    let first_attempt = proxy
+        .call::<()>("MigrateStorage", &(storage.clone(),))
+        .await;
+    assert!(first_attempt.is_err(), "the injected mid-migration error is reported");
+    assert!(!fail_revision_put.load(Ordering::SeqCst));
+    assert!(docs.get("flows_revisions", "legacy-revision").await.unwrap().is_some());
+    assert!(docs.get("flows.revisions", "legacy-revision").await.unwrap().is_none());
+
+    let (retry_a, retry_b) = tokio::join!(
+        proxy.call::<()>("MigrateStorage", &(storage.clone(),)),
+        proxy.call::<()>("MigrateStorage", &(storage.clone(),)),
+    );
+    retry_a.unwrap();
+    retry_b.unwrap();
     let migrated = docs
         .get("flows.definitions", "legacy-flow")
         .await
