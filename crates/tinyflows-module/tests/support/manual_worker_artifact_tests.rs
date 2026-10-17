@@ -1,10 +1,11 @@
 use super::{callbacks, document_callbacks};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
 use tinyflows_bus::schedule::{
     AcknowledgeManualRun, ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState,
-    PrepareManualRun, StartManualRun, StopManualRun, StoreConfig, WaitManualRun,
+    PrepareManualRun, StartManualRun, StopManualRun, StoreConfig, StoreOperation, StoreRequest,
+    WaitManualRun,
 };
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::Schedule;
@@ -121,6 +122,20 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         "queued",
         "Running is reported only after durable queue admission"
     );
+    let queued_history: Value = schedule
+        .call(
+            "ScheduleStore",
+            &(StoreRequest {
+                storage: storage.clone(),
+                operation: serde_json::to_value(StoreOperation::ListRuns {
+                    job_id: job.id.clone(),
+                    limit: 10,
+                })
+                .unwrap(),
+            },),
+        )
+        .await
+        .unwrap();
 
     let retry_after_lost_reply: ManualRunState =
         schedule.call("StartManualRun", &start).await.unwrap();
@@ -256,6 +271,25 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     ));
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history[0].status, "ok");
+    let terminal_history: Value = schedule
+        .call(
+            "ScheduleStore",
+            &(StoreRequest {
+                storage: storage.clone(),
+                operation: serde_json::to_value(StoreOperation::ListRuns {
+                    job_id: job.id.clone(),
+                    limit: 10,
+                })
+                .unwrap(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(
+        queued_history[0]["run_id"].as_str() == Some("artifact-manual-run")
+            && terminal_history[0]["run_id"].as_str() == Some("artifact-completed-run"),
+        "ScheduleStore ListRuns retains queued and terminal invocation IDs: queued={queued_history:?}, terminal={terminal_history:?}"
+    );
     assert!(
         schedule
             .call::<bool>(
