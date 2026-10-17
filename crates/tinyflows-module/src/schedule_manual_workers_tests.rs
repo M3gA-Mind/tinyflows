@@ -21,6 +21,11 @@ fn prepare_is_idempotent_per_scope_and_acknowledged_handles_are_never_reused() {
         reservation.entry.request_stop(),
         ManualRunState::Terminal { .. }
     ));
+    {
+        let mut control = reservation.entry.control.lock().unwrap();
+        control.expires_at = Instant::now() - Duration::from_secs(24 * 60 * 60);
+    }
+    assert!(workers.get(&first).is_some(), "terminal results persist until Ack");
     assert!(workers.acknowledge(&first));
     assert!(workers.get(&first).is_none());
 
