@@ -94,7 +94,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         None,
         "preflight failure must leave no row"
     );
-    let mut zero_budget = request(
+    let zero_budget = request(
         &alice,
         alice_start.context.flow_id.clone(),
         "zero-timeout",
