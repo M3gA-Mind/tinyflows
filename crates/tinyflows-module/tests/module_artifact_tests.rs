@@ -371,8 +371,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     let id = flow["id"].as_str().unwrap();
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run_ms"] = json!(0);
-    body["next_run_ns"] = json!(0);
+    let due_at = chrono::Utc::now() - chrono::Duration::minutes(1);
+    body["next_run"] = json!(due_at.to_rfc3339());
+    body["next_run_ms"] = json!(due_at.timestamp_millis());
+    body["next_run_ns"] = json!(due_at.timestamp_nanos_opt().unwrap());
     docs.put("cron_jobs", id, body, stored.unchanged())
         .await
         .unwrap();
