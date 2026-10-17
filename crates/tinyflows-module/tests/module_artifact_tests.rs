@@ -59,6 +59,36 @@ async fn compiled_module_prepares_manual_worker_through_schedule_abi() {
         .await
         .unwrap();
     assert!(prepared["handle"].is_object(), "prepare returns an opaque handle");
+    let handle = prepared["handle"].clone();
+    let stopped: serde_json::Value = schedule
+        .call("StopManualRun", (json!({"handle":handle}),))
+        .await
+        .unwrap();
+    assert_eq!(stopped["kind"], "terminal");
+    let acknowledged: bool = schedule
+        .call("AcknowledgeManualRun", (json!({"handle":handle}),))
+        .await
+        .unwrap();
+    assert!(acknowledged);
+
+    let late_start = schedule
+        .call::<_, serde_json::Value>(
+            "StartManualRun",
+            (json!({"handle":handle,"request":{}}),),
+        )
+        .await;
+    assert!(late_start.is_err(), "an acknowledged handle cannot start later");
+    let prepared_again: serde_json::Value = schedule
+        .call(
+            "PrepareManualRun",
+            (json!({"scope":"artifact-scope","request_id":"artifact-request"}),),
+        )
+        .await
+        .unwrap();
+    assert_ne!(
+        prepared_again["handle"], handle,
+        "reusing a request id after acknowledgement mints a new opaque handle"
+    );
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
