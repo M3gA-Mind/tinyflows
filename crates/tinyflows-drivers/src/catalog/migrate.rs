@@ -66,6 +66,7 @@ fn map(batch: Vec<SourceRecord>, collection: &str, convert: Convert) -> Vec<Targ
             };
             let record = TargetRecord::new(collection, source.id.clone(), body);
             match created_ms {
+                // Zero and negative values are valid dates, not an unknown-metadata sentinel.
                 Some(ms) => record.created_ms(ms),
                 None => record,
             }
@@ -116,6 +117,7 @@ fn definition(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
         ],
     );
     out.insert("graph".into(), parsed(body.get("graph_json")?));
+    // A parsed body timestamp (including zero or pre-epoch) wins; otherwise retain driver metadata.
     let created = ms(body, "created_at", "created_ns").unwrap_or(source.meta.created_ms);
     out.insert("created_ms".into(), created.into());
     out.insert(
@@ -245,6 +247,7 @@ fn draft(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
                 .map(|n| n / 1_000_000)
         })
         .unwrap_or(source.meta.created_ms);
+    // A missing embedded creation time falls back to the source record's own creation time.
     let created = whole
         .get("created_at")
         .and_then(Value::as_str)
