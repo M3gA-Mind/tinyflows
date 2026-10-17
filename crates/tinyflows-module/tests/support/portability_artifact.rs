@@ -1,7 +1,6 @@
 //! Exercises portable helper calls through the actual loaded module ABI.
 
 use serde_json::{Value, json};
-use tinybus::Proxy;
 use tinyflows_bus::{OBJECT_PATH, BUS_NAME, portability};
 
 pub async fn verify_surface(connection: &tinybus::Connection) {
