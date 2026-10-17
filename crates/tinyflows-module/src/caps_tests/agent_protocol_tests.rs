@@ -18,6 +18,7 @@ fn ports(connection: Connection, path: &str) -> CapsHostPorts {
             destination: "test.CapsHost".into(),
             object_path: path.into(),
         },
+        progress: None,
     }
 }
 
