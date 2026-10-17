@@ -135,6 +135,8 @@ async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
     let clock = Arc::new(ControlledLeaseClock {
         now: fixture.now(),
         renewal_tick: Notify::new(),
+        waiters: AtomicUsize::new(0),
+        waiting: Notify::new(),
     });
     let mut ports = fixture.ports();
     ports.executor = Arc::new(CancellableExecutor {
