@@ -24,7 +24,9 @@ pub(super) async fn drive(
     request: StartRun,
     prepared: Prepared,
     active: Arc<ActiveRun>,
+    admitted: tokio::sync::oneshot::Receiver<()>,
 ) {
+    let _ = admitted.await;
     let writer = EventWriter::new(prepared.catalog.clone(), request.run_id.clone());
     writer.emit(
         "started",

@@ -167,14 +167,17 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         active.admitted.notify_waiters();
         return Err(error).context("pinning flow run execution snapshot");
     }
-    active.phase.store(RUNNING, Ordering::Release);
-    active.admitted.notify_waiters();
+    let (actor_ready, actor_admitted) = tokio::sync::oneshot::channel();
     tokio::spawn(actor::drive(
         connection.clone(),
         request,
         prepared,
         Arc::clone(&active),
+        actor_admitted,
     ));
+    active.phase.store(RUNNING, Ordering::Release);
+    active.admitted.notify_waiters();
+    let _ = actor_ready.send(());
     Ok(StartRunResponse {
         run_id: active.key.run_id.clone(),
         already_running: false,

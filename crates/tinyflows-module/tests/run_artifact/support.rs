@@ -23,6 +23,7 @@ struct OwnerDocuments {
     fail_run_insert: Option<Arc<AtomicBool>>,
     run_insert_started: Option<Arc<Notify>>,
     release_run_insert: Option<Arc<Notify>>,
+    fail_snapshot: Option<Arc<AtomicBool>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
@@ -61,6 +62,20 @@ impl OwnerDocuments {
                 "error": {
                     "kind": "unavailable",
                     "message": "injected run-row insert failure"
+                }
+            }));
+        }
+        if request["collection"] == "flows_runs"
+            && request["doc"].get("execution_snapshot").is_some()
+            && self
+                .fail_snapshot
+                .as_ref()
+                .is_some_and(|fail| fail.swap(false, Ordering::SeqCst))
+        {
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected execution-snapshot failure"
                 }
             }));
         }
@@ -197,6 +212,7 @@ pub(super) async fn owner(
     name: &str,
     terminal_gate: Option<(Arc<Notify>, Arc<Notify>)>,
     run_insert_gate: Option<(Arc<AtomicBool>, Arc<Notify>, Arc<Notify>)>,
+    fail_snapshot: Option<Arc<AtomicBool>>,
 ) -> Owner {
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
@@ -217,6 +233,7 @@ pub(super) async fn owner(
                     .as_ref()
                     .map(|(_, started, _)| started.clone()),
                 release_run_insert: run_insert_gate.map(|(_, _, release)| release),
+                fail_snapshot,
             },
         )
         .await
