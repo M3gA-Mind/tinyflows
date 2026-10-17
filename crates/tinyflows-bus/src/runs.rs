@@ -120,6 +120,18 @@ pub struct RunControlRequest {
     pub storage: CatalogStorage,
     /// Exact opaque run id supplied to StartRun.
     pub run_id: String,
+    /// Last accepted event sequence for PollRun. Ignored by CancelRun.
+    #[serde(default)]
+    pub cursor: u64,
+}
+
+/// Immediate acknowledgement that a run was admitted and its actor registered.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct StartRunResponse {
+    /// Exact host-chosen id used for this run.
+    pub run_id: String,
+    /// False when an identical owner-scoped StartRun was already admitted.
+    pub already_running: bool,
 }
 
 /// Acknowledgement of a cooperative cancellation request.
