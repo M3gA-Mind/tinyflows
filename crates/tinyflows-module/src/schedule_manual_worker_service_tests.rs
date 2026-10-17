@@ -4,6 +4,10 @@ use super::*;
 #[path = "schedule_manual_worker_lifecycle_service_tests.rs"]
 mod lifecycle_tests;
 
+#[cfg(test)]
+#[path = "schedule_manual_worker_identity_tests.rs"]
+mod identity_tests;
+
 #[tokio::test]
 async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_terminal() {
     use tinyflows_bus::schedule::{
