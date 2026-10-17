@@ -97,8 +97,7 @@ async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_deliver
                 Some(vec!["bob"]),
             ),
         )
-        .await
-        .unwrap();
+        .await;
     assert!(error.is_err());
     assert_ne!(CALLBACK_INTERFACE, schedule::INTERFACE);
 }
@@ -179,7 +178,7 @@ async fn run_job_now_is_a_typed_module_owned_admission_operation() {
         success,
         delivery_status,
         ..
-    } = result.unwrap()
+    } = result
     else {
         panic!("blocking Run Now should return a terminal result")
     };
