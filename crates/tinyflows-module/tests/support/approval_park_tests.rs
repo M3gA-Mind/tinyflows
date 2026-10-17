@@ -27,7 +27,8 @@ async fn compiled_module_resumes_a_parked_approval_run() {
     let flow_id =
         create_flow_with_graph(&catalog_proxy, &owner.storage, "Resume flow", graph.clone()).await;
     let callback = serve_agent(&connection, "resume").await;
-    let start = request(&owner, flow_id.clone(), "resume-run", graph, 20_000);
+    let mut start = request(&owner, flow_id.clone(), "resume-run", graph, 20_000);
+    start.trigger_data = json!({"id":"resume-item","payload":"review"});
     let started: runs::StartRunResponse = runs_proxy.call("StartRun", (start,)).await.unwrap();
     assert!(!started.already_running);
     wait_notify(&callback.approval_started, "approval callback").await;
@@ -53,10 +54,7 @@ async fn compiled_module_resumes_a_parked_approval_run() {
     assert_eq!(resumed.run_id, "resume-run");
     let terminal = poll_until_done(&runs_proxy, &owner.storage, "resume-run").await;
     assert!(terminal.events.iter().any(|event| event.kind == "resumed"));
-    assert!(matches!(
-        terminal.events.last().unwrap().data["status"].as_str(),
-        Some("completed" | "completed_with_warnings")
-    ));
+    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     let row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -75,17 +73,7 @@ async fn compiled_module_resumes_a_parked_approval_run() {
         3,
         "the resumed gate replaces its parked step"
     );
-    let diagnostic_nodes: Vec<&str> = row
-        .steps
-        .iter()
-        .filter(|step| !step.diagnostics.is_empty())
-        .map(|step| step.node_id.as_str())
-        .collect();
-    if row.status == "completed_with_warnings" {
-        assert_eq!(diagnostic_nodes, ["dedup"]);
-    } else {
-        assert!(diagnostic_nodes.is_empty());
-    }
+    assert!(row.steps.iter().all(|step| step.diagnostics.is_empty()));
     let approval = row
         .steps
         .iter()
@@ -95,6 +83,15 @@ async fn compiled_module_resumes_a_parked_approval_run() {
     assert!(approval.diagnostics.is_empty());
     assert!(row.steps.iter().any(|step| step.node_id == "dedup"));
     assert!(row.steps.iter().any(|step| step.node_id == "trigger"));
+    let documents = FlowCatalogDocuments::new(owner.docs.clone());
+    let namespace = format!("flow:{flow_id}");
+    assert_eq!(
+        documents
+            .kv_get(&namespace, "dedup:dedup:committed")
+            .await
+            .unwrap(),
+        Some(json!(["resume-item"]))
+    );
 }
 
 #[tokio::test]
