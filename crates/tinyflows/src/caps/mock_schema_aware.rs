@@ -130,9 +130,8 @@ pub struct SchemaAwareMockLlm;
 /// invoker and schema-aware behavior on both agent execution paths.
 #[must_use]
 pub fn sandbox_capabilities(tools: Arc<dyn ToolInvoker>) -> Capabilities {
-    let mut capabilities = crate::caps::mock::mock_capabilities_with_agent(
-        SchemaAwareMockAgentRunner,
-    );
+    let mut capabilities =
+        crate::caps::mock::mock_capabilities_with_agent(SchemaAwareMockAgentRunner);
     capabilities.llm = Arc::new(SchemaAwareMockLlm);
     capabilities.tools = tools;
     capabilities

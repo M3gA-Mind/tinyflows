@@ -23,6 +23,9 @@ use run_artifact_poll::{poll_until_done, poll_until_kind};
 mod run_artifact_support;
 use run_artifact_support::*;
 
+#[path = "../run_artifact/sandbox.rs"]
+mod sandbox;
+
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {

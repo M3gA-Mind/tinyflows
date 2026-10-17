@@ -139,6 +139,27 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"callback":{"destination":"host.caps","object_path":"/run/1"}}),
     );
+    pin(
+        SandboxRun {
+            graph: serde_json::json!({"nodes":[],"edges":[]}),
+            input: serde_json::json!({}),
+            tool_invoker: CallbackAddress {
+                destination: "host.preflight".into(),
+                object_path: "/sandbox/1".into(),
+            },
+        },
+        serde_json::json!({
+            "graph":{"nodes":[],"edges":[]},
+            "input":{},
+            "tool_invoker":{"destination":"host.preflight","object_path":"/sandbox/1"}
+        }),
+    );
+    pin(
+        SandboxRunResponse {
+            result: serde_json::json!({"sandbox":true,"ok":true}),
+        },
+        serde_json::json!({"result":{"sandbox":true,"ok":true}}),
+    );
     assert_eq!(CONTRACT_VERSION, 3);
     assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun", "SandboxRun"]);
     assert_eq!(CAPS_CONTRACT_VERSION, 1);

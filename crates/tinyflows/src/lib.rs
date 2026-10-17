@@ -76,6 +76,9 @@ pub mod postcondition;
 /// them.
 #[cfg(any(test, feature = "mock"))]
 pub mod preflight;
+/// Shared deterministic graph execution for dry-run surfaces.
+#[cfg(feature = "mock")]
+pub mod sandbox;
 /// Stored workflows and their run history: the durable model around a graph,
 /// the `WorkflowStore` contract and patch-based authoring. Behind the `store`
 /// feature; storage is the ports' (`tinyflows-drivers`), not this crate's.
@@ -84,9 +87,6 @@ pub mod store;
 /// A one-line trigger description and a per-step config hint for a graph,
 /// surfaced on workflow proposal cards.
 pub mod summary;
-/// Shared deterministic graph execution for dry-run surfaces.
-#[cfg(feature = "mock")]
-pub mod sandbox;
 /// Testing, mocking, and live debugging for workflows: programmable capability
 /// doubles, a structured run trace, breakpoints, and an agent-facing tool
 /// surface over all of it. Behind the `testkit` feature.
