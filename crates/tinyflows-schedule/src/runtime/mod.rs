@@ -254,14 +254,18 @@ impl Scheduler {
         loop {
             tokio::select! {
                 _ = self.ports.clock.lease_wait(Duration::from_secs(30)) => {
-                    anyhow::ensure!(
-                        self.ports.store.renew_occurrence(
-                            &claim,
-                            self.ports.clock.now(),
-                            OCCURRENCE_LEASE,
-                        ).await?,
-                        "scheduler lost the occurrence lease"
-                    );
+                    match self.ports.store.renew_occurrence(
+                        &claim,
+                        self.ports.clock.now(),
+                        OCCURRENCE_LEASE,
+                    ).await {
+                        Ok(true) => {}
+                        // The renewal may race a terminal commit, whose job
+                        // fence disappears before its callback reply arrives.
+                        // Keep the in-flight operation alive; its own claim
+                        // checks still fence any later callbacks.
+                        Ok(false) | Err(_) => return work.as_mut().await,
+                    }
                 }
                 result = &mut work => return result,
             }
@@ -362,10 +366,13 @@ async fn run_claim_with_renewal(
                 }
             }
             _ = ports.clock.lease_wait(Duration::from_secs(30)) => {
-                anyhow::ensure!(
-                    ports.store.renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE).await?,
-                    "scheduler lost the occurrence lease"
-                );
+                match ports.store.renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE).await {
+                    Ok(true) => {}
+                    // A terminal commit may already have cleared the fence
+                    // while its response is still in flight. Await the work;
+                    // its callback boundaries remain guarded by claim checks.
+                    Ok(false) | Err(_) => return work.as_mut().await,
+                }
             }
             result = &mut work => {
                 if result.is_err() {

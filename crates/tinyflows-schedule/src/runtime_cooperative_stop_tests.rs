@@ -306,6 +306,53 @@ async fn scheduled_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome(
     assert_persisted_success(&fixture, &outcome);
 }
 
+#[tokio::test]
+async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks() {
+    let fixture = Arc::new(Fixture {
+        now: "2026-01-01T00:00:00Z".parse().unwrap(),
+        block_on_renewal: usize::MAX,
+        renewals: AtomicUsize::new(0),
+        renewal_entered: Notify::new(),
+        release_renewal: Notify::new(),
+        heartbeat_tick: Notify::new(),
+        renewal_failed: Notify::new(),
+        terminal_commit_entered: Notify::new(),
+        release_terminal_commit: Notify::new(),
+        persisted_completions: AtomicUsize::new(0),
+        pause_terminal_commit: false,
+        execution_entered: Notify::new(),
+        release_execution: Notify::new(),
+        pause_execution: true,
+        claim_lost: std::sync::atomic::AtomicBool::new(false),
+        executions: AtomicUsize::new(0),
+        failed_callbacks: AtomicUsize::new(0),
+        deliveries: AtomicUsize::new(0),
+        fail_execution: false,
+    });
+    let scheduler = Scheduler::new(
+        "lost-claim-inflight-execute",
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
+    let claim = fixture.claim();
+    let worker = tokio::spawn(async move {
+        scheduler
+            .run_manual_claim_cooperative(claim, ManualDelivery::Requested, watch::channel(false).1)
+            .await
+    });
+    fixture.execution_entered.notified().await;
+    fixture.claim_lost.store(true, Ordering::SeqCst);
+    fixture.heartbeat_tick.notify_one();
+    fixture.renewal_failed.notified().await;
+    fixture.release_execution.notify_one();
+
+    assert!(worker.await.unwrap().is_err());
+    assert_eq!(fixture.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.failed_callbacks.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.deliveries.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.persisted_completions.load(Ordering::SeqCst), 0);
+}
+
 async fn stop_during_renewal(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
     let fixture = fixture(block_on_renewal, fail_execution);
     let scheduler = Scheduler::new(
