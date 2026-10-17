@@ -108,6 +108,37 @@ fn a_credential_is_injected_after_the_summary_is_taken() {
 }
 
 #[test]
+fn credential_preparation_rejects_non_object_request_and_headers() {
+    // Keep this adapter compilable against the old infallible API. The
+    // assertions below describe the desired result and therefore fail on the
+    // baseline because malformed input is silently returned unchanged.
+    fn prepare(request: serde_json::Value, cred: &HttpCredential) -> Result<serde_json::Value> {
+        Ok(inject_credential(request, cred))
+    }
+    let cred = HttpCredential {
+        header: "Authorization".into(),
+        value: "Bearer secret-must-not-be-reported".into(),
+    };
+
+    for request in [json!(null), json!({"headers": "not-an-object"})] {
+        let error = prepare(request, &cred).expect_err("malformed request must fail closed");
+        let message = error.to_string();
+        assert!(!message.contains(&cred.value));
+    }
+}
+
+#[test]
+fn credential_header_values_support_scheme_templates_and_override_inline_values() {
+    let mut request = json!({"headers":{"authorization":"inline"}});
+    let cred = HttpCredential {
+        header: "Authorization".into(),
+        value: "Bearer {token}".into(),
+    };
+    request = inject_credential(request, &cred);
+    assert_eq!(request["headers"]["Authorization"], "Bearer {token}");
+}
+
+#[test]
 fn private_address_detection_covers_the_cloud_metadata_endpoint() {
     // The one an SSRF is usually aiming for, and the reason link-local is
     // refused rather than only loopback.
