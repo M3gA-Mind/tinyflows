@@ -96,3 +96,7 @@ pub(crate) mod fakes;
 #[cfg(test)]
 #[path = "tools_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "dry_run_port_tests.rs"]
+mod dry_run_port_tests;

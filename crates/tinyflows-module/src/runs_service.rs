@@ -84,12 +84,8 @@ async fn sandbox_run(connection: &Connection, request: SandboxRun) -> Result<San
         &capabilities,
         Duration::from_secs(30),
     );
-    let result = tinyflows::sandbox::report(
-        execution.await,
-        30,
-        request.permissions_manifest,
-    )
-    .map_err(Error::failed)?;
+    let result = tinyflows::sandbox::report(execution.await, 30, request.permissions_manifest)
+        .map_err(Error::failed)?;
     Ok(SandboxRunResponse { result })
 }
 

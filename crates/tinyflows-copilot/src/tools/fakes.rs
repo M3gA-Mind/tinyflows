@@ -359,7 +359,6 @@ impl BuilderGates for MemHost {
             "persisted": false,
         }))
     }
-
 }
 
 #[async_trait]

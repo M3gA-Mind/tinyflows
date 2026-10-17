@@ -92,7 +92,10 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
             .unwrap();
         assert_eq!(response.result["sandbox"], true);
         assert_eq!(response.result["ok"], true, "{response:?}");
-        assert_eq!(response.result["permissions_manifest"][0]["node_id"], "approval");
+        assert_eq!(
+            response.result["permissions_manifest"][0]["node_id"],
+            "approval"
+        );
         assert_eq!(
             response.result["output"]["nodes"]["agent"]["items"][0]["json"]["json"]["subject"], "",
             "{response:?}"

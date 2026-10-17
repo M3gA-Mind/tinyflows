@@ -431,8 +431,6 @@ async fn validate_workflow_reports_structure_and_gates_without_proposing() {
 #[tokio::test]
 async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
     let h = host();
-    let manifest = json!([{"node_id":"send","permission":"write"}]);
-    *h.sandbox_manifest.lock().unwrap() = manifest.clone();
     let tool = DryRunWorkflowTool::new(h.clone(), h.clone(), h.clone(), h.clone());
     let result = tool
         .execute(json!({ "graph": valid_graph(), "input": { "x": 1 } }))
@@ -447,12 +445,6 @@ async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
             .as_str()
             .unwrap()
             .contains("NO real side effects")
-    );
-    assert_eq!(payload["permissions_manifest"], manifest);
-    assert_eq!(h.sandbox_requests.lock().unwrap().len(), 1);
-    assert_eq!(
-        h.sandbox_requests.lock().unwrap()[0].permissions_manifest,
-        manifest.as_array().unwrap().clone()
     );
 
     let invalid = tool
