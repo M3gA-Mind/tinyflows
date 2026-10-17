@@ -55,6 +55,10 @@ impl ClaimedOccurrence {
     pub fn occurrence(&self) -> DateTime<Utc> {
         self.lease.occurrence
     }
+    /// Start instant captured with this lease.
+    pub fn started_at(&self) -> DateTime<Utc> {
+        self.lease.started_at
+    }
     /// The initial expiry. Renewal extends the stored lease; this snapshot
     /// remains the original acquisition receipt.
     pub fn expires_at(&self) -> DateTime<Utc> {

@@ -238,7 +238,9 @@ fn occurrence_claim(claim: ClaimedOccurrence) -> Result<OccurrenceClaim> {
         receipt: serde_json::to_string(&claim)?,
         job: claim.job().clone(),
         occurrence: claim.occurrence(),
+        started_at: claim.started_at(),
         owner: claim.owner().to_owned(),
+        run_id: None,
     })
 }
 
@@ -247,7 +249,8 @@ fn decode_claim(claim: &OccurrenceClaim) -> Result<ClaimedOccurrence> {
     anyhow::ensure!(
         decoded.job().id == claim.job.id
             && decoded.owner() == claim.owner
-            && decoded.occurrence() == claim.occurrence,
+            && decoded.occurrence() == claim.occurrence
+            && decoded.started_at() == claim.started_at,
         "occurrence receipt does not match its captured metadata"
     );
     Ok(decoded)

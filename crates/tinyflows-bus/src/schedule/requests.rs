@@ -17,6 +17,8 @@ pub struct RunJobNow {
     pub callback: super::CallbackAddress,
     /// Retry and timing configuration.
     pub config: serde_json::Value,
+    /// Scoped module-owned document store; leased cron paths require transactions.
+    pub storage: super::StoreConfig,
     /// Saved snapshot to execute, even when disabled or scheduled in the future.
     pub job: CronJob,
     /// Stable identity chosen by the module or caller for this accepted run.
@@ -77,8 +79,13 @@ pub struct OccurrenceClaim {
     pub job: CronJob,
     /// Scheduled occurrence instant captured at acquisition.
     pub occurrence: DateTime<Utc>,
+    /// Start instant captured with the lease.
+    pub started_at: DateTime<Utc>,
     /// Owner chosen by the module for renewal and fencing.
     pub owner: String,
+    /// Caller-chosen manual identity; automatic runs leave it absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
 }
 
 /// Host's product-side terminal projection after send and final success are known.
