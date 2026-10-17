@@ -1,4 +1,5 @@
 use super::*;
+use std::future::Future;
 
 struct ControlledLeaseClock {
     now: DateTime<Utc>,
@@ -312,8 +313,19 @@ async fn shutdown_waits_for_inflight_job_and_releases_queued_claims() {
 
         let (shutdown_started, shutdown_ready) = tokio::sync::oneshot::channel();
         let shutdown = tokio::spawn(async move {
-            let _ = shutdown_started.send(());
-            scheduler.shutdown().await;
+            let mut scheduler = scheduler;
+            {
+                let mut shutdown_future = Box::pin(scheduler.shutdown());
+                let mut started = Some(shutdown_started);
+                std::future::poll_fn(|context| {
+                    let result = shutdown_future.as_mut().poll(context);
+                    if let Some(started) = started.take() {
+                        let _ = started.send(());
+                    }
+                    result
+                })
+                .await;
+            }
             scheduler
         });
         shutdown_ready.await.unwrap();
