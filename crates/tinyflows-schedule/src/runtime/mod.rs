@@ -415,3 +415,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../runtime_cooperative_stop_tests.rs"]
 mod cooperative_stop_tests;
+
+#[cfg(test)]
+#[path = "../runtime_heartbeat_cleanup_tests.rs"]
+mod heartbeat_cleanup_tests;
