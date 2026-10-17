@@ -261,7 +261,7 @@ pub async fn resume_with_checkpointer(
             approved: newly_approved,
             rejected: Vec::new(),
         },
-        None,
+        Some(token),
         &observer,
         None,
     )
