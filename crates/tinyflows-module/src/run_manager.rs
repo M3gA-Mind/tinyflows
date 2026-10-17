@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use tinybus::Connection;
 use tinyflows::engine::CancellationToken;
 use tinyflows_bus::runs::{
-    CancelRunResponse, PollRun, RunControlRequest, StartRun, StartRunResponse,
+    CancelRunResponse, PollRun, RunControlRequest, RunEvent, StartRun, StartRunResponse,
 };
 use tokio::sync::Notify;
 
@@ -145,18 +145,24 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         return Err(error).context("reserving flow run row");
     }
     if let Err(error) = prepared.persist_snapshot(&request).await {
-        let _ = prepared
+        match prepared
             .catalog
-            .finish_flow_run(
-                &request.run_id,
-                "failed",
-                &chrono::Utc::now().to_rfc3339(),
-                &[],
-                &[],
-                Some(&format!("could not persist run snapshot: {error}")),
-                None,
-            )
-            .await;
+            .remove_unstarted_flow_run(&request.run_id)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) | Err(_) => {
+                if let Err(settle_error) = finish_admission_failure(
+                    &prepared.catalog,
+                    &request.run_id,
+                    &error.to_string(),
+                )
+                .await
+                {
+                    tracing::error!(%settle_error, run_id = %request.run_id, "settling failed run admission");
+                }
+            }
+        }
         unregister(&active);
         active.admitted.notify_waiters();
         return Err(error).context("pinning flow run execution snapshot");
@@ -173,6 +179,52 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         run_id: active.key.run_id.clone(),
         already_running: false,
     })
+}
+
+async fn finish_admission_failure(
+    catalog: &tinyflows_drivers::catalog::FlowCatalogDocuments,
+    run_id: &str,
+    message: &str,
+) -> anyhow::Result<()> {
+    let Some(run) = catalog.get_flow_run(run_id).await? else {
+        return Ok(());
+    };
+    if !catalog
+        .finish_flow_run(
+            run_id,
+            "failed",
+            &chrono::Utc::now().to_rfc3339(),
+            &run.steps,
+            &[],
+            Some(message),
+            None,
+        )
+        .await?
+    {
+        return Ok(());
+    }
+    let seq = catalog
+        .flow_run_event_last_seq(run_id)
+        .await?
+        .saturating_add(1);
+    catalog
+        .append_flow_run_event(
+            run_id,
+            serde_json::to_value(RunEvent {
+                seq,
+                kind: "finished".into(),
+                data: serde_json::json!({"status":"failed","error":message}),
+                graph_run_id: None,
+            })?,
+        )
+        .await?;
+    if !catalog
+        .mark_flow_run_terminal_event(run_id, seq)
+        .await?
+    {
+        anyhow::bail!("failed admission terminal cursor was not committed")
+    }
+    Ok(())
 }
 
 async fn wait_for_admission(
