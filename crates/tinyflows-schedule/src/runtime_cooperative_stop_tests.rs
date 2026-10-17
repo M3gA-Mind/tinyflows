@@ -12,31 +12,31 @@ use tinyflows_bus::schedule::{
 };
 use tokio::sync::Notify;
 
-struct Fixture {
-    now: DateTime<Utc>,
-    block_on_renewal: usize,
-    renewals: AtomicUsize,
-    renewal_entered: Notify,
-    release_renewal: Notify,
-    heartbeat_tick: Notify,
-    renewal_failed: Notify,
-    terminal_commit_entered: Notify,
-    release_terminal_commit: Notify,
-    persisted_completions: AtomicUsize,
-    pause_terminal_commit: bool,
-    heartbeat_renew_error: bool,
-    execution_entered: Notify,
-    release_execution: Notify,
-    pause_execution: std::sync::atomic::AtomicBool,
-    execution_in_flight: std::sync::atomic::AtomicBool,
-    released_during_execution: std::sync::atomic::AtomicBool,
-    claim_lost: std::sync::atomic::AtomicBool,
-    fail_next_renewal: std::sync::atomic::AtomicBool,
-    released_claims: AtomicUsize,
-    executions: AtomicUsize,
-    failed_callbacks: AtomicUsize,
-    deliveries: AtomicUsize,
-    fail_execution: bool,
+pub(super) struct Fixture {
+    pub(super) now: DateTime<Utc>,
+    pub(super) block_on_renewal: usize,
+    pub(super) renewals: AtomicUsize,
+    pub(super) renewal_entered: Notify,
+    pub(super) release_renewal: Notify,
+    pub(super) heartbeat_tick: Notify,
+    pub(super) renewal_failed: Notify,
+    pub(super) terminal_commit_entered: Notify,
+    pub(super) release_terminal_commit: Notify,
+    pub(super) persisted_completions: AtomicUsize,
+    pub(super) pause_terminal_commit: bool,
+    pub(super) heartbeat_renew_error: bool,
+    pub(super) execution_entered: Notify,
+    pub(super) release_execution: Notify,
+    pub(super) pause_execution: std::sync::atomic::AtomicBool,
+    pub(super) execution_in_flight: std::sync::atomic::AtomicBool,
+    pub(super) released_during_execution: std::sync::atomic::AtomicBool,
+    pub(super) claim_lost: std::sync::atomic::AtomicBool,
+    pub(super) fail_next_renewal: std::sync::atomic::AtomicBool,
+    pub(super) released_claims: AtomicUsize,
+    pub(super) executions: AtomicUsize,
+    pub(super) failed_callbacks: AtomicUsize,
+    pub(super) deliveries: AtomicUsize,
+    pub(super) fail_execution: bool,
 }
 
 impl Fixture {
@@ -69,7 +69,7 @@ impl Fixture {
         }
     }
 
-    fn claim(&self) -> OccurrenceClaim {
+    pub(super) fn claim(&self) -> OccurrenceClaim {
         let job = self.job();
         OccurrenceClaim {
             receipt: "cooperative-stop-claim".into(),
@@ -81,7 +81,7 @@ impl Fixture {
         }
     }
 
-    fn ports(self: &Arc<Self>) -> RuntimePorts {
+    pub(super) fn ports(self: &Arc<Self>) -> RuntimePorts {
         RuntimePorts {
             store: self.clone(),
             executor: self.clone(),
