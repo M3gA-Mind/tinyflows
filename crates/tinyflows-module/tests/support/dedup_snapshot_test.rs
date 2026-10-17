@@ -35,7 +35,10 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
     assert!(!admitted.already_running);
     wait_notify(&agent.started, "dedup test agent start").await;
     let steps = poll_until_kind(&runs_proxy, &owner.storage, "dedup-run", "step").await;
-    assert_eq!(steps[0].data["node_id"], "original-dedup");
+    assert_eq!(
+        steps[0].data["node_id"], "original-dedup",
+        "step events: {steps:?}"
+    );
 
     let catalog_docs = tinyflows_drivers::catalog::FlowCatalogDocuments::new(owner.docs.clone());
     let state_namespace = format!("flow:{flow_id}");

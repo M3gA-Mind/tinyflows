@@ -132,6 +132,13 @@ pub(super) async fn drive(
     }
 
     if pending {
+        writer.emit(
+            "parked",
+            json!({"pending_approvals":pending_approvals,"graph_hash":graph_hash}),
+        );
+        if let Some(error) = writer.flush().await {
+            tracing::error!(%error, run_id = %request.run_id, "parked run events did not drain cleanly");
+        }
         active
             .phase
             .store(PARKED, std::sync::atomic::Ordering::Release);
