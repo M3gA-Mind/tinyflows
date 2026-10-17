@@ -362,13 +362,14 @@ async fn competing_claims_with_overlapping_snapshots_have_one_winner() {
     let backend = MemoryStorage::new();
     let setup = CronDocuments::new(docs_in(&backend, "claim-overlap"));
     let job = setup.add_shell_job(None, daily(), "echo").await.unwrap();
-    let gate = Arc::new(tokio::sync::Barrier::new(2));
+    // The occurrence's lease is one atomic acquire, so only the winner reaches
+    // the job write; the loser never does, and no gate can hold both.
     let handle = || {
         CronDocuments::new(Arc::new(FaultDocuments {
             inner: docs_in(&backend, "claim-overlap"),
             transactions: true,
             fail_batch: AtomicBool::new(false),
-            batch_barrier: std::sync::Mutex::new(Some(gate.clone())),
+            batch_barrier: Default::default(),
             faults: Default::default(),
         }))
     };
