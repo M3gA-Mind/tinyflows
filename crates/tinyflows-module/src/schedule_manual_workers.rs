@@ -81,7 +81,7 @@ impl ManualWorkerEntry {
 
     pub(super) fn request_stop(&self) -> ManualRunState {
         let mut control = self.control.lock().expect("manual worker control poisoned");
-        match &control.state {
+        match control.state.clone() {
             ManualRunState::Prepared => {
                 control.stop_requested = true;
                 control.state = ManualRunState::Terminal {
@@ -97,7 +97,7 @@ impl ManualWorkerEntry {
             ManualRunState::Running { run_id } => {
                 control.stop_requested = true;
                 control.state = ManualRunState::Stopping {
-                    run_id: Some(run_id.clone()),
+                    run_id: Some(run_id),
                 };
                 let _ = self.stop.send(true);
             }
