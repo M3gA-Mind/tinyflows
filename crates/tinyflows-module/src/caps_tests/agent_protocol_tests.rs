@@ -132,11 +132,11 @@ async fn oversized_authoritative_terminal_transcript_fails_as_a_capability_error
     support::serve_caps_with_terminal_transcript_len(
         &host,
         "alice",
-        "/caps/large-transcript",
+        "/caps/large_transcript",
         runs::MAX_AGENT_TRANSCRIPT_EVENTS + 1,
     )
     .await;
-    let port = ports(module, "/caps/large-transcript");
+    let port = ports(module, "/caps/large_transcript");
     let error = AgentRunner::run(&port, request()).await.unwrap_err();
     assert!(matches!(error, EngineError::Capability(_)));
 }
