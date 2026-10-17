@@ -140,7 +140,7 @@ impl FakeHost {
         if request.cursor == 0 {
             Ok(AgentEventsResponse {
                 events: vec![AgentProgressEvent {
-                        seq: self.first_event_seq,
+                    seq: self.first_event_seq,
                     at_ms: 10,
                     kind: "tool_call".into(),
                     text: "read".into(),

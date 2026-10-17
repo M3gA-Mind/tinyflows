@@ -4,12 +4,14 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use tinyflows::{
     caps::{
-        AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunRequest, AgentRunner,
-        ApprovalProvider, ApprovalRequest, ApprovalSubject, CodeLanguage, CodeRunner, HttpClient,
-        LlmProvider, MemoryProvider, ShellInterpreter, ShellRequest, ShellRunner, ShellScript,
-        ToolInvoker, WorkdirCheck,
+        AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunOutcome, AgentRunRequest,
+        AgentRunner, AgentUsage, ApprovalProvider, ApprovalRequest, ApprovalSubject, CodeLanguage,
+        CodeRunner, ContextBlock, HttpClient, LlmProvider, MemoryProvider, ShellInterpreter,
+        ShellRequest, ShellRunner, ShellScript, StopReason, ToolDescriptor, ToolInvoker,
+        WorkdirCheck,
     },
-    model::AgentDefinition,
+    model::{AgentDefinition, AgentLimits, ContextSource, ContextSourceKind, ToolGrant},
+    transcript::TranscriptEntry,
 };
 use tinyflows_bus::runs;
 
@@ -21,6 +23,83 @@ fn ports(connection: Connection, path: &str) -> CapsHostPorts {
             object_path: path.into(),
         },
     }
+}
+
+#[test]
+fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
+    let engine_request = AgentRunRequest {
+        agent: AgentDefinition {
+            id: "researcher".into(),
+            limits: AgentLimits {
+                max_steps: Some(4),
+                max_tool_calls: Some(8),
+                agent_timeout_secs: Some(30),
+                tool_timeout_secs: Some(5),
+            },
+            tools: vec![ToolGrant {
+                slug: "gh.*".into(),
+                connection_ref: Some("github".into()),
+            }],
+            context: vec![ContextSource::new(ContextSourceKind::Memory {
+                scope: "flow".into(),
+                query: "project".into(),
+                limit: Some(3),
+            })],
+            ..AgentDefinition::default()
+        },
+        model: AgentModelSelection {
+            model: Some("model".into()),
+            provider: None,
+        },
+        input: AgentInput {
+            text: "summarize".into(),
+            data: vec![json!({"id":1})],
+        },
+        context: vec![ContextBlock::text("notes", "host", "keep this")],
+        tools: vec![ToolDescriptor {
+            slug: "gh.read".into(),
+            name: Some("Read".into()),
+            description: None,
+            input_schema: Some(json!({"type":"object"})),
+            connection_ref: Some("github".into()),
+        }],
+        connection_ref: Some("github".into()),
+        working_dir: Some("/workspace".into()),
+        identity: AgentRunIdentity {
+            run_id: Some("run-1".into()),
+            workflow_id: Some("flow-1".into()),
+            node_id: "agent-1".into(),
+            depth: 2,
+            item_index: Some(1),
+        },
+        metadata: Default::default(),
+        output_schema: Some(json!({"type":"object"})),
+        config: json!({"prompt":"summarize"}),
+    };
+    let engine_json = serde_json::to_value(&engine_request).unwrap();
+    let wire_request: runs::AgentRunRequest = convert(engine_request).unwrap();
+    assert_eq!(serde_json::to_value(wire_request).unwrap(), engine_json);
+
+    let engine_outcome = AgentRunOutcome {
+        stop: StopReason::Paused {
+            token: Some("resume-1".into()),
+            reason: "approval".into(),
+            payload: json!({"node":"approve"}),
+        },
+        text: Some("partial".into()),
+        json: json!({"partial":true}),
+        raw: json!({"native":"payload"}),
+        usage: Some(AgentUsage {
+            input_tokens: Some(3),
+            output_tokens: Some(5),
+            steps: Some(2),
+            tool_calls: Some(1),
+        }),
+        transcript: vec![TranscriptEntry::bounded(12, "tool_call", "gh.read")],
+    };
+    let engine_json = serde_json::to_value(&engine_outcome).unwrap();
+    let wire_outcome: runs::AgentRunOutcome = convert(engine_outcome).unwrap();
+    assert_eq!(serde_json::to_value(wire_outcome).unwrap(), engine_json);
 }
 
 #[tokio::test]
@@ -293,11 +372,15 @@ async fn missing_callback_service_fails_each_result_capability_as_an_error() {
         config: json!({}),
     };
     let failures = [
-        LlmProvider::complete(&port, json!({}), None).await.unwrap_err(),
+        LlmProvider::complete(&port, json!({}), None)
+            .await
+            .unwrap_err(),
         ToolInvoker::invoke(&port, "tool", json!({}), None)
             .await
             .unwrap_err(),
-        HttpClient::request(&port, json!({}), None).await.unwrap_err(),
+        HttpClient::request(&port, json!({}), None)
+            .await
+            .unwrap_err(),
         CodeRunner::run(&port, CodeLanguage::Python, "return input", json!({}))
             .await
             .unwrap_err(),
@@ -334,13 +417,17 @@ async fn missing_callback_service_fails_each_result_capability_as_an_error() {
             .await
             .unwrap_err(),
     ];
-    assert!(failures.iter().all(|error| matches!(error, EngineError::Capability(_))));
+    assert!(
+        failures
+            .iter()
+            .all(|error| matches!(error, EngineError::Capability(_)))
+    );
     assert!(matches!(
         AgentRunner::resolve_workdir(&port, "/workspace", "repo").await,
         WorkdirCheck::Refused(_)
     ));
-    assert!(port
-        .call_one::<_, runs::AgentEventsResponse>(
+    assert!(
+        port.call_one::<_, runs::AgentEventsResponse>(
             runs::caps::AGENT_EVENTS,
             &runs::AgentEventsRequest {
                 handle: "h".into(),
@@ -348,5 +435,31 @@ async fn missing_callback_service_fails_each_result_capability_as_an_error() {
             },
         )
         .await
-        .is_err());
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn agent_event_gap_is_rejected_and_terminal_empty_page_is_valid() {
+    let (module, host) = support::memory_bus().await;
+    support::serve_caps_with_first_event_seq(&host, "alice", "/caps/gap", 2).await;
+    let port = ports(module, "/caps/gap");
+    let request = AgentRunRequest {
+        agent: AgentDefinition::new("agent"),
+        model: AgentModelSelection::default(),
+        input: AgentInput::default(),
+        context: vec![],
+        tools: vec![],
+        connection_ref: None,
+        working_dir: None,
+        identity: AgentRunIdentity {
+            node_id: "agent".into(),
+            ..AgentRunIdentity::default()
+        },
+        metadata: Default::default(),
+        output_schema: None,
+        config: json!({}),
+    };
+    let error = AgentRunner::run(&port, request).await.unwrap_err();
+    assert!(matches!(error, EngineError::Capability(_)));
 }

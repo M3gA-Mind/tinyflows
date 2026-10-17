@@ -172,7 +172,11 @@ async fn module_builder_uses_scoped_flow_documents_for_state_and_catalog_resolut
     let resolved = alice.resolver.resolve(&child.id).await.unwrap();
     assert_eq!(resolved, child.graph);
     let compatibility = alice.resolver.resolve(&legacy_unsafe.id).await.unwrap_err();
-    assert!(compatibility.to_string().contains("unsupported_nested_conditional_fan_in"));
+    assert!(
+        compatibility
+            .to_string()
+            .contains("unsupported_nested_conditional_fan_in")
+    );
     assert!(bob_catalog.get_flow(&child.id).await.unwrap().is_none());
     assert!(bob.resolver.resolve(&child.id).await.is_err());
 }

@@ -97,7 +97,9 @@ flow id separately from the graph and trigger. Spawn tasks execute inside the
 module: tool and HTTP tasks call the same run capability bundle, and child
 workflow tasks retain the module task runner through a weak reference to avoid
 a runner/capabilities ownership cycle. Task start, poll, and cancel never
-bounce through the host.
+bounce through the host. Saved child graphs and inline workflow-task graphs pass
+the engine compatibility guard before compilation; run-time resolution fails
+closed when a legacy saved graph has a topology the current executor cannot run.
 
 Only `AgentRunner` streams progress. `AgentRun` returns an opaque handle, then
 `AgentEvents(handle, cursor)` reads typed events and a typed terminal outcome.
