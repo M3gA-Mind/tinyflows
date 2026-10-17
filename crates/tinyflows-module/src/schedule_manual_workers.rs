@@ -272,15 +272,10 @@ async fn run_manual_worker_body(
         request.run_id
     };
     let owner = uuid::Uuid::new_v4().to_string();
-    let claim_started_at = ports.clock.now();
-    let claim_expires_at = claim_started_at
-        .checked_add_signed(chrono::Duration::hours(2))
-        .ok_or_else(|| anyhow::anyhow!("manual claim expiry overflow"))?;
     *claim_slot.lock().await = Some(HeldClaim::Claiming {
         job: request.job.clone(),
         owner: owner.clone(),
         run_id: Some(run_id.clone()),
-        expires_at: claim_expires_at,
         store: ports.store.clone(),
         clock: ports.clock.clone(),
     });
@@ -289,7 +284,7 @@ async fn run_manual_worker_body(
         .claim_manual_occurrence(
             &request.job,
             &owner,
-            claim_started_at,
+            ports.clock.now(),
             chrono::Duration::hours(2),
         )
         .await?
@@ -362,7 +357,6 @@ async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
                 job,
                 owner,
                 run_id,
-                expires_at,
                 store,
                 clock,
             } => match store
@@ -377,21 +371,8 @@ async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
                         clock,
                     };
                 }
-                Ok(None) if clock.now() >= expires_at => return,
                 Ok(None) => {
-                    entry.set_state(ManualRunState::CleanupPending {
-                        run_id: run_id.clone(),
-                    });
-                    clock.sleep(delay).await;
-                    delay = delay.saturating_mul(2).min(Duration::from_secs(30));
-                    held = HeldClaim::Claiming {
-                        job,
-                        owner,
-                        run_id,
-                        expires_at,
-                        store,
-                        clock,
-                    };
+                    return;
                 }
                 Err(error) => {
                     entry.set_state(ManualRunState::CleanupPending {
@@ -404,7 +385,6 @@ async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
                         job,
                         owner,
                         run_id,
-                        expires_at,
                         store,
                         clock,
                     };
@@ -439,7 +419,6 @@ enum HeldClaim {
         job: tinyflows_bus::schedule::CronJob,
         owner: String,
         run_id: Option<String>,
-        expires_at: chrono::DateTime<chrono::Utc>,
         store: std::sync::Arc<dyn JobStore>,
         clock: std::sync::Arc<dyn Clock>,
     },

@@ -154,10 +154,11 @@ impl CronDocuments {
             .await
     }
 
-    /// Reconcile an ambiguous manual-claim response by reading the live lease
-    /// for the unique owner chosen by the caller. This method is read-only and
-    /// reconstructs the receipt needed to release or renew that claim.
-    pub async fn find_owned_manual_claim(
+    /// Reconcile an ambiguous manual-claim response. It returns a live lease
+    /// for `owner`; otherwise a same-document CAS increments the claim
+    /// generation, fencing any delayed claim transaction with the captured
+    /// job snapshot before returning `None`.
+    pub async fn reconcile_manual_claim_admission(
         &self,
         expected: &CronJob,
         owner: &str,
@@ -166,22 +167,39 @@ impl CronDocuments {
         if owner.trim().is_empty() {
             bail!("cron store: lease owner must not be empty");
         }
-        let Some(stored) = self
-            .docs
-            .get(JOBS, &expected.id)
-            .await
-            .map_err(storage_error)?
-        else {
-            return Ok(None);
-        };
-        let job = doc_to_job(&stored)?;
-        let Some(lease) = lease(&stored.doc)? else {
-            return Ok(None);
-        };
-        if lease.owner != owner || lease.expires_at <= now {
-            return Ok(None);
+        for _ in 0..CAS_ATTEMPTS {
+            let Some(stored) = self
+                .docs
+                .get(JOBS, &expected.id)
+                .await
+                .map_err(storage_error)?
+            else {
+                return Ok(None);
+            };
+            let job = doc_to_job(&stored)?;
+            if let Some(lease) = lease(&stored.doc)?
+                && lease.owner == owner
+                && lease.expires_at > now
+            {
+                return Ok(Some(ClaimedOccurrence { job, lease }));
+            }
+
+            let generation = job
+                .claim_generation
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("cron store: claim generation exhausted"))?;
+            let mut doc = stored.doc.clone();
+            doc["claim_generation"] = generation.into();
+            match self
+                .commit_job(&job.id, Some(&stored), Some(doc), vec![])
+                .await
+            {
+                Ok(_) => return Ok(None),
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => return Err(error),
+            }
         }
-        Ok(Some(ClaimedOccurrence { job, lease }))
+        bail!("cron store: manual admission reconciliation kept changing")
     }
 
     async fn claim_occurrence(

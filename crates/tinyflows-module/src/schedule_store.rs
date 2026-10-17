@@ -155,7 +155,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         now: DateTime<Utc>,
     ) -> Result<Option<OccurrenceClaim>> {
         self.0
-            .find_owned_manual_claim(job, owner, now)
+            .reconcile_manual_claim_admission(job, owner, now)
             .await?
             .map(occurrence_claim)
             .transpose()
