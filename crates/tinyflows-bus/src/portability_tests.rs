@@ -95,7 +95,10 @@ fn trigger_details_wire_preserves_typed_schedule_variants_and_absence() {
         let wire = serde_json::to_value(&details).unwrap();
         assert_eq!(wire["kind"], "schedule");
         assert_eq!(wire["schedule"], expected_schedule);
-        assert_eq!(serde_json::from_value::<TriggerDetails>(wire).unwrap(), details);
+        assert_eq!(
+            serde_json::from_value::<TriggerDetails>(wire).unwrap(),
+            details
+        );
     }
 
     let absent = TriggerDetails {
@@ -104,5 +107,8 @@ fn trigger_details_wire_preserves_typed_schedule_variants_and_absence() {
     };
     let wire = serde_json::to_value(&absent).unwrap();
     assert_eq!(wire, json!({"kind":null,"schedule":null}));
-    assert_eq!(serde_json::from_value::<TriggerDetails>(wire).unwrap(), absent);
+    assert_eq!(
+        serde_json::from_value::<TriggerDetails>(wire).unwrap(),
+        absent
+    );
 }

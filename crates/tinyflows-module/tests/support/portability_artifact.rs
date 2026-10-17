@@ -48,8 +48,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         ("every", json!({"kind":"every","every_ms":60000})),
     ] {
         let expected_schedule = serde_json::to_value(
-            serde_json::from_value::<tinyflows_bus::schedule::Schedule>(schedule.clone())
-                .unwrap(),
+            serde_json::from_value::<tinyflows_bus::schedule::Schedule>(schedule.clone()).unwrap(),
         )
         .unwrap();
         let graph = json!({"name":"schedule","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
@@ -88,21 +87,43 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
             .call("DescribeTrigger", (portability::DescribeTrigger { graph },))
             .await
             .expect("missing or ambiguous trigger metadata should be a safe absence");
-        assert_eq!(details, portability::TriggerDetails { kind: None, schedule: None });
+        assert_eq!(
+            details,
+            portability::TriggerDetails {
+                kind: None,
+                schedule: None
+            }
+        );
     }
 
     let missing_schedule = json!({"nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{"trigger_kind":"schedule"}}],"edges":[]});
-    assert!(proxy
-        .call::<portability::TriggerDetails>("DescribeTrigger", (portability::DescribeTrigger { graph: missing_schedule },))
-        .await
-        .is_err(), "missing schedule metadata must be a module error");
+    assert!(
+        proxy
+            .call::<portability::TriggerDetails>(
+                "DescribeTrigger",
+                (portability::DescribeTrigger {
+                    graph: missing_schedule
+                },)
+            )
+            .await
+            .is_err(),
+        "missing schedule metadata must be a module error"
+    );
     let malformed_schedule = json!({"nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
         "trigger_kind":"schedule","schedule":{"kind":"every","every_ms":"soon"}
     }}],"edges":[]});
-    assert!(proxy
-        .call::<portability::TriggerDetails>("DescribeTrigger", (portability::DescribeTrigger { graph: malformed_schedule },))
-        .await
-        .is_err(), "malformed schedule metadata must be a module error");
+    assert!(
+        proxy
+            .call::<portability::TriggerDetails>(
+                "DescribeTrigger",
+                (portability::DescribeTrigger {
+                    graph: malformed_schedule
+                },)
+            )
+            .await
+            .is_err(),
+        "malformed schedule metadata must be a module error"
+    );
 
     let graph = json!({"name":"event","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
         "trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED",
