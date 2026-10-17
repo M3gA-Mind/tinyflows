@@ -228,6 +228,16 @@ async fn refuse_stale_graph(
     {
         unregister(&active);
     }
+    super::sweeps::settle_snapshot_dedup(catalog, snapshot.as_ref(), run_id).await;
+    match Documents::new(connection.clone(), request.storage.callback.clone()).await {
+        Ok(documents) => {
+            let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
+            if let Err(error) = checkpointer.delete_thread(run_id).await {
+                tracing::warn!(%error, run_id, "stale-graph refusal checkpoint cleanup failed");
+            }
+        }
+        Err(error) => tracing::warn!(%error, run_id, "opening stale-run checkpoint scope failed"),
+    }
     let seq = catalog
         .flow_run_event_last_seq(run_id)
         .await?
@@ -245,13 +255,6 @@ async fn refuse_stale_graph(
         .await?;
     if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
         bail!("stale-graph refusal terminal event cursor was not committed")
-    }
-    super::sweeps::settle_snapshot_dedup(catalog, snapshot.as_ref(), run_id).await;
-    let documents: Arc<dyn DocumentStore> =
-        Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
-    let checkpointer = DriverCheckpointer::<Value>::new(documents);
-    if let Err(error) = checkpointer.delete_thread(run_id).await {
-        tracing::warn!(%error, run_id, "stale-graph refusal checkpoint cleanup failed");
     }
     Ok(())
 }
