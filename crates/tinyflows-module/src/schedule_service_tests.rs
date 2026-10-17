@@ -124,6 +124,32 @@ async fn manual_execution_routes_flow_directly_and_preserves_run_identity() {
 }
 
 #[tokio::test]
+async fn run_job_now_is_a_typed_module_owned_admission_operation() {
+    let (_server, host, _) = connections().await;
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    let result = proxy
+        .call::<Value>(
+            "RunJobNow",
+            &(json!({
+                "scope": "manual-admission-scope",
+                "callback": callback(),
+                "config": {},
+                "job": job("shell"),
+                "run_id": "manual-run",
+                "delivery": "requested"
+            }),),
+        )
+        .await;
+    assert!(result.is_ok(), "RunJobNow must be served by the module: {result:?}");
+}
+
+#[tokio::test]
 async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
     let (_server, host, _) = connections().await;
     let proxy = host
