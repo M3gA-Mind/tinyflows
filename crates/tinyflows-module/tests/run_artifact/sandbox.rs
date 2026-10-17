@@ -162,7 +162,9 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
-struct ToolHost;
+struct ToolHost {
+    sandbox: BusSandboxRunner,
+}
 
 #[async_trait::async_trait]
 impl DraftStore for ToolHost {
@@ -302,6 +304,13 @@ impl SandboxRunner for BusSandboxRunner {
     }
 }
 
+#[async_trait::async_trait]
+impl SandboxRunner for ToolHost {
+    async fn run(&self, request: SandboxRunRequest) -> PortResult<serde_json::Value> {
+        self.sandbox.run(request).await
+    }
+}
+
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn advertised_dry_run_tool_executes_through_the_compiled_module_bus_port() {
@@ -331,16 +340,13 @@ async fn advertised_dry_run_tool_executes_through_the_compiled_module_bus_port()
         .await
         .unwrap();
 
-    let host = Arc::new(ToolHost);
-    let tool = DryRunWorkflowTool::new(
-        host.clone(),
-        host.clone(),
-        host,
-        Arc::new(BusSandboxRunner {
+    let host = Arc::new(ToolHost {
+        sandbox: BusSandboxRunner {
             connection,
             callback,
-        }),
-    );
+        },
+    });
+    let tool = DryRunWorkflowTool::new(host.clone(), host.clone(), host);
     let result = tool
         .execute(json!({"graph":agent_graph(false),"input":{}}))
         .await
