@@ -235,7 +235,7 @@ impl CronDocuments {
                 doc: run,
                 precondition: Precondition::Absent,
             }];
-            if let Some(queued_run) = claim.lease.queued_run {
+            if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run) {
                 extra.push(WriteOp::Delete {
                     collection: RUNS.into(),
                     id: run_id(queued_run),
