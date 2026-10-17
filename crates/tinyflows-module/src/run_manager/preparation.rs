@@ -71,7 +71,7 @@ pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Resu
 }
 
 impl Prepared {
-    pub async fn persist_snapshot(&self, request: &StartRun) -> Result<()> {
+    pub async fn persist_snapshot(&self, request: &StartRun, lease: &str) -> Result<()> {
         let graph = serde_json::to_value(&self.compiled.graph)?;
         let snapshot = json!({
             "graph": graph,
@@ -80,6 +80,7 @@ impl Prepared {
             "inputs": self.inputs,
             "context": request.context,
             "require_approval": self.require_approval,
+            "lease": lease,
         });
         self.catalog
             .set_flow_run_snapshot(&request.run_id, snapshot)

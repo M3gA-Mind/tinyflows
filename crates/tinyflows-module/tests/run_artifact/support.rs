@@ -270,6 +270,43 @@ pub(super) async fn owner(
     }
 }
 
+pub(super) async fn alias_owner(
+    connection: &Connection,
+    name: &str,
+    docs: Arc<dyn DocumentStore>,
+) -> Owner {
+    let path = format!("/test/catalog-alias/{name}");
+    connection
+        .serve_at(
+            path.parse().unwrap(),
+            OwnerDocuments {
+                docs: docs.clone(),
+                terminal_write_started: None,
+                release_terminal_write: None,
+                terminal_write_pending: None,
+                fail_run_insert: None,
+                run_insert_started: None,
+                release_run_insert: None,
+                fail_snapshot: None,
+            },
+        )
+        .await
+        .unwrap();
+    Owner {
+        storage: CatalogStorage {
+            callback: catalog::CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
+        },
+        caps: runs::CallbackAddress {
+            destination: "test.CapsHost".into(),
+            object_path: format!("/test/caps/{name}"),
+        },
+        docs,
+    }
+}
+
 pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
     let callback = Arc::new(AgentCallback {
         started: Notify::new(),

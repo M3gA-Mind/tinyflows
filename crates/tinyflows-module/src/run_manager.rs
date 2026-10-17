@@ -36,6 +36,7 @@ struct ScopedRunId {
 
 pub(super) struct ActiveRun {
     key: ScopedRunId,
+    pub(super) lease: String,
     token: CancellationToken,
     phase: AtomicU8,
     admitted: Notify,
@@ -75,6 +76,7 @@ fn register(key: ScopedRunId) -> std::result::Result<Arc<ActiveRun>, Arc<ActiveR
     }
     let run = Arc::new(ActiveRun {
         key: key.clone(),
+        lease: uuid::Uuid::new_v4().to_string(),
         token: CancellationToken::new(),
         phase: AtomicU8::new(RESERVING),
         admitted: Notify::new(),
@@ -95,6 +97,15 @@ fn unregister(run: &Arc<ActiveRun>) {
         active.remove(&run.key);
         run.admitted.notify_waiters();
     }
+}
+
+pub(super) fn active_lease(lease: &str) -> Option<Arc<ActiveRun>> {
+    ACTIVE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .values()
+        .find(|run| run.lease == lease)
+        .cloned()
 }
 
 /// Validates synchronously, inserts a row and registers its cancellation token,
@@ -145,7 +156,7 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         unregister(&active);
         return Err(error).context("reserving flow run row");
     }
-    if let Err(error) = prepared.persist_snapshot(&request).await {
+    if let Err(error) = prepared.persist_snapshot(&request, &active.lease).await {
         match prepared
             .catalog
             .remove_unstarted_flow_run(&request.run_id)
@@ -273,7 +284,8 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
     if request.run_id.trim().is_empty() {
         bail!("run id must not be empty")
     }
-    let catalog = preparation::catalog(connection, request.storage).await?;
+    let catalog = preparation::catalog(connection, request.storage.clone()).await?;
+    verify_live_owner(&catalog, &request.storage, &request.run_id).await?;
     let run = catalog
         .get_flow_run(&request.run_id)
         .await?
@@ -295,6 +307,25 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
         done: is_terminal(&run.status)
             && terminal_seq.is_some_and(|seq| next_cursor >= seq && next_cursor >= last_seq),
     })
+}
+
+pub(super) async fn verify_live_owner(
+    catalog: &tinyflows_drivers::catalog::FlowCatalogDocuments,
+    storage: &tinyflows_bus::catalog::CatalogStorage,
+    run_id: &str,
+) -> Result<()> {
+    let Some(snapshot) = catalog.flow_run_snapshot(run_id).await? else {
+        return Ok(());
+    };
+    let Some(lease) = snapshot.get("lease").and_then(serde_json::Value::as_str) else {
+        return Ok(());
+    };
+    if let Some(active) = active_lease(lease)
+        && active.key != key(storage, run_id)
+    {
+        bail!("run owner binding does not match the live run")
+    }
+    Ok(())
 }
 
 /// Signals a live run, or uses the row CAS to cancel a parked/orphaned run.

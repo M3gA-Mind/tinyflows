@@ -87,6 +87,28 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         None,
         "preflight failure must leave no row"
     );
+    let mut zero_budget = request(
+        &alice,
+        alice_start.context.flow_id.clone(),
+        "zero-timeout",
+        graph(true),
+        0,
+    );
+    assert!(runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (zero_budget,))
+        .await
+        .is_err());
+    let zero_row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: alice.storage.clone(),
+                id: "zero-timeout".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(zero_row, None, "zero timeout is a synchronous preflight error");
 
     let started: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -130,6 +152,30 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let live_graph =
         poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
     assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
+    let alias = alias_owner(&connection, "alice-alias", alice.docs.clone()).await;
+    assert!(runs_proxy
+        .call::<runs::PollRun>(
+            "PollRun",
+            (RunControlRequest {
+                storage: alias.storage.clone(),
+                run_id: run_id.into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .is_err());
+    let alias_cancel: runs::CancelRunResponse = runs_proxy
+        .call(
+            "CancelRun",
+            (RunControlRequest {
+                storage: alias.storage,
+                run_id: run_id.into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(!alias_cancel.signalled, "an alias cannot cancel another live binding");
 
     let duplicate: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
