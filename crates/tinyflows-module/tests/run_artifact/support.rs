@@ -56,11 +56,9 @@ impl OwnerDocuments {
                 started.notify_one();
             }
             if let Some(release) = &self.release_run_insert {
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    release.notified(),
-                )
-                .await;
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(10), release.notified())
+                        .await;
             }
             return Ok(json!({
                 "error": {
@@ -96,11 +94,8 @@ impl OwnerDocuments {
                 (&self.terminal_write_started, &self.release_terminal_write)
         {
             started.notify_one();
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                release.notified(),
-            )
-            .await;
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(10), release.notified()).await;
         }
         Ok(reply(
             self.docs
@@ -180,11 +175,8 @@ impl AgentCallback {
     async fn agent_run(&self, _request: AgentRunRequest) -> tinybus::Result<AgentRunHandle> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.started.notify_one();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            self.release.notified(),
-        )
-        .await;
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_secs(10), self.release.notified()).await;
         Ok(AgentRunHandle {
             handle: "agent-handle".into(),
         })
@@ -236,7 +228,7 @@ pub(super) async fn owner(
             OwnerDocuments {
                 docs: scoped.documents().clone(),
                 terminal_write_started: terminal_gate.as_ref().map(|(started, _)| started.clone()),
-                release_terminal_write: terminal_gate.map(|(_, release)| release),
+                release_terminal_write: terminal_gate.as_ref().map(|(_, release)| release.clone()),
                 terminal_write_pending: terminal_gate
                     .as_ref()
                     .map(|_| Arc::new(AtomicBool::new(true))),

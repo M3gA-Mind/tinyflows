@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use tinystoragedrivers_core::DocumentStoreExt;
 
 use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict};
 
