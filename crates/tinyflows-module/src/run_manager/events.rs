@@ -132,7 +132,7 @@ impl EventWriter {
         });
     }
 
-    pub async fn emit_terminal(&self, kind: &str, data: Value) -> Result<()> {
+    pub async fn emit_terminal(&self, kind: &str, data: Value) -> Result<u64> {
         let (ack, result) = oneshot::channel();
         self.sender
             .send(WriteCommand::Event {
@@ -144,8 +144,7 @@ impl EventWriter {
             .map_err(|_| anyhow::anyhow!("run event writer stopped"))?;
         result
             .await
-            .map_err(|_| anyhow::anyhow!("run event writer stopped"))??;
-        Ok(())
+            .map_err(|_| anyhow::anyhow!("run event writer stopped"))?
     }
 
     pub async fn flush(&self) -> Option<String> {
@@ -187,6 +186,35 @@ impl Observer {
     pub fn progress_sink(&self) -> RunProgressSink {
         let writer = self.writer.clone();
         Arc::new(move |kind, data| writer.emit(kind, data))
+    }
+
+    pub fn graph_journal(&self) -> Arc<dyn GraphEventJournal> {
+        Arc::new(RunGraphJournal {
+            inner: Arc::new(InMemoryGraphEventJournal::new()),
+            writer: self.writer.clone(),
+        })
+    }
+}
+
+struct RunGraphJournal {
+    inner: Arc<InMemoryGraphEventJournal>,
+    writer: EventWriter,
+}
+
+#[async_trait::async_trait]
+impl GraphEventJournal for RunGraphJournal {
+    async fn append(&self, observation: GraphObservation) -> tinyflows::graph::Result<u64> {
+        let offset = self.inner.append(observation.clone()).await?;
+        self.writer.graph_observation(&observation);
+        Ok(offset)
+    }
+
+    async fn read_from(
+        &self,
+        run_id: &str,
+        offset: u64,
+    ) -> tinyflows::graph::Result<Vec<GraphObservation>> {
+        self.inner.read_from(run_id, offset).await
     }
 }
 
