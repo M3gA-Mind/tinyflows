@@ -1,13 +1,13 @@
 use super::{CronDocuments, test_support::docs_in};
 use chrono::{Duration, Utc};
 use tinystoragedrivers_core::MemoryStorage;
-use tinyflows_schedule::{DeliveryStatus, Schedule};
+use tinyflows_schedule::{CronJobPatch, DeliveryStatus, Schedule};
 
 #[tokio::test]
 async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
     let backend = MemoryStorage::new();
     let store = CronDocuments::new(docs_in(&backend, "manual-claim"));
-    let mut job = store
+    let job = store
         .add_shell_job(
             None,
             Schedule::At {
@@ -17,8 +17,16 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
         )
         .await
         .unwrap();
-    job.enabled = false;
-    store.disable_job(&job.id).await.unwrap();
+    store
+        .update_job(
+            &job.id,
+            CronJobPatch {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
     let now = Utc::now();
 
     assert!(
