@@ -102,14 +102,14 @@ impl Callbacks {
             ),
         );
         Ok(ManualClaimReply::Claimed {
-            claim: OccurrenceClaim {
+            claim: Box::new(OccurrenceClaim {
                 receipt,
                 occurrence: job.next_run,
                 started_at: now,
                 owner,
                 job,
                 run_id: None,
-            },
+            }),
         })
     }
     async fn renew_occurrence(
