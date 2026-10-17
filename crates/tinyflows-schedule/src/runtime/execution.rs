@@ -11,10 +11,21 @@ pub async fn execute_with_retry(
     job: &CronJob,
     run_id: &str,
 ) -> Result<Attempt> {
+    execute_with_retry_guard(ports, config, job, run_id, None).await
+}
+
+async fn execute_with_retry_guard(
+    ports: &RuntimePorts,
+    config: &SchedulerConfig,
+    job: &CronJob,
+    run_id: &str,
+    claim: Option<&tinyflows_bus::schedule::OccurrenceClaim>,
+) -> Result<Attempt> {
     let retries = job.policy.retries.unwrap_or(config.retries);
     let mut backoff_ms = config.backoff_ms.max(200);
     let mut last_raw_detail = None;
     for attempt in 0..=retries {
+        ensure_claim_owned(ports, claim, "retry attempt").await?;
         let result = if matches!(job.job_type, JobType::Flow) {
             ports.triggers.schedule(job, run_id).await
         } else {
@@ -41,6 +52,7 @@ pub async fn execute_with_retry(
             return Ok(result);
         }
         if !result.retryable || attempt == retries {
+            ensure_claim_owned(ports, claim, "final failure callback").await?;
             ports.executor.failed(job, run_id, &result).await;
             return Ok(result);
         }
@@ -52,6 +64,32 @@ pub async fn execute_with_retry(
         backoff_ms = backoff_ms.saturating_mul(2).min(30_000);
     }
     unreachable!("inclusive attempts always execute at least once")
+}
+
+async fn ensure_claim_owned(
+    ports: &RuntimePorts,
+    claim: Option<&tinyflows_bus::schedule::OccurrenceClaim>,
+    callback: &str,
+) -> Result<()> {
+    if let Some(claim) = claim {
+        anyhow::ensure!(
+            ports
+                .store
+                .renew_occurrence(claim, ports.clock.now(), super::OCCURRENCE_LEASE)
+                .await?,
+            "scheduler lost the occurrence before {callback}"
+        );
+    }
+    Ok(())
+}
+
+async fn execute_with_retry_claimed(
+    ports: &RuntimePorts,
+    config: &SchedulerConfig,
+    claim: &tinyflows_bus::schedule::OccurrenceClaim,
+    run_id: &str,
+) -> Result<Attempt> {
+    execute_with_retry_guard(ports, config, &claim.job, run_id, Some(claim)).await
 }
 
 pub(super) async fn execute_and_persist(
@@ -67,7 +105,7 @@ pub(super) async fn execute_and_persist(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let started_at = claim.started_at;
-    let attempt = execute_with_retry(ports, config, job, &run_id).await?;
+    let attempt = execute_with_retry_claimed(ports, config, claim, &run_id).await?;
     anyhow::ensure!(
         ports
             .store

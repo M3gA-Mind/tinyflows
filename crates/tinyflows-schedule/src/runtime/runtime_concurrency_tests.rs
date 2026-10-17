@@ -46,7 +46,11 @@ async fn live_run_renews_its_durable_lease_on_a_controlled_tick() {
     executor.started.acquire().await.unwrap().forget();
     clock.renewal_tick.notify_one();
     fixture.renewed.notified().await;
-    assert_eq!(fixture.renewals.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture.renewals.load(Ordering::SeqCst),
+        2,
+        "one pre-attempt ownership fence plus the controlled heartbeat"
+    );
     executor.release.add_permits(1);
     scheduler.drain().await.unwrap();
     assert_eq!(fixture.completions.lock().unwrap().len(), 1);

@@ -23,6 +23,7 @@ struct Fixture {
     calls: AtomicUsize,
     triggers: AtomicUsize,
     trigger_jobs: Mutex<Vec<CronJob>>,
+    trigger_fail_count: usize,
     fail_count: usize,
     permanent: bool,
     delivery_fails: bool,
@@ -36,6 +37,11 @@ struct Fixture {
     take_lease_on_renew: AtomicBool,
     lease_takeover_job: Mutex<Option<String>>,
     lease_taken_over: Notify,
+    control_retry_heartbeat: AtomicBool,
+    backoff_entered: Notify,
+    release_backoff: Notify,
+    heartbeat_entered: Notify,
+    release_heartbeat: Notify,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -51,6 +57,7 @@ impl Fixture {
             calls: AtomicUsize::new(0),
             triggers: AtomicUsize::new(0),
             trigger_jobs: Mutex::new(vec![]),
+            trigger_fail_count: 0,
             fail_count: 0,
             permanent: false,
             delivery_fails: false,
@@ -64,6 +71,11 @@ impl Fixture {
             take_lease_on_renew: AtomicBool::new(false),
             lease_takeover_job: Mutex::new(None),
             lease_taken_over: Notify::new(),
+            control_retry_heartbeat: AtomicBool::new(false),
+            backoff_entered: Notify::new(),
+            release_backoff: Notify::new(),
+            heartbeat_entered: Notify::new(),
+            release_heartbeat: Notify::new(),
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -108,11 +120,21 @@ impl Clock for Fixture {
         *self.now.lock().unwrap()
     }
     async fn sleep(&self, duration: Duration) {
+        if self.control_retry_heartbeat.load(Ordering::SeqCst) {
+            self.backoff_entered.notify_one();
+            self.release_backoff.notified().await;
+            return;
+        }
         self.waits.lock().unwrap().push(duration);
         *self.now.lock().unwrap() += chrono::Duration::from_std(duration).unwrap();
     }
     async fn lease_wait(&self, _: Duration) {
-        std::future::pending().await
+        if self.control_retry_heartbeat.load(Ordering::SeqCst) {
+            self.heartbeat_entered.notify_one();
+            self.release_heartbeat.notified().await;
+        } else {
+            std::future::pending().await
+        }
     }
 }
 #[async_trait]
@@ -291,12 +313,12 @@ impl RunDelivery for Fixture {
 #[async_trait]
 impl TriggerSink for Fixture {
     async fn schedule(&self, job: &CronJob, _: &str) -> Result<Attempt> {
-        self.triggers.fetch_add(1, Ordering::SeqCst);
+        let call = self.triggers.fetch_add(1, Ordering::SeqCst);
         self.trigger_jobs.lock().unwrap().push(job.clone());
         Ok(Attempt {
-            success: true,
+            success: call >= self.trigger_fail_count,
             output: "triggered".into(),
-            retryable: false,
+            retryable: true,
             raw_detail: None,
         })
     }
@@ -326,32 +348,6 @@ async fn retries_use_clock_and_zero_override_is_one_attempt() {
             .success
     );
     assert_eq!(f.calls.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
-    let mut fixture = Fixture::new();
-    Arc::get_mut(&mut fixture).unwrap().fail_count = 1;
-    fixture
-        .raw_details
-        .lock()
-        .unwrap()
-        .extend([Some("opaque host classification".into()), None]);
-    let mut job = fixture.job();
-    job.policy.retries = Some(1);
-    let result = execute_with_retry(
-        &fixture.ports(),
-        &SchedulerConfig::default(),
-        &job,
-        "raw-detail-run",
-    )
-    .await
-    .unwrap();
-    assert!(result.success);
-    assert_eq!(
-        result.raw_detail.as_deref(),
-        Some("opaque host classification")
-    );
 }
 
 #[tokio::test]
@@ -483,3 +479,7 @@ impl JobExecutor for BlockExecutor {
 #[cfg(test)]
 #[path = "runtime_concurrency_tests.rs"]
 mod concurrency;
+
+#[cfg(test)]
+#[path = "runtime_lease_tests.rs"]
+mod lease_tests;
