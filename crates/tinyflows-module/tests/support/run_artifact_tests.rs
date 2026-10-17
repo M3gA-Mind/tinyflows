@@ -1,7 +1,7 @@
 use super::*;
 
-#[path = "approval_park_test.rs"]
-mod approval_park_test;
+#[path = "approval_park_tests.rs"]
+mod approval_park_tests;
 #[path = "dedup_snapshot_test.rs"]
 mod dedup_snapshot_test;
 #[path = "failed_run_test.rs"]

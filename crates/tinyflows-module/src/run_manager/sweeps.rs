@@ -69,12 +69,18 @@ pub(super) async fn expire_parked(
             }
         };
         if let Some(run) = run {
-            let documents: Arc<dyn DocumentStore> = Arc::new(
-                Documents::new(connection.clone(), request.storage.callback.clone()).await?,
-            );
-            let checkpointer = DriverCheckpointer::<Value>::new(documents);
-            if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
-                tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
+            match Documents::new(connection.clone(), request.storage.callback.clone()).await {
+                Ok(documents) => {
+                    let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
+                    if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
+                        tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
+                    }
+                }
+                Err(error) => {
+                    terminal_error.get_or_insert_with(|| {
+                        anyhow::anyhow!("opening expired run checkpoint scope: {error:#}")
+                    });
+                }
             }
         }
     }
