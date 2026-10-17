@@ -96,6 +96,128 @@ async fn compiled_module_resumes_a_parked_approval_run() {
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
+    let broker = tinybus::broker::Broker::new();
+    let module_host = ModuleHost::new(broker.clone());
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let catalog_proxy = connection
+        .proxy(BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)
+        .unwrap();
+    let runs_proxy = connection
+        .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
+        .unwrap();
+    let owner = owner(&connection, "resume-guards", None, None, None, None).await;
+    let graph = parked_graph();
+    let flow_id =
+        create_flow_with_graph(&catalog_proxy, &owner.storage, "Guarded resume", graph.clone())
+            .await;
+    let callback = serve_agent(&connection, "resume-guards").await;
+    let mut start = request(&owner, flow_id.clone(), "guarded-run", graph.clone(), 20_000);
+    start.trigger_data = json!({"id":"guarded-item","payload":"review"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&callback.approval_started, "approval callback").await;
+    poll_until_kind(&runs_proxy, &owner.storage, "guarded-run", "parked").await;
+
+    let mut wrong_flow = resume_request(&owner, "wrong-flow", "guarded-run", "gate");
+    assert!(runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow.clone(),)).await.is_err());
+    wrong_flow.flow_id = flow_id.clone();
+    wrong_flow.approvals = vec!["not-pending".into()];
+    assert!(runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow,)).await.is_err());
+    let parked: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage.clone(),
+                id: "guarded-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(parked.unwrap().status, "pending_approval");
+
+    let mut changed_graph = graph;
+    changed_graph["nodes"][2]["config"]["request_id"] = json!("changed-review");
+    let updated: catalog::PutWorkflowResponse = catalog_proxy
+        .call(
+            "PutWorkflow",
+            &(catalog::PutWorkflowRequest::Update {
+                storage: owner.storage.clone(),
+                id: flow_id.clone(),
+                name: "Guarded resume changed".into(),
+                graph: changed_graph,
+                require_approval: false,
+                expected_version: None,
+                force_disarm_automatic: false,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(updated, catalog::PutWorkflowResponse::Ok(_)));
+    assert!(runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
+        )
+        .await
+        .is_err());
+
+    let cancelled: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage.clone(),
+                id: "guarded-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cancelled.as_ref().unwrap().status, "cancelled");
+    let terminal: runs::PollRun = runs_proxy
+        .call(
+            "PollRun",
+            (RunControlRequest {
+                storage: owner.storage,
+                run_id: "guarded-run".into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(terminal.done);
+    assert_eq!(terminal.events.last().unwrap().data["status"], "cancelled");
+}
+
+fn resume_request(
+    owner: &Owner,
+    flow_id: &str,
+    run_id: &str,
+    gate: &str,
+) -> runs::ResumeRun {
+    runs::ResumeRun {
+        run_id: run_id.into(),
+        flow_id: flow_id.into(),
+        storage: owner.storage.clone(),
+        caps_host: runs::CapsHost {
+            callback: owner.caps.clone(),
+        },
+        approvals: vec![gate.into()],
+        rejections: Vec::new(),
+        timeout_ms: 20_000,
+    }
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement() {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
