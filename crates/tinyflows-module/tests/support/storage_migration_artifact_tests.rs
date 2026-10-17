@@ -53,7 +53,10 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
         )
         .await
         .unwrap();
-    connection.request_name("test.ScheduleDocuments").await.unwrap();
+    connection
+        .request_name("test.ScheduleDocuments")
+        .await
+        .unwrap();
     let schedule = connection
         .proxy(
             tinyflows_bus::schedule::BUS_NAME,

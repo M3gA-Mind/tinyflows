@@ -12,11 +12,10 @@ mod types;
 
 pub use storage_types::{
     CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentPage, CatalogDocumentPrecondition,
-    CatalogStorageCapabilities,
     CatalogFilter, CatalogIndexSpec, CatalogQuery, CatalogSearchSpec, CatalogSort,
-    CatalogSortDirection, CatalogStorageFailure, CatalogStorageReply, CatalogVersionedDocument,
-    DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest,
-    DocQueryRequest,
+    CatalogSortDirection, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply,
+    CatalogVersionedDocument, DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest,
+    DocGetRequest, DocPutRequest, DocQueryRequest,
 };
 
 pub use extended_types::*;
@@ -30,8 +29,8 @@ pub use types::{
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Catalog";
 /// Catalog object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Catalog";
-/// Version of the served catalog contract. Version 4 adds node contracts,
-/// structural graph edits, and host-classified approval manifests.
+/// Version of the served catalog contract. Version 5 adds scoped schema
+/// migration and record-metadata support to the host document callback.
 pub const CONTRACT_VERSION: u32 = 5;
 /// Exact members served by the catalog module.
 pub const METHODS: &[&str] = &[

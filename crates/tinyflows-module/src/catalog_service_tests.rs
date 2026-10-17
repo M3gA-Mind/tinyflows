@@ -397,17 +397,43 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
 
     let proxy = put_proxy(&host).unwrap();
     for _ in 0..2 {
-        let _: Value = proxy.call("MigrateStorage", &(storage.clone(),)).await.unwrap();
+        let _: Value = proxy
+            .call("MigrateStorage", &(storage.clone(),))
+            .await
+            .unwrap();
     }
-    let migrated = docs.get("flows.definitions", "legacy-flow").await.unwrap().unwrap();
+    let migrated = docs
+        .get("flows.definitions", "legacy-flow")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(migrated.doc["name"], "Legacy");
     assert_eq!(migrated.doc["created_ms"], created_ms);
     assert_eq!(migrated.meta.created_ms, created_ms);
-    assert!(docs.get("flows_definitions", "legacy-flow").await.unwrap().is_none());
+    assert!(
+        docs.get("flows_definitions", "legacy-flow")
+            .await
+            .unwrap()
+            .is_none()
+    );
     let catalog_state = Key::of(["flows", "kv:legacy-flow", "k"]).unwrap();
     let state = Key::of(["flows", "state", "state-key"]).unwrap();
-    assert_eq!(docs.get("tsd.kv", catalog_state.as_str()).await.unwrap().unwrap().doc["value"], json!({"n":7}));
-    assert_eq!(docs.get("tsd.kv", state.as_str()).await.unwrap().unwrap().doc["value"], "state-value");
+    assert_eq!(
+        docs.get("tsd.kv", catalog_state.as_str())
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["value"],
+        json!({"n":7})
+    );
+    assert_eq!(
+        docs.get("tsd.kv", state.as_str())
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["value"],
+        "state-value"
+    );
 }
 
 #[tokio::test]

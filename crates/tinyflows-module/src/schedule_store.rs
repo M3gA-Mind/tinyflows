@@ -33,13 +33,15 @@ impl Store {
         if matches!(operation, Operation::Migrate) {
             return Self::migrate(connection, storage).await;
         }
-        Self::new(connection, storage).await?.execute(operation).await
+        Self::new(connection, storage)
+            .await?
+            .execute(operation)
+            .await
     }
     async fn migrate(connection: Connection, config: StoreConfig) -> Result<Value> {
         let StoreBackend::Documents { callback } = config.backend;
-        let documents = Arc::new(
-            super::schedule_documents::Documents::new(connection, callback).await?,
-        );
+        let documents =
+            Arc::new(super::schedule_documents::Documents::new(connection, callback).await?);
         documents.require_record_metadata()?;
         let _guard = super::migration_lock::schedule().await;
         let storage = tinyflows_drivers::document_only_scope(Scope::local(), documents.clone())?;
@@ -48,7 +50,9 @@ impl Store {
             .await
             .map_err(anyhow::Error::msg)?;
         let registry = Registry::compose([tinyflows_drivers::cron_storage_schema()])?;
-        let report = registry.migrate(&storage, &MigrateOptions::default()).await?;
+        let report = registry
+            .migrate(&storage, &MigrateOptions::default())
+            .await?;
         let counter_imported = tinyflows_drivers::import_legacy_cron_counters(&storage).await?;
         Ok(serde_json::json!({"report": report, "counter_imported": counter_imported}))
     }

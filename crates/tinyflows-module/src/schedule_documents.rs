@@ -86,7 +86,9 @@ impl Documents {
         if self.capabilities.contains(Capability::RecordMetadata) {
             Ok(())
         } else {
-            Err(anyhow::anyhow!("schedule migration requires record metadata support"))
+            Err(anyhow::anyhow!(
+                "schedule migration requires record metadata support"
+            ))
         }
     }
     fn validate_collection(collection: &str) -> Result<()> {

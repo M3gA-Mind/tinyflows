@@ -45,7 +45,12 @@ fn the_schema_composes_and_names_every_catalog_collection() {
         assert!(names.contains(&name), "{name}");
     }
     assert!(schema.items.iter().all(|i| i.scope() == ScopeClass::Tenant));
-    assert!(!schema.items.iter().any(|item| item.name() == "flows.workflows"));
+    assert!(
+        !schema
+            .items
+            .iter()
+            .any(|item| item.name() == "flows.workflows")
+    );
     Registry::compose([schema]).unwrap();
 }
 

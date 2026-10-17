@@ -2,18 +2,18 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use tinyflows_bus::catalog::CatalogStorage;
-use tinyflows_drivers::{catalog_storage_schema, document_only_scope, import_legacy_kv};
-use tinyflows_drivers::catalog::FlowCatalogDocuments;
-use tinystoragedrivers_core::{MigrateOptions, Registry, Scope};
 use tinybus::Connection;
+use tinyflows_bus::catalog::CatalogStorage;
+use tinyflows_drivers::catalog::FlowCatalogDocuments;
+use tinyflows_drivers::{catalog_storage_schema, document_only_scope, import_legacy_kv};
+use tinystoragedrivers_core::{MigrateOptions, Registry, Scope};
 
-pub(super) async fn migrate(connection: Connection, storage: CatalogStorage) -> Result<serde_json::Value> {
-    let mut documents = super::catalog_documents::Documents::new(
-        connection,
-        storage.callback,
-    )
-    .await?;
+pub(super) async fn migrate(
+    connection: Connection,
+    storage: CatalogStorage,
+) -> Result<serde_json::Value> {
+    let mut documents =
+        super::catalog_documents::Documents::new(connection, storage.callback).await?;
     documents.require_record_metadata().await?;
     let _guard = super::migration_lock::catalog().await;
     let documents = Arc::new(documents);

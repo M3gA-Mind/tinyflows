@@ -5,9 +5,9 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
-    CallbackAddress, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest,
-    DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
-    STORAGE_INTERFACE, storage,
+    CallbackAddress, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply,
+    DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest,
+    DocQueryRequest, STORAGE_INTERFACE, storage,
 };
 use tinystoragedrivers_core::{
     Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
@@ -95,7 +95,6 @@ impl Documents {
             ))
         }
     }
-
 
     fn validate_collection(collection: &str) -> Result<()> {
         if !ALLOWED.contains(&collection) && !SHARED.contains(&collection) {
