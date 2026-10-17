@@ -175,7 +175,7 @@ async fn run_job_now_is_a_typed_module_owned_admission_operation() {
     assert_eq!(*state.executions.lock().await, ["manual-run"]);
     let after = documents.get_job(&job.id).await.unwrap();
     assert_eq!(after.next_run, job.next_run);
-    assert_eq!(after.enabled, false);
+    assert!(!after.enabled);
     assert_eq!(after.delete_after_run, job.delete_after_run);
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);

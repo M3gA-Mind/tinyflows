@@ -86,16 +86,17 @@ pub async fn verify(
         sends_before + 1,
         "the terminal projection must not send a second time"
     );
-    let projections = state.projections.lock().unwrap();
-    let terminal = &projections[projections_before];
-    assert_eq!(terminal["success"], false);
-    assert_eq!(terminal["delivery_status"], "failed");
-    assert_eq!(terminal["attempt"]["success"], true);
-    assert_eq!(
-        terminal["attempt"]["raw_detail"],
-        "opaque callback classification"
-    );
-    drop(projections);
+    {
+        let projections = state.projections.lock().unwrap();
+        let terminal = &projections[projections_before];
+        assert_eq!(terminal["success"], false);
+        assert_eq!(terminal["delivery_status"], "failed");
+        assert_eq!(terminal["attempt"]["success"], true);
+        assert_eq!(
+            terminal["attempt"]["raw_detail"],
+            "opaque callback classification"
+        );
+    }
     let after = store.get_job(&job.id).await.unwrap();
     assert_eq!(after.last_status.as_deref(), Some("error"));
     let history = store.list_runs(&job.id, 10).await.unwrap();
