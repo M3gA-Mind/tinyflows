@@ -68,7 +68,7 @@ pub(super) async fn drive(
             cancelled |= outcome.cancelled;
         }
         Err(error) => {
-            failure = Some(error.to_string());
+            failure = Some(format!("{error:#}"));
         }
     }
     if let Some(error) = writer.flush().await {
