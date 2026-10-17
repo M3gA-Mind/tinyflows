@@ -8,7 +8,7 @@ use tinyflows_bus::schedule::{
     WaitManualRun,
 };
 use tinyflows_drivers::schedule::CronDocuments;
-use tinyflows_schedule::Schedule;
+use tinyflows_schedule::{CronRun, Schedule};
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 #[tokio::test]
@@ -122,8 +122,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         "queued",
         "Running is reported only after durable queue admission"
     );
-    let queued_history: Value = schedule
-        .call(
+    let queued_history: Vec<CronRun> = schedule
+        .call::<Vec<CronRun>>(
             "ScheduleStore",
             &(StoreRequest {
                 storage: storage.clone(),
@@ -262,8 +262,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .await
         .unwrap();
     callback_state.execute_started.notified().await;
-    let completed_queued_history: Value = schedule
-        .call(
+    let completed_queued_history: Vec<CronRun> = schedule
+        .call::<Vec<CronRun>>(
             "ScheduleStore",
             &(StoreRequest {
                 storage: storage.clone(),
@@ -277,8 +277,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .await
         .unwrap();
     assert!(
-        completed_queued_history[0]["status"] == "queued"
-            && completed_queued_history[0]["run_id"].as_str() == Some("artifact-completed-run"),
+        completed_queued_history[0].status == "queued"
+            && completed_queued_history[0].run_id.as_deref() == Some("artifact-completed-run"),
         "queued history retains the completing invocation identity: {completed_queued_history:?}"
     );
     callback_state.execute_release.notify_one();
@@ -295,8 +295,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     ));
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history[0].status, "ok");
-    let terminal_history: Value = schedule
-        .call(
+    let terminal_history: Vec<CronRun> = schedule
+        .call::<Vec<CronRun>>(
             "ScheduleStore",
             &(StoreRequest {
                 storage: storage.clone(),
@@ -310,8 +310,8 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .await
         .unwrap();
     assert!(
-        queued_history[0]["run_id"].as_str() == Some("artifact-manual-run")
-            && terminal_history[0]["run_id"].as_str() == Some("artifact-completed-run"),
+        queued_history[0].run_id.as_deref() == Some("artifact-manual-run")
+            && terminal_history[0].run_id.as_deref() == Some("artifact-completed-run"),
         "ScheduleStore ListRuns retains stopped and terminal invocation IDs: stopped={queued_history:?}, terminal={terminal_history:?}"
     );
     assert!(
