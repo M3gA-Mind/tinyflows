@@ -113,7 +113,7 @@ fn credential_preparation_rejects_non_object_request_and_headers() {
     // assertions below describe the desired result and therefore fail on the
     // baseline because malformed input is silently returned unchanged.
     fn prepare(request: serde_json::Value, cred: &HttpCredential) -> Result<serde_json::Value> {
-        Ok(inject_credential(request, cred))
+        inject_credential(request, cred)
     }
     let cred = HttpCredential {
         header: "Authorization".into(),
@@ -134,8 +134,21 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
         header: "Authorization".into(),
         value: "Bearer {token}".into(),
     };
-    request = inject_credential(request, &cred);
+    request = inject_credential(request, &cred).unwrap();
     assert_eq!(request["headers"]["Authorization"], "Bearer {token}");
+}
+
+#[test]
+fn credential_injection_coerces_null_headers_to_an_object() {
+    let request = inject_credential(
+        json!({"headers":null}),
+        &HttpCredential {
+            header: "X-Token".into(),
+            value: "{token}".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(request["headers"]["X-Token"], "{token}");
 }
 
 #[test]

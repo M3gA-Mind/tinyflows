@@ -78,16 +78,24 @@ pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
 ///
 /// Called last, after the request has been described for logs or approval, so
 /// the secret exists only in the value handed to the transport.
-pub fn inject_credential(mut request: Value, cred: &HttpCredential) -> Value {
-    if let Some(object) = request.as_object_mut() {
-        let headers = object
-            .entry("headers")
-            .or_insert_with(|| Value::Object(Default::default()));
-        if let Some(headers) = headers.as_object_mut() {
-            headers.insert(cred.header.clone(), Value::String(cred.value.clone()));
-        }
+pub fn inject_credential(mut request: Value, cred: &HttpCredential) -> Result<Value> {
+    let object = request.as_object_mut().ok_or_else(|| {
+        EngineError::Capability("http_request: request must be an object".into())
+    })?;
+    let headers = object
+        .entry("headers")
+        .or_insert_with(|| Value::Object(Default::default()));
+    if headers.is_null() {
+        *headers = Value::Object(Default::default());
     }
-    request
+    let headers = headers.as_object_mut().ok_or_else(|| {
+        EngineError::Capability("http_request: headers must be an object or null".into())
+    })?;
+    // Credential values may be scheme templates (for example "Bearer {token}")
+    // already resolved by the host. Keep the value opaque and never include it
+    // in an error or diagnostic.
+    headers.insert(cred.header.clone(), Value::String(cred.value.clone()));
+    Ok(request)
 }
 
 /// A description of a request safe to log or show for approval: method and URL
@@ -423,7 +431,7 @@ impl HttpClient for AllowlistHttpClient {
             ));
         }
         let request = match &credential {
-            Some(cred) => inject_credential(request, cred),
+            Some(cred) => inject_credential(request, cred)?,
             None => request,
         };
 
