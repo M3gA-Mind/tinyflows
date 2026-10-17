@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog;
 
 fn pin<T>(value: T, expected: serde_json::Value)
 where
