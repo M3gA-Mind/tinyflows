@@ -263,6 +263,7 @@ pub async fn resume_with_checkpointer(
         },
         None,
         &observer,
+        None,
     )
     .await?;
     Ok(outcome)
@@ -413,6 +414,7 @@ pub async fn resume_with_checkpointer_journaled_observed(
         },
         Some(journal),
         observer,
+        None,
     )
     .await?;
     tracing::debug!(
