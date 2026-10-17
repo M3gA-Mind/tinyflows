@@ -185,9 +185,6 @@ impl JobExecutor for CancellableExecutor {
 #[tokio::test]
 async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
     let fixture = Fixture::new();
-    fixture
-        .take_lease_on_renew
-        .store(true, Ordering::SeqCst);
     let started = Arc::new(Notify::new());
     let dropped = Arc::new(Notify::new());
     let clock = Arc::new(ControlledLeaseClock {
@@ -207,6 +204,9 @@ async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
     let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), ports);
     assert_eq!(scheduler.dispatch(vec![job]).await.unwrap(), 1);
     started.notified().await;
+    fixture
+        .take_lease_on_renew
+        .store(true, Ordering::SeqCst);
     clock.renewal_tick.notify_one();
     dropped.notified().await;
     assert!(scheduler.drain().await.is_err());
