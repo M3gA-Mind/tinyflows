@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DeliveryStatus, JobType};
+use crate::{DeliveryStatus, JobType, Schedule};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -273,7 +273,7 @@ impl TriggerSink for Fixture {
 async fn retries_use_clock_and_zero_override_is_one_attempt() {
     let mut f = Fixture::new();
     Arc::get_mut(&mut f).unwrap().fail_count = 2;
-    let mut job = f.job();
+    let job = f.job();
     let result = execute_with_retry(&f.ports(), &SchedulerConfig::default(), &job, "stable")
         .await
         .unwrap();
@@ -379,9 +379,8 @@ async fn durable_claim_blocks_a_second_dispatch_without_advancing_the_occurrence
 }
 
 #[test]
-fn claims_are_scoped_and_release_on_drop() {
+fn scheduler_slots_are_scoped_and_release_on_drop() {
     let a = uuid::Uuid::new_v4().to_string();
-    let b = uuid::Uuid::new_v4().to_string();
     let slot = SchedulerSlot::acquire(&a).unwrap();
     assert!(SchedulerSlot::acquire(&a).is_none());
     drop(slot);
@@ -465,9 +464,9 @@ async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
     );
     scheduler.dispatch(jobs).await.unwrap();
     executor.started.acquire().await.unwrap().forget();
-    assert!(ids.iter().all(|id| fixture.leases.lock().unwrap().contains_key(id)));
+    assert!(ids.iter().all(|id| f.leases.lock().unwrap().contains_key(id)));
     scheduler.shutdown().await;
-    assert!(ids.iter().all(|id| !fixture.leases.lock().unwrap().contains_key(id)));
+    assert!(ids.iter().all(|id| !f.leases.lock().unwrap().contains_key(id)));
     assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
 }
 
