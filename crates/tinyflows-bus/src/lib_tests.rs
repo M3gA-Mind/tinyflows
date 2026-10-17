@@ -19,6 +19,7 @@ fn interfaces_share_one_bus_name_with_distinct_paths() {
 
 #[test]
 fn method_constants_match_advertised_members() {
+    assert_eq!(copilot::CONTRACT_VERSION, 1);
     assert_eq!(
         runs::METHODS,
         &[
@@ -29,6 +30,22 @@ fn method_constants_match_advertised_members() {
             runs::methods::CANCEL_RUN,
             runs::methods::POLL_RUN,
             runs::methods::SANDBOX_RUN
+        ]
+    );
+    assert_eq!(
+        copilot::METHODS,
+        [
+            "ToolCatalog",
+            "InvokeTool",
+            "RenderBuilderPrompt",
+            "GetPrompt",
+            "ListResources",
+            "GetResource",
+            "BuildTrailOffFallback",
+            "CombineTrailOffFallback",
+            "IsBackendOrInfrastructureFailure",
+            "BackendRepairMessage",
+            "TextLooksLikeQuestion",
         ]
     );
 }

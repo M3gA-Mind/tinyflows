@@ -383,3 +383,7 @@ async fn builder_gate_callback_transport_failure_is_not_a_successful_report() ->
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "copilot_service_tests.rs"]
+mod copilot_tests;

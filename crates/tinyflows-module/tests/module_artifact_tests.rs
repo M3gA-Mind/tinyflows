@@ -2,6 +2,8 @@
 mod authoring_contract_calls;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/copilot_artifact.rs"]
+mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
 #[path = "support/run_artifact_tests.rs"]
@@ -74,6 +76,22 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         dependency.optional
             && dependency.interface.interface.as_str() == tinyflows_bus::catalog::STORAGE_INTERFACE
     }));
+    let copilot_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::copilot::INTERFACE)
+        .expect("copilot interface is provided by the compiled module");
+    let actual_copilot_methods: Vec<String> = copilot_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let expected_copilot_methods: Vec<String> = tinyflows_bus::copilot::METHODS
+        .iter()
+        .map(|method| method.to_string())
+        .collect();
+    assert_eq!(actual_copilot_methods, expected_copilot_methods);
     assert!(info.manifest.requires.iter().any(|dependency| {
         dependency.optional
             && dependency.interface.interface.as_str()
@@ -463,4 +481,5 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     wiring_warning_artifact::verify_surface(&proxy).await;
 
     wiring_warning_artifact::verify_authoring_gates(&proxy).await;
+    copilot_artifact::verify_surface(&connection).await;
 }

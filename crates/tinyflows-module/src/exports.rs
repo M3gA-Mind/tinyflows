@@ -44,6 +44,10 @@ fn manifest() -> TbSlice {
             object_path: ObjectPath::new(tinyflows_bus::OBJECT_PATH).expect("static object path"),
             provides: vec![
                 provided(tinyflows_bus::INTERFACE, tinyflows_bus::METHODS),
+                provided(
+                    tinyflows_bus::copilot::INTERFACE,
+                    tinyflows_bus::copilot::METHODS,
+                ),
                 provided(tinyflows_bus::runs::INTERFACE, tinyflows_bus::runs::METHODS),
                 provided(
                     tinyflows_bus::catalog::INTERFACE,
@@ -55,6 +59,16 @@ fn manifest() -> TbSlice {
                 ),
             ],
             requires: vec![
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::copilot::HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Copilot tools call the host callback bound to the invocation scope"
+                        .into(),
+                },
                 Dependency {
                     interface: InterfaceVersion::consumed(
                         InterfaceName::new(tinyflows_bus::HOST_INTERFACE)

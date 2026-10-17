@@ -59,7 +59,9 @@ mod dry_run;
 mod flow_reads;
 mod kind_reads;
 mod persistence;
+mod propose;
 mod run_control;
+mod run_flow;
 
 pub use discovery::SuggestWorkflowsTool;
 pub use draft_edit::{EditWorkflowTool, edit_op_shape};
@@ -71,7 +73,9 @@ pub use flow_reads::{
 };
 pub use kind_reads::{GetNodeKindContractTool, ListAgentDefinitionsTool, ListNodeKindsTool};
 pub use persistence::{CreateWorkflowTool, DuplicateFlowTool, SaveWorkflowTool};
+pub use propose::ProposeWorkflowTool;
 pub use run_control::{CancelFlowRunTool, ResumeFlowRunTool};
+pub use run_flow::RunFlowTool;
 
 /// Return a constant tool schema parsed once from an embedded JSON string.
 macro_rules! static_schema {
