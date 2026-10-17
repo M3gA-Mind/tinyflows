@@ -16,6 +16,7 @@ use tinyflows_bus::runs::{
 pub(super) struct ToolGate {
     pub started: tokio::sync::Notify,
     pub release: tokio::sync::Notify,
+    pub blocked_slug: Option<String>,
 }
 
 #[derive(Clone)]
@@ -51,8 +52,16 @@ impl FakeHost {
     ) -> tinybus::Result<Value> {
         self.record("ToolInvoke");
         if let Some(gate) = &self.tool_gate {
-            gate.started.notify_one();
-            gate.release.notified().await;
+            if gate
+                .blocked_slug
+                .as_deref()
+                .is_none_or(|blocked_slug| blocked_slug == slug)
+            {
+                gate.started.notify_one();
+                gate.release.notified().await;
+            } else if slug == "nested.release" {
+                gate.release.notify_one();
+            }
         }
         Ok(json!({"owner": self.owner, "slug": slug, "args": args, "conn": conn}))
     }
@@ -272,6 +281,33 @@ pub(super) async fn serve_caps_with_blocked_tools(
     let gate = Arc::new(ToolGate {
         started: tokio::sync::Notify::new(),
         release: tokio::sync::Notify::new(),
+        blocked_slug: None,
+    });
+    host.serve_at(
+        path.parse().unwrap(),
+        FakeHost {
+            owner: owner.into(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+            approval_calls: Arc::new(AtomicUsize::new(0)),
+            fail_approval: false,
+            tool_gate: Some(Arc::clone(&gate)),
+            first_event_seq: 1,
+        },
+    )
+    .await
+    .unwrap();
+    gate
+}
+
+pub(super) async fn serve_caps_with_nested_barrier(
+    host: &Connection,
+    owner: &str,
+    path: &str,
+) -> Arc<ToolGate> {
+    let gate = Arc::new(ToolGate {
+        started: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+        blocked_slug: Some("nested.blocked".into()),
     });
     host.serve_at(
         path.parse().unwrap(),
