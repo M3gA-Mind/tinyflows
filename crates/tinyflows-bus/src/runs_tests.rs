@@ -92,6 +92,15 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         serde_json::json!({"seq":5,"kind":"graph_observation","data":{"event":"node.started"},"graph_run_id":"graph-run-9"}),
     );
     pin(
+        RunEvent {
+            seq: 6,
+            kind: "step".into(),
+            data: serde_json::json!({"node_id":"send"}),
+            graph_run_id: None,
+        },
+        serde_json::json!({"seq":6,"kind":"step","data":{"node_id":"send"}}),
+    );
+    pin(
         PollRun {
             events: vec![],
             next_cursor: 4,
