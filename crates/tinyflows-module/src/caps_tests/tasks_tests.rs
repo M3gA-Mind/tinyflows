@@ -109,7 +109,10 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
         encoded.contains("nested.blocked"),
         "nested task result missing: {result}"
     );
-    assert!(encoded.contains("nested.release"), "release result missing: {result}");
+    assert!(
+        encoded.contains("nested.release"),
+        "release result missing: {result}"
+    );
     assert!(
         encoded.contains("alice"),
         "nested host callback missing: {result}"
@@ -222,5 +225,11 @@ async fn parked_child_workflow_fails_explicitly_before_downstream_actions() {
     };
     assert!(message.contains("waiting for approvals"), "{message}");
     assert!(message.contains("child-approval") || message.contains("review"));
-    assert!(!calls.lock().unwrap().iter().any(|call| call == "alice:ToolInvoke"));
+    assert!(
+        !calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| call == "alice:ToolInvoke")
+    );
 }

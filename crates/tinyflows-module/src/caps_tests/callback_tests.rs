@@ -372,4 +372,3 @@ async fn missing_callback_service_fails_each_result_capability_as_an_error() {
         .is_err()
     );
 }
-
