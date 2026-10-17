@@ -34,7 +34,7 @@ Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound
 execution, delivery and direct flow-trigger callbacks through ScheduleHost.
 `StartScheduler.storage` selects module-owned persistence. Without it, the
-ScheduleHost must implement the v4 occurrence-lease callbacks. Both paths fail
+ScheduleHost must implement the v5 occurrence-lease callbacks. Both paths fail
 closed when the backend lacks transactions or lease state is malformed. A
 successful claim captures the exact job snapshot and a fencing receipt. The
 runtime renews the lease while work is active, commits run history and schedule
@@ -45,10 +45,10 @@ that effect, so the contract makes no exactly-once claim.
 Due queries filter excluded identities before their batch limit. If a returned
 job already has a live lease, the scheduler excludes it and fetches later due
 jobs; it does not advance the occurrence or write a skipped run. Recurrences
-advance only after terminal completion. Scheduled one-shots remain enabled
-while leased, then disable at terminal completion; a successful
-`delete_after_run` removes the completed incarnation. Manual Run Now preserves
-the saved schedule state.
+advance only after terminal completion. Scheduled one-shots stay enabled while
+leased and disable at terminal completion; successful `delete_after_run`
+removes the completed incarnation. Manual Run Now preserves saved schedule
+state.
 
 `RunJobNow` force-claims the captured saved definition even when disabled or
 scheduled in the future. It writes a queued history row before an accepted
@@ -64,6 +64,18 @@ computed final success from execution, send status and best-effort policy.
 receive the captured `CronJob`, not a flow id that would require a later lookup.
 `Attempt.raw_detail` is opaque host classification data; retries preserve the
 last non-empty detail and relay it unchanged without logging it.
+
+A host-driven pass can set `StartScheduler.config.now` to an RFC3339 instant
+with `manual_ticks: true`. Due selection, run timestamps, and the next recurring
+occurrence all use that fixed instant, so tests can advance calendar time
+without waiting or changing the machine clock. Start a new manual scheduler
+for another instant. Retry sleeps still use Tokio timers. Omitting `now` keeps
+the system clock; a fixed instant is refused for an automatic poll loop. This
+option requires Schedule contract version 5.
+
+Run history records the captured `job_created_at` with the dispatched job,
+so a replacement job cannot receive the older run's history. The occurrence
+lease receipt fences completion against a later claim or recovered occurrence.
 
 `ScheduleStore` accepts one StoreRequest: `{storage, operation}`. Storage is
 `{backend: {kind: "documents", callback: {destination, object_path}},
