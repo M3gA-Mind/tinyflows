@@ -6,9 +6,9 @@ fn every() -> Schedule {
 }
 
 #[test]
-fn contract_is_version_five_with_the_exact_member_set() {
-    assert_eq!(CONTRACT_VERSION, 5);
-    assert_eq!(METHODS.len(), 17);
+fn contract_is_version_six_with_the_exact_member_set() {
+    assert_eq!(CONTRACT_VERSION, 6);
+    assert_eq!(METHODS.len(), 22);
     let mut unique: Vec<_> = METHODS.to_vec();
     unique.sort_unstable();
     unique.dedup();
@@ -16,6 +16,11 @@ fn contract_is_version_five_with_the_exact_member_set() {
     for name in [
         "ScheduleStore",
         "RunJobNow",
+        "PrepareManualRun",
+        "StartManualRun",
+        "WaitManualRun",
+        "StopManualRun",
+        "AcknowledgeManualRun",
         "ParseHumanDelay",
         "ValidateDelivery",
         "NextRun",
@@ -30,6 +35,19 @@ fn contract_is_version_five_with_the_exact_member_set() {
     ] {
         assert!(METHODS.contains(&name), "{name}");
     }
+}
+
+#[test]
+fn manual_worker_states_are_stable_typed_wire_values() {
+    let prepared: ManualRunState = serde_json::from_value(json!({"kind":"prepared"})).unwrap();
+    assert!(matches!(prepared, ManualRunState::Prepared));
+    let terminal = ManualRunState::Terminal {
+        outcome: ManualRunOutcome::Stopped { run_id: Some("run".into()) },
+    };
+    assert_eq!(
+        serde_json::to_value(terminal).unwrap(),
+        json!({"kind":"terminal","outcome":{"kind":"stopped","run_id":"run"}})
+    );
 }
 
 #[test]
