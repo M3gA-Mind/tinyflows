@@ -261,7 +261,7 @@ pub async fn resume_with_checkpointer(
             approved: newly_approved,
             rejected: Vec::new(),
         },
-        Some(token),
+        None,
         &observer,
         None,
     )
@@ -414,7 +414,7 @@ pub async fn resume_with_checkpointer_journaled_observed(
         },
         Some(journal),
         observer,
-        None,
+        Some(token),
     )
     .await?;
     tracing::debug!(
