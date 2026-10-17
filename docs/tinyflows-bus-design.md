@@ -79,8 +79,9 @@ checkpoints. The host includes the policy-classified permission manifest in
 the request; the module reports it without treating it as execution authority.
 The module uses schema-aware deterministic mocks for both named
 agent and plain LLM execution. Its only host callback is the exact
-`CapsHost.ToolInvoke` address supplied for preflight; hosts must bind that
-address to a validator plus deterministic echo and must not forward it to a
+`CapsHost.ToolInvoke` address supplied for preflight. The module discards the
+callback's return value after successful validation and produces the simulated
+tool result with its own `MockTools`; hosts must not forward the callback to a
 real integration. HTTP, code, shell, memory, state, approval and agent calls
 remain in module-local mocks.
 

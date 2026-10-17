@@ -25,7 +25,7 @@ impl Preflight {
                 "required arg 'text' is missing or null",
             ));
         }
-        Ok(json!({"sandbox_echo": true, "slug": slug, "args": args}))
+        Ok(json!({"host_canary": true, "slug": slug, "args": args}))
     }
 }
 
@@ -127,11 +127,11 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
         .unwrap();
     assert_eq!(response.result["ok"], true, "{response:?}");
     assert_eq!(calls.load(Ordering::SeqCst), 1, "agent paths are mock-only");
-    assert!(
-        response.result["output"]
-            .to_string()
-            .contains("sandbox_echo")
-    );
+    let echo = &response.result["output"]["nodes"]["echo"]["items"][0]["json"]["json"];
+    assert_eq!(echo["tool"], "demo:echo");
+    assert_eq!(echo["args"]["text"], "hi");
+    assert_eq!(echo["connection"], serde_json::Value::Null);
+    assert_eq!(echo.get("host_canary"), None);
 
     let null_arg_graph = json!({
         "nodes":[

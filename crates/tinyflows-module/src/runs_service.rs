@@ -50,15 +50,17 @@ impl Runs {
 
 struct SandboxToolInvoker {
     proxy: Proxy,
+    mock: Arc<dyn ToolInvoker>,
 }
 
 #[async_trait]
 impl ToolInvoker for SandboxToolInvoker {
     async fn invoke(&self, slug: &str, args: Value, conn: Option<&str>) -> EngineResult<Value> {
         self.proxy
-            .call(runs::caps::TOOL_INVOKE, &(slug, args, conn))
+            .call(runs::caps::TOOL_INVOKE, &(slug, args.clone(), conn))
             .await
-            .map_err(|error| EngineError::Capability(error.to_string()))
+            .map_err(|error| EngineError::Capability(error.to_string()))?;
+        self.mock.invoke(slug, args, conn).await
     }
 }
 
@@ -75,7 +77,8 @@ async fn sandbox_run(connection: &Connection, request: SandboxRun) -> Result<San
         )
         .map_err(|error| Error::failed(error.to_string()))?
         .with_timeout(Duration::from_secs(30));
-    let tool_invoker = Arc::new(SandboxToolInvoker { proxy }) as Arc<dyn ToolInvoker>;
+    let mock = caps::mock::mock_capabilities().tools;
+    let tool_invoker = Arc::new(SandboxToolInvoker { proxy, mock }) as Arc<dyn ToolInvoker>;
     let capabilities = caps::mock_schema_aware::sandbox_capabilities(tool_invoker);
     let execution = tinyflows::sandbox::execute(
         &graph,
