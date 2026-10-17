@@ -135,13 +135,13 @@ pub mod callbacks {
     pub const DUE_JOBS_EXCLUDING: &str = "DueJobsExcluding";
     /// `(captured_job, owner, now, lease_ms) -> Option<OccurrenceClaim>`.
     pub const CLAIM_DUE_OCCURRENCE: &str = "ClaimDueOccurrence";
-    /// `(job, owner, now, lease_ms) -> Option<OccurrenceClaim>`; manual force-run.
+    /// `(job, owner, now, lease_ms) -> ManualClaimReply`; manual force-run.
     pub const CLAIM_MANUAL_OCCURRENCE: &str = "ClaimManualOccurrence";
     /// `(receipt, now, lease_ms) -> bool`.
     pub const RENEW_OCCURRENCE: &str = "RenewOccurrence";
     /// `(receipt, now) -> bool`.
     pub const RELEASE_OCCURRENCE: &str = "ReleaseOccurrence";
-    /// `(receipt, record) -> ()`; durable queued history before acknowledgement.
+    /// `(receipt, record) -> bool`; durable queued history before acknowledgement.
     pub const QUEUE_OCCURRENCE: &str = "QueueOccurrence";
     /// `(receipt, record, completion) -> bool`; atomic terminal commit.
     pub const COMPLETE_OCCURRENCE: &str = "CompleteOccurrence";
