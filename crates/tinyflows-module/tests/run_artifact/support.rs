@@ -463,3 +463,9 @@ pub(super) fn request(
         timeout_ms,
     }
 }
+
+pub(super) async fn wait_notify(notify: &Notify, boundary: &str) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), notify.notified())
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {boundary}"));
+}

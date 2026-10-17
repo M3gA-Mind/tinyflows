@@ -100,9 +100,3 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
         None
     );
 }
-
-async fn wait_notify(notify: &Notify, boundary: &str) {
-    tokio::time::timeout(std::time::Duration::from_secs(10), notify.notified())
-        .await
-        .unwrap_or_else(|_| panic!("timed out waiting for {boundary}"));
-}
