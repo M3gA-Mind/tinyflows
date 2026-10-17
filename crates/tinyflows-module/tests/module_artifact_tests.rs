@@ -423,11 +423,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         *state.triggers.lock().unwrap(),
         ["artifact-flow", "stored-flow"]
     );
-    let trigger_jobs = state.trigger_jobs.lock().unwrap();
-    assert_eq!(trigger_jobs[0]["id"], "artifact-flow-job");
-    assert_eq!(trigger_jobs[0]["command"], "artifact-flow");
-    assert_eq!(trigger_jobs[1]["id"], id);
-    assert_eq!(trigger_jobs[1]["command"], "stored-flow");
+    schedule_v4_artifact::verify_captured_triggers(&state, id);
     assert_eq!(
         state.records.lock().unwrap().len(),
         1,

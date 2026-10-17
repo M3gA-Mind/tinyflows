@@ -8,6 +8,14 @@ use tinybus::Proxy;
 use tinyflows_bus::schedule::CallbackAddress;
 use tinystoragedrivers_core::DocumentStore;
 
+pub fn verify_captured_triggers(state: &callbacks::State, stored_job_id: &str) {
+    let jobs = state.trigger_jobs.lock().unwrap();
+    assert_eq!(jobs[0]["id"], "artifact-flow-job");
+    assert_eq!(jobs[0]["command"], "artifact-flow");
+    assert_eq!(jobs[1]["id"], stored_job_id);
+    assert_eq!(jobs[1]["command"], "stored-flow");
+}
+
 pub async fn verify(
     proxy: &Proxy,
     docs: Arc<dyn DocumentStore>,
