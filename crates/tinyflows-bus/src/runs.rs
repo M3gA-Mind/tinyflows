@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::catalog::CatalogStorage;
 
 mod caps_agent_types;
 mod caps_types;
