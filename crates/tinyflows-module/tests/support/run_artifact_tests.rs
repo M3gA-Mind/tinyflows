@@ -94,7 +94,25 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .unwrap();
     assert_eq!(started.run_id, run_id);
     assert!(!started.already_running);
-    wait_notify(&alice_agent.started, "alice agent start").await;
+    if tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        alice_agent.started.notified(),
+    )
+    .await
+    .is_err()
+    {
+        let row: Option<catalog::FlowRun> = catalog_proxy
+            .call(
+                "GetRun",
+                (RunIdRequest {
+                    storage: alice.storage.clone(),
+                    id: run_id.into(),
+                },),
+            )
+            .await
+            .unwrap();
+        panic!("alice agent never started; persisted row: {row:?}");
+    }
     let live_graph =
         poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
     assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
