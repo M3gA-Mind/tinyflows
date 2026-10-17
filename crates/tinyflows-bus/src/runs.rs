@@ -49,6 +49,10 @@ pub mod methods {
     pub const SANDBOX_RUN: &str = "SandboxRun";
 }
 
+/// Maximum execution duration for a resumed segment is selected by the host;
+/// the module rejects a zero budget exactly as `StartRun` does.
+pub const MIN_TIMEOUT_MS: u64 = 1;
+
 /// Interface the host serves so the module can reach every host capability.
 pub const CAPS_INTERFACE: &str = "ai.tinyhumans.tinyflows.CapsHost";
 /// Version of the host-served capability callback contract.

@@ -6,11 +6,14 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tinyflows::{
-    engine::{Checkpointer as _, RunInput, run_cancellable_with_checkpointer_journaled_observed},
+    engine::{
+        Checkpointer as _, RunInput, resume_with_checkpointer_journaled_observed,
+        run_cancellable_with_checkpointer_journaled_observed,
+    },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::runs::{RunContext, StartRun};
-use tinyflows_catalog::run_summary;
+use tinyflows_bus::runs::{ResumeRun, RunContext, StartRun};
+use tinyflows_catalog::{FlowRunStep, run_summary};
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tokio::time::sleep;
 
@@ -26,17 +29,65 @@ pub(super) async fn drive(
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
 ) {
+    drive_inner(connection, request, prepared, active, admitted, Continuation::Start).await;
+}
+
+pub(super) async fn drive_resume(
+    connection: tinybus::Connection,
+    request: StartRun,
+    prepared: Prepared,
+    active: Arc<ActiveRun>,
+    resume: ResumeRun,
+    previous_steps: Vec<FlowRunStep>,
+) {
+    drive_inner(
+        connection,
+        request,
+        prepared,
+        active,
+        tokio::sync::oneshot::channel().1,
+        Continuation::Resume {
+            approvals: resume.approvals,
+            rejections: resume.rejections,
+            previous_steps,
+        },
+    )
+    .await;
+}
+
+enum Continuation {
+    Start,
+    Resume {
+        approvals: Vec<String>,
+        rejections: Vec<String>,
+        previous_steps: Vec<FlowRunStep>,
+    },
+}
+
+async fn drive_inner(
+    connection: tinybus::Connection,
+    request: StartRun,
+    prepared: Prepared,
+    active: Arc<ActiveRun>,
+    admitted: tokio::sync::oneshot::Receiver<()>,
+    continuation: Continuation,
+) {
     let _ = admitted.await;
-    let writer = EventWriter::new(prepared.catalog.clone(), request.run_id.clone());
+    let initial_seq = prepared
+        .catalog
+        .flow_run_event_last_seq(&request.run_id)
+        .await
+        .unwrap_or_default();
+    let writer = EventWriter::new(prepared.catalog.clone(), request.run_id.clone(), initial_seq);
+    let previous_steps = match &continuation {
+        Continuation::Start => Vec::new(),
+        Continuation::Resume { previous_steps, .. } => previous_steps.clone(),
+    };
     writer.emit(
-        "started",
-        json!({
-            "flow_id": request.context.flow_id,
-            "trigger_kind": request.trigger_kind,
-            "origin": request.context.origin,
-        }),
+        if matches!(&continuation, Continuation::Start) { "started" } else { "resumed" },
+        json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
     );
-    let observer = Arc::new(Observer::new(writer.clone()));
+    let observer = Arc::new(Observer::new(writer.clone(), previous_steps));
     let capabilities = CapsHostPorts::capabilities_with_progress(
         connection,
         request.caps_host.clone(),
@@ -48,7 +99,9 @@ pub(super) async fn drive(
     )
     .await;
     let (result, timed_out) = match capabilities {
-        Ok(capabilities) => execute(&request, &prepared, &capabilities, &active, &observer).await,
+        Ok(capabilities) => {
+            execute(&request, &prepared, &capabilities, &active, &observer, &continuation).await
+        }
         Err(error) => (
             Err(anyhow::anyhow!("building run capabilities: {error}")),
             false,
@@ -205,28 +258,46 @@ async fn execute(
     capabilities: &tinyflows::caps::Capabilities,
     active: &ActiveRun,
     observer: &Arc<Observer>,
+    continuation: &Continuation,
 ) -> (
     Result<(tinyflows::engine::RunOutcome, Option<String>)>,
     bool,
 ) {
-    let input = RunInput::new(request.trigger_data.clone())
-        .with_inputs(prepared.inputs.clone())
-        .with_run_id(request.run_id.clone())
-        .with_approvals(Vec::new());
     let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
     let journal = observer.graph_journal();
-    let run = run_cancellable_with_checkpointer_journaled_observed(
-        &prepared.compiled,
-        input,
-        capabilities,
-        tinyflows::engine::JournaledRunOptions {
-            token: active.token.clone(),
-            checkpointer: Arc::new(prepared.checkpointer.clone()),
-            thread_id: request.run_id.clone(),
-            journal,
-        },
-        &observer_dyn,
-    );
+    let checkpointer = Arc::new(prepared.checkpointer.clone());
+    let run = match continuation {
+        Continuation::Start => {
+            let input = RunInput::new(request.trigger_data.clone())
+                .with_inputs(prepared.inputs.clone())
+                .with_run_id(request.run_id.clone())
+                .with_approvals(Vec::new());
+            run_cancellable_with_checkpointer_journaled_observed(
+                &prepared.compiled,
+                input,
+                capabilities,
+                tinyflows::engine::JournaledRunOptions {
+                    token: active.token.clone(),
+                    checkpointer,
+                    thread_id: request.run_id.clone(),
+                    journal,
+                },
+                &observer_dyn,
+            )
+        }
+        Continuation::Resume { approvals, rejections, .. } => {
+            resume_with_checkpointer_journaled_observed(
+                &prepared.compiled,
+                capabilities,
+                checkpointer,
+                &request.run_id,
+                approvals.clone(),
+                rejections.clone(),
+                journal,
+                &observer_dyn,
+            )
+        }
+    };
     tokio::pin!(run);
     let timeout = Duration::from_millis(request.timeout_ms);
     let (result, timed_out) = tokio::select! {

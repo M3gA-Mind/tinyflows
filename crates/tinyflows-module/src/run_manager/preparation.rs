@@ -80,6 +80,7 @@ impl Prepared {
             "inputs": self.inputs,
             "context": request.context,
             "require_approval": self.require_approval,
+            "timeout_ms": request.timeout_ms,
             "lease": lease,
         });
         self.catalog
