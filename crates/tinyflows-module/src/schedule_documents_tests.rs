@@ -186,7 +186,8 @@ fn shared_tsd_collections_admit_only_cron_keys_and_no_scans() {
     assert!(Documents::validate_record("tsd.leases", "flows/x").is_err());
     assert!(Documents::validate_record("tsd.counters", "~hashed").is_err());
     assert!(Documents::validate_record("cron.jobs", "anything").is_ok());
-    assert!(Documents::validate_record("tsd.migrations", "cron/jobs/jobs_v2").is_ok());
+    assert!(Documents::validate_record("tsd.migrations", "cron/cron.jobs/jobs_v2").is_ok());
+    assert!(Documents::validate_record("tsd.migrations", "cron/other/step").is_err());
     assert!(Documents::validate_record("tsd.migrations", "flows/jobs/jobs_v2").is_err());
     assert!(Documents::validate_set("tsd.migrations").is_err());
     assert!(Documents::validate_set("tsd.leases").is_err());
