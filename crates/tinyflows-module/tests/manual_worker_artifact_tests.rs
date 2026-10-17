@@ -116,6 +116,11 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     });
     canceled_waiter.abort();
     callback_state.execute_started.notified().await;
+    assert_eq!(
+        documents.list_runs(&job.id, 10).await.unwrap()[0].status,
+        "queued",
+        "Running is reported only after durable queue admission"
+    );
 
     let retry_after_lost_reply: ManualRunState =
         schedule.call("StartManualRun", &start).await.unwrap();
@@ -174,6 +179,10 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     let renewed: tinyflows_bus::schedule::ManualRunHandle =
         schedule.call("PrepareManualRun", &prepare).await.unwrap();
     assert_ne!(renewed.token, handle.token);
+    assert!(schedule
+        .call::<ManualRunState>("StartManualRun", &start)
+        .await
+        .is_err(), "fresh request-id generation cannot revive the old handle");
     callback_state
         .defer_execute
         .store(false, std::sync::atomic::Ordering::SeqCst);

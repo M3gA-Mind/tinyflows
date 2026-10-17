@@ -266,6 +266,13 @@ async fn run_manual_worker_body(
         request.run_id
     };
     let owner = uuid::Uuid::new_v4().to_string();
+    *claim_slot.lock().await = Some(HeldClaim::Claiming {
+        job: request.job.clone(),
+        owner: owner.clone(),
+        run_id: Some(run_id.clone()),
+        store: ports.store.clone(),
+        clock: ports.clock.clone(),
+    });
     let mut claim = match ports
         .store
         .claim_manual_occurrence(
@@ -278,11 +285,12 @@ async fn run_manual_worker_body(
     {
         Ok(claim) => claim,
         Err(reason) => {
+            claim_slot.lock().await.take();
             return Ok(ManualRunOutcome::Refused { run_id, reason });
         }
     };
     claim.run_id = Some(run_id.clone());
-    *claim_slot.lock().await = Some(HeldClaim {
+    *claim_slot.lock().await = Some(HeldClaim::Claimed {
         claim: claim.clone(),
         store: ports.store.clone(),
         clock: ports.clock.clone(),
@@ -335,31 +343,72 @@ async fn run_manual_worker_body(
     }
 }
 
-async fn release_until_safe(entry: &ManualWorkerEntry, held: HeldClaim) {
+async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
     let mut delay = Duration::from_millis(250);
     loop {
-        match held
-            .store
-            .release_occurrence(&held.claim, held.clock.now())
-            .await
-        {
-            Ok(_) => return,
-            Err(error) => {
-                entry.set_state(ManualRunState::CleanupPending {
-                    run_id: held.claim.run_id.clone(),
-                });
-                tracing::warn!(%error, run_id = ?held.claim.run_id, "manual worker claim release will retry");
-                held.clock.sleep(delay).await;
-                delay = delay.saturating_mul(2).min(Duration::from_secs(30));
+        match held {
+            HeldClaim::Claiming {
+                job,
+                owner,
+                run_id,
+                store,
+                clock,
+            } => match store
+                .find_owned_manual_claim(&job, &owner, clock.now())
+                .await
+            {
+                Ok(Some(mut claim)) => {
+                    claim.run_id = run_id;
+                    held = HeldClaim::Claimed { claim, store, clock };
+                }
+                Ok(None) => return,
+                Err(error) => {
+                    entry.set_state(ManualRunState::CleanupPending {
+                        run_id: run_id.clone(),
+                    });
+                    tracing::warn!(%error, "manual claim admission reconciliation will retry");
+                    clock.sleep(delay).await;
+                    delay = delay.saturating_mul(2).min(Duration::from_secs(30));
+                    held = HeldClaim::Claiming {
+                        job,
+                        owner,
+                        run_id,
+                        store,
+                        clock,
+                    };
+                }
+            },
+            HeldClaim::Claimed { claim, store, clock } => {
+                match store.release_occurrence(&claim, clock.now()).await {
+                    Ok(_) => return,
+                    Err(error) => {
+                        entry.set_state(ManualRunState::CleanupPending {
+                            run_id: claim.run_id.clone(),
+                        });
+                        tracing::warn!(%error, run_id = ?claim.run_id, "manual worker claim release will retry");
+                        clock.sleep(delay).await;
+                        delay = delay.saturating_mul(2).min(Duration::from_secs(30));
+                        held = HeldClaim::Claimed { claim, store, clock };
+                    }
+                }
             }
         }
     }
 }
 
-struct HeldClaim {
-    claim: tinyflows_bus::schedule::OccurrenceClaim,
-    store: std::sync::Arc<dyn JobStore>,
-    clock: std::sync::Arc<dyn Clock>,
+enum HeldClaim {
+    Claiming {
+        job: tinyflows_bus::schedule::CronJob,
+        owner: String,
+        run_id: Option<String>,
+        store: std::sync::Arc<dyn JobStore>,
+        clock: std::sync::Arc<dyn Clock>,
+    },
+    Claimed {
+        claim: tinyflows_bus::schedule::OccurrenceClaim,
+        store: std::sync::Arc<dyn JobStore>,
+        clock: std::sync::Arc<dyn Clock>,
+    },
 }
 
 #[cfg(test)]
