@@ -245,8 +245,8 @@ async fn legacy_scheduler_advance_before_execution_fails_the_same_recovery_asser
             true,
         )
         .await,
-        1,
-        "the same final recovery assertion must fail on the legacy recurrence path"
+        0,
+        "the legacy Scheduler claim_slot path advances the same recurrence away before execution"
     );
     assert_eq!(
         interrupted_occurrence_recovery_count(
@@ -256,7 +256,7 @@ async fn legacy_scheduler_advance_before_execution_fails_the_same_recovery_asser
             true,
         )
         .await,
-        1,
-        "the same final recovery assertion must fail on the legacy one-shot path"
+        0,
+        "the legacy Scheduler claim_slot path disables the same one-shot before execution"
     );
 }
