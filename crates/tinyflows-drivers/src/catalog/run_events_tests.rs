@@ -60,15 +60,30 @@ async fn run_event_retry_is_idempotent_and_sequence_gaps_are_rejected() {
         .append_flow_run_event("event-run", event)
         .await
         .unwrap();
+    assert!(catalog
+        .append_flow_run_event("event-run", json!({"seq":1,"kind":"conflict"}))
+        .await
+        .is_err());
+    catalog
+        .append_flow_run_event("event-run", json!({"seq":2,"kind":"step","data":{}}))
+        .await
+        .unwrap();
+    catalog
+        .append_flow_run_event(
+            "event-run",
+            json!({"seq":1,"kind":"step","data":{}}),
+        )
+        .await
+        .unwrap();
     assert!(
         catalog
-            .append_flow_run_event("event-run", json!({"seq":3,"kind":"step"}))
+            .append_flow_run_event("event-run", json!({"seq":4,"kind":"step"}))
             .await
             .is_err()
     );
     assert_eq!(
         catalog.flow_run_event_last_seq("event-run").await.unwrap(),
-        1
+        2
     );
 }
 
@@ -106,7 +121,7 @@ async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
     catalog
         .append_flow_run_event(
             "event-run",
-            json!({"seq":1,"kind":"finished","data":{"status":"completed"}}),
+            json!({"seq":1,"kind":"step","data":{"status":"completed"}}),
         )
         .await
         .unwrap();
@@ -119,8 +134,21 @@ async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
         "the event itself must be durable before its terminal marker"
     );
     assert!(
-        catalog
+        !catalog
             .mark_flow_run_terminal_event("event-run", 1)
+            .await
+            .unwrap()
+    );
+    catalog
+        .append_flow_run_event(
+            "event-run",
+            json!({"seq":2,"kind":"finished","data":{"status":"completed"}}),
+        )
+        .await
+        .unwrap();
+    assert!(
+        catalog
+            .mark_flow_run_terminal_event("event-run", 2)
             .await
             .unwrap()
     );
@@ -129,6 +157,6 @@ async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
             .flow_run_terminal_event_seq("event-run")
             .await
             .unwrap(),
-        Some(1)
+        Some(2)
     );
 }
