@@ -412,7 +412,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         )
         .await
         .unwrap();
-    assert_eq!(history[0]["status"], "success");
+    assert_eq!(history[0]["status"], "ok");
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
     assert_eq!(
         stored.doc["claim_generation"], 1,

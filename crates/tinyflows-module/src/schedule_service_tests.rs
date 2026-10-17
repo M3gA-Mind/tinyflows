@@ -175,7 +175,7 @@ async fn run_job_now_is_a_typed_module_owned_admission_operation() {
     assert_eq!(after.delete_after_run, job.delete_after_run);
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].status, "success");
+    assert_eq!(history[0].status, "ok");
     assert_eq!(history[0].delivery_status, None);
 }
 

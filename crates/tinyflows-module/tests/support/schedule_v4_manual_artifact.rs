@@ -75,7 +75,7 @@ pub async fn verify(
     assert_eq!(after.delete_after_run, saved.delete_after_run);
     let history = store.list_runs(&saved.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].status, "success");
+    assert_eq!(history[0].status, "ok");
     assert_eq!(history[0].delivery_status, None);
     assert!(state
         .executions

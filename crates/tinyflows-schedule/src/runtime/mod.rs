@@ -106,6 +106,9 @@ impl Scheduler {
         let mut selected = Vec::new();
         loop {
             for job in batch {
+                if selected.len() >= limit {
+                    break;
+                }
                 examined.push(job.id.clone());
                 if let Some(claim) = self
                     .ports
@@ -121,7 +124,7 @@ impl Scheduler {
                     selected.push(claim);
                 }
             }
-            if selected.len() == limit {
+            if selected.len() >= limit {
                 break;
             }
             batch = self
@@ -175,8 +178,8 @@ impl Scheduler {
             let ports = self.ports.clone();
             let config = self.config.clone();
             let cancellation = self.cancellation.subscribe();
+            let permits = Arc::clone(&self.permits);
             self.tasks.spawn(async move {
-                let _permit = permits.acquire_owned().await?;
                 run_claim_with_renewal(&ports, &config, claim, delivery, true, cancellation)
                     .await
                     .map(|_| ())
@@ -186,7 +189,7 @@ impl Scheduler {
         Ok(count)
     }
 
-    /// Execute and terminally persist a previously admitted manual run.
+    /// Execute a previously admitted manual run without occupying a poll-loop permit.
     pub async fn run_manual_claim(
         &self,
         claim: OccurrenceClaim,
@@ -198,9 +201,17 @@ impl Scheduler {
             claim,
             delivery,
             false,
+            None,
             self.cancellation.subscribe(),
         )
         .await
+    }
+                    .await
+                    .map(|_| ())
+            });
+            count += 1;
+        }
+        Ok(count)
     }
 
     /// Wait for every dispatched job, returning persistence or task failures.

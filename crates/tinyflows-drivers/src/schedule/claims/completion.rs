@@ -94,7 +94,7 @@ impl CronDocuments {
                 Some(&claim.lease.incarnation),
                 claim.lease.started_at,
                 finished_at,
-                if success { "success" } else { "error" },
+                if success { "ok" } else { "error" },
                 Some(truncate_cron_output(output)),
                 (finished_at - claim.lease.started_at).num_milliseconds(),
                 delivery_status.as_ref(),

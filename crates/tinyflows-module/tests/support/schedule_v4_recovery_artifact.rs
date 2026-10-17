@@ -78,7 +78,7 @@ pub async fn verify(
         .unwrap());
     let history = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].status, "success");
+    assert_eq!(history[0].status, "ok");
     assert_eq!(
         state.executions.lock().unwrap().len(),
         executions_before + 1
