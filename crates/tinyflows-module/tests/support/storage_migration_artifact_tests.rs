@@ -1,8 +1,101 @@
 use serde_json::{Value, json};
 use std::sync::{Arc, atomic::AtomicBool};
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
+use tinyflows_bus::catalog::{
+    CallbackAddress, CatalogStorage, GetRevisionRequest, ListRevisionsRequest, ListWorkflowsResult,
+    Workflow, WorkflowRevision,
+};
 use tinyflows_drivers::schedule::CronDocuments;
-use tinystoragedrivers_core::{MemoryStorage, Precondition, Scope, StorageBackend};
+use tinystoragedrivers_core::{
+    CollectionSpec, DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend, WriteOptions,
+};
+
+struct CatalogCallback(Arc<dyn DocumentStore>);
+
+fn catalog_reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
+    match result {
+        Ok(value) => json!({"value":serde_json::to_value(value).unwrap()}),
+        Err(error) => json!({"error":{"kind":error.kind().to_string().replace(' ', "_"),"message":error.to_string()}}),
+    }
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
+impl CatalogCallback {
+    async fn doc_capabilities(&self) -> tinybus::Result<Value> {
+        Ok(json!({"value":{"record_metadata":true}}))
+    }
+
+    async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(catalog_reply(
+            self.0
+                .ensure_collection(&serde_json::from_value(request["spec"].clone()).unwrap())
+                .await,
+        ))
+    }
+
+    async fn doc_get(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(catalog_reply(
+            self.0
+                .get(request["collection"].as_str().unwrap(), request["id"].as_str().unwrap())
+                .await,
+        ))
+    }
+
+    async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        let mut options = WriteOptions::new();
+        if let Some(created_ms) = request["created_ms"].as_i64() {
+            options = options.created_ms(created_ms);
+        }
+        if let Some(schema) = request["schema"].as_u64() {
+            options = options.schema(u32::try_from(schema).unwrap_or(0));
+        }
+        Ok(catalog_reply(
+            self.0
+                .put_with(
+                    request["collection"].as_str().unwrap(),
+                    request["id"].as_str().unwrap(),
+                    request["doc"].clone(),
+                    serde_json::from_value(request["precondition"].clone()).unwrap(),
+                    options,
+                )
+                .await,
+        ))
+    }
+
+    async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(catalog_reply(
+            self.0
+                .delete(
+                    request["collection"].as_str().unwrap(),
+                    request["id"].as_str().unwrap(),
+                    serde_json::from_value(request["precondition"].clone()).unwrap(),
+                )
+                .await,
+        ))
+    }
+
+    async fn doc_query(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(catalog_reply(
+            self.0
+                .query(
+                    request["collection"].as_str().unwrap(),
+                    &serde_json::from_value(request["query"].clone()).unwrap(),
+                )
+                .await,
+        ))
+    }
+
+    async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
+        Ok(catalog_reply(
+            self.0
+                .delete_where(
+                    request["collection"].as_str().unwrap(),
+                    &serde_json::from_value(request["filter"].clone()).unwrap(),
+                )
+                .await,
+        ))
+    }
+}
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]

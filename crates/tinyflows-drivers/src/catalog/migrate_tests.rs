@@ -3,7 +3,7 @@ use crate::catalog::FlowCatalogDocuments;
 use serde_json::json;
 use tinystoragedrivers_core::{
     DocumentStoreExt, MemoryStorage, MigrateOptions, Precondition, Query, Registry, Scope,
-    ScopedStorage, StorageBackend,
+    ScopedStorage, StorageBackend, WriteOptions,
 };
 
 fn scoped() -> ScopedStorage {
@@ -14,6 +14,26 @@ async fn seed(storage: &ScopedStorage, collection: &str, id: &str, body: Value) 
     storage
         .documents()
         .put(collection, id, body, Precondition::None)
+        .await
+        .unwrap();
+}
+
+async fn seed_with_created_ms(
+    storage: &ScopedStorage,
+    collection: &str,
+    id: &str,
+    body: Value,
+    created_ms: i64,
+) {
+    storage
+        .documents()
+        .put_with(
+            collection,
+            id,
+            body,
+            Precondition::None,
+            WriteOptions::new().created_ms(created_ms),
+        )
         .await
         .unwrap();
 }
@@ -265,4 +285,29 @@ async fn v1_records_missing_their_json_field_are_carried_not_dropped() {
             "{collection}/{id} must survive the migration"
         );
     }
+}
+
+#[tokio::test]
+async fn catalog_migration_preserves_source_record_metadata_without_body_timestamps() {
+    let storage = scoped();
+    let created_ms = 1_700_000_123_456_i64;
+    seed_with_created_ms(
+        &storage,
+        "flows_revisions",
+        "legacy-revision",
+        json!({"flow_id":"legacy-flow","name":"old","graph_json":"{}","require_approval":false}),
+        created_ms,
+    )
+    .await;
+
+    migrate(&storage).await;
+
+    let revision = storage
+        .documents()
+        .get("flows.revisions", "legacy-revision")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(revision.doc["created_ms"], created_ms);
+    assert_eq!(revision.meta.created_ms, created_ms);
 }

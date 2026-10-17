@@ -103,6 +103,11 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
             expires_ms: None,
         },
     });
+    let legacy_read: CatalogVersionedDocument = serde_json::from_value(json!({
+        "id":"old", "version":1, "doc":{}
+    }))
+    .unwrap();
+    assert_eq!(legacy_read.meta, CatalogDocumentMeta::default());
     wire_round_trip(CatalogDocumentCursor("cursor-token".into()));
     for filter in [
         CatalogFilter::All,
