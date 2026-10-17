@@ -103,6 +103,31 @@ fn malformed_fields_are_errors() {
 }
 
 #[test]
+fn run_history_identity_roundtrips_and_legacy_rows_remain_valid() {
+    let now = Utc::now();
+    let run = run_to_doc(
+        1,
+        "job",
+        Some("invocation-1"),
+        None,
+        now,
+        now,
+        "ok",
+        None,
+        0,
+        None,
+    );
+    assert_eq!(
+        doc_to_run(&stored(run.clone())).unwrap().run_id.as_deref(),
+        Some("invocation-1")
+    );
+
+    let mut legacy = run;
+    legacy.as_object_mut().unwrap().remove("run_id");
+    assert_eq!(doc_to_run(&stored(legacy)).unwrap().run_id, None);
+}
+
+#[test]
 fn run_ids_sort_as_numbers() {
     assert!(run_id(9) < run_id(10));
     assert_eq!(run_id(1).len(), 20);
