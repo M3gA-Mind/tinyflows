@@ -117,12 +117,19 @@ pub(super) async fn cancel_parked(
         &run.thread_id,
     )
     .await?;
-    writer
+    let seq = writer
         .emit_terminal(
             "finished",
             serde_json::json!({"status":"cancelled","error":"parked run cancelled"}),
         )
         .await?;
+    if !prepared
+        .catalog
+        .mark_flow_run_terminal_event(run_id, seq)
+        .await?
+    {
+        anyhow::bail!("parked cancellation terminal cursor was not committed")
+    }
     Ok(true)
 }
 
@@ -173,5 +180,8 @@ async fn append_cancelled_event(
             })?,
         )
         .await?;
+    if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
+        anyhow::bail!("cancellation terminal cursor was not committed")
+    }
     Ok(())
 }

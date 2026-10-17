@@ -9,7 +9,6 @@ use tinybus::Connection;
 use tinyflows::{
     caps::WorkflowResolver,
     compiler::{self, CompiledWorkflow},
-    engine::InMemoryGraphEventJournal,
     error::{EngineError, Result as EngineResult},
     model::{WorkflowGraph, resolve_inputs},
 };
@@ -23,7 +22,6 @@ pub(super) struct Prepared {
     pub catalog: FlowCatalogDocuments,
     pub compiled: CompiledWorkflow,
     pub inputs: Map<String, Value>,
-    pub journal: Arc<InMemoryGraphEventJournal>,
     pub checkpointer: DriverCheckpointer<Value>,
     pub require_approval: bool,
 }
@@ -67,7 +65,6 @@ pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Resu
         catalog,
         compiled,
         inputs: request.inputs.clone(),
-        journal: Arc::new(InMemoryGraphEventJournal::new()),
         checkpointer: DriverCheckpointer::new(document_port),
         require_approval: saved.require_approval,
     })

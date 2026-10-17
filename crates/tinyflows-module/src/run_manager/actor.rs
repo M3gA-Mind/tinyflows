@@ -6,10 +6,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tinyflows::{
-    engine::{
-        Checkpointer as _, GraphEventJournal, RunInput,
-        run_cancellable_with_checkpointer_journaled_observed,
-    },
+    engine::{Checkpointer as _, RunInput, run_cancellable_with_checkpointer_journaled_observed},
     nodes::control_flow::dedup_settle,
 };
 use tinyflows_bus::runs::{RunContext, StartRun};
@@ -69,18 +66,6 @@ pub(super) async fn drive(
         }
         Err(error) => {
             failure = Some(error.to_string());
-        }
-    }
-    if let Some(graph_id) = graph_run_id.as_deref() {
-        match prepared.journal.read_from(graph_id, 0).await {
-            Ok(observations) => {
-                for observation in &observations {
-                    writer.graph_observation(observation);
-                }
-            }
-            Err(error) => {
-                tracing::warn!(%error, run_id = %request.run_id, "reading graph observations")
-            }
         }
     }
     if let Some(error) = writer.flush().await {
@@ -174,14 +159,25 @@ pub(super) async fn drive(
     if cancelled || timed_out {
         delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
     }
-    if let Err(error) = writer
+    match writer
         .emit_terminal(
             "finished",
             json!({"status":status,"error":error_text,"graph_run_id":graph_run_id}),
         )
         .await
     {
-        tracing::error!(%error, run_id = %request.run_id, "persisting terminal run event");
+        Ok(seq) => match prepared
+            .catalog
+            .mark_flow_run_terminal_event(&request.run_id, seq)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => tracing::error!(run_id = %request.run_id, "terminal event cursor was not committed"),
+            Err(error) => tracing::error!(%error, run_id = %request.run_id, "committing terminal event cursor"),
+        },
+        Err(error) => {
+            tracing::error!(%error, run_id = %request.run_id, "persisting terminal run event");
+        }
     }
     if let Some(error) = writer.flush().await {
         tracing::error!(%error, run_id = %request.run_id, "terminal event drain failed");
@@ -201,6 +197,7 @@ async fn execute(
         .with_run_id(request.run_id.clone())
         .with_approvals(Vec::new());
     let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
+    let journal = observer.graph_journal();
     let run = run_cancellable_with_checkpointer_journaled_observed(
         &prepared.compiled,
         input,
@@ -208,7 +205,7 @@ async fn execute(
         active.token.clone(),
         Arc::new(prepared.checkpointer.clone()),
         &request.run_id,
-        prepared.journal.clone(),
+        journal,
         &observer_dyn,
     );
     tokio::pin!(run);
