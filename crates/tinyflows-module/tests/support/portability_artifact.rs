@@ -46,6 +46,39 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         "trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED",
         "inputs":{"literal":"=value"}
     }}],"edges":[]});
+    let schedule_graph = json!({"name":"schedule","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
+        "trigger_kind":"schedule","schedule":{"kind":"every","every_ms":60000}
+    }}],"edges":[]});
+    let trigger_details: Value = proxy
+        .call("DescribeTrigger", (json!({"graph":schedule_graph}),))
+        .await
+        .expect("compiled module should describe a schedule trigger");
+    assert_eq!(trigger_details["kind"], "schedule");
+    assert_eq!(trigger_details["schedule"], json!({"kind":"every","every_ms":60000}));
+
+    for graph in [
+        json!({"nodes":[],"edges":[]}),
+        json!({"nodes":[
+            {"id":"t1","name":"T1","kind":"trigger","config":{"trigger_kind":"schedule","schedule":{"kind":"at","at":"2027-01-01T00:00:00Z"}}},
+            {"id":"t2","name":"T2","kind":"trigger","config":{"trigger_kind":"manual"}}
+        ],"edges":[]}),
+    ] {
+        let details: Value = proxy
+            .call("DescribeTrigger", (json!({"graph":graph}),))
+            .await
+            .expect("missing or ambiguous trigger metadata should be a safe absence");
+        assert!(details["kind"].is_null());
+        assert!(details["schedule"].is_null());
+    }
+
+    let malformed_schedule = json!({"nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
+        "trigger_kind":"schedule","schedule":{"kind":"every","every_ms":"soon"}
+    }}],"edges":[]});
+    assert!(proxy
+        .call::<Value>("DescribeTrigger", (json!({"graph":malformed_schedule}),))
+        .await
+        .is_err(), "malformed schedule metadata must fail closed");
+
     let matches: bool = proxy
         .call(
             "AppEventBinding",

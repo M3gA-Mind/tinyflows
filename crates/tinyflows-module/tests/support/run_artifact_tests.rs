@@ -307,7 +307,18 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         alice_poll.events.last().unwrap().data["status"],
         "cancelled"
     );
+    assert_eq!(
+        alice_poll.events.last().unwrap().data["successful"],
+        false,
+        "cancelled terminal event is authoritative non-success"
+    );
     assert!(bob_poll.events.iter().any(|event| event.kind == "finished"));
+    let bob_finished = bob_poll
+        .events
+        .iter()
+        .find(|event| event.kind == "finished")
+        .expect("completed run has a terminal event");
+    assert_eq!(bob_finished.data["successful"], true);
 
     let alice_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
