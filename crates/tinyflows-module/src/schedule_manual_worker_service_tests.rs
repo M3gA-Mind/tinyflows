@@ -33,6 +33,7 @@ async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_termina
             docs: scoped.documents().clone(),
             fail_claim_reply: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             fail_release_reply: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            fail_completion_before_commit: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
     )
     .await
@@ -150,6 +151,7 @@ async fn release_reply_loss_reports_cleanup_pending_until_retry_confirms_fence()
             docs: scoped.documents().clone(),
             fail_claim_reply: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             fail_release_reply: fail_release.clone(),
+            fail_completion_before_commit: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
     )
     .await

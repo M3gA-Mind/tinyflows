@@ -246,3 +246,116 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     );
 }
 
+#[tokio::test]
+async fn delivery_projection_error_releases_claim_before_failed_terminal() {
+    use tinyflows_bus::schedule::{
+        ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
+        StartManualRun, WaitManualRun,
+    };
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+    let (_server, host, state) = connections().await;
+    state
+        .fail_deliver
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new("manual-delivery-failure").unwrap())
+        .unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let job = documents
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: chrono::Utc::now() + chrono::Duration::hours(1),
+            },
+            "echo delivery failure",
+        )
+        .await
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    let handle: tinyflows_bus::schedule::ManualRunHandle = proxy
+        .call(
+            "PrepareManualRun",
+            &(PrepareManualRun {
+                scope: "manual-delivery-failure".into(),
+                request_id: "deliver-fails".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    proxy
+        .call::<ManualRunState>(
+            "StartManualRun",
+            &(StartManualRun {
+                handle: handle.clone(),
+                request: ManualRunRequest {
+                    callback: callback(),
+                    config: json!({}),
+                    storage: serde_json::from_value(json!({
+                        "backend":{"kind":"documents","callback":{
+                            "destination":"test.ScheduleHost","object_path":"/test/Documents"
+                        }}
+                    }))
+                    .unwrap(),
+                    job: job.clone(),
+                    run_id: "deliver-fails-run".into(),
+                    delivery: ManualDelivery::NotRequested,
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    let mut terminal = None;
+    for _ in 0..10_000 {
+        let current: ManualRunState = proxy
+            .call(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap();
+        if matches!(current, ManualRunState::Terminal { .. }) {
+            terminal = Some(current);
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(
+        terminal,
+        Some(ManualRunState::Terminal {
+            outcome: ManualRunOutcome::Failed { .. }
+        })
+    ));
+    assert!(documents.list_runs(&job.id, 10).await.unwrap().is_empty());
+    let released = documents
+        .claim_job_now(
+            &job,
+            "verify-delivery-release",
+            chrono::Utc::now(),
+            chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap()
+        .expect("Failed is terminal only after cleanup releases the claim");
+    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert_eq!(*state.executions.lock().await, ["deliver-fails-run"]);
+}
+

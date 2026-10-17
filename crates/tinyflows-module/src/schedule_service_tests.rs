@@ -10,6 +10,7 @@ pub(super) struct State {
     defer_execute: std::sync::atomic::AtomicBool,
     execute_started: tokio::sync::Notify,
     execute_release: tokio::sync::Notify,
+    fail_deliver: std::sync::atomic::AtomicBool,
 }
 struct Callbacks(Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
@@ -45,6 +46,13 @@ impl Callbacks {
         Ok("not_requested".into())
     }
     async fn deliver(&self, _projection: Value) -> Result<()> {
+        if self
+            .0
+            .fail_deliver
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(tinybus::Error::failed("injected delivery projection error"));
+        }
         Ok(())
     }
     async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {

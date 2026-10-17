@@ -93,6 +93,7 @@ pub struct CommitThenFail {
     pub docs: Arc<dyn DocumentStore>,
     pub fail_claim_reply: Arc<AtomicBool>,
     pub fail_release_reply: Arc<AtomicBool>,
+    pub fail_completion_before_commit: Arc<AtomicBool>,
 }
 
 #[allow(dead_code)]
@@ -116,6 +117,17 @@ impl CommitThenFail {
                         && op["doc"].get("completed_occurrence").is_none()
                 })
             });
+        let completion_commit = request["op"] == "atomic_batch"
+            && request["ops"].as_array().is_some_and(|ops| {
+                ops.iter().any(|op| {
+                    op["op"] == "put"
+                        && op["collection"] == "cron_jobs"
+                        && op["doc"].get("completed_occurrence").is_some()
+                })
+            });
+        if completion_commit && self.fail_completion_before_commit.swap(false, Ordering::SeqCst) {
+            return Err(tinybus::Error::failed("injected terminal commit failure"));
+        }
         let result = Documents {
             docs: self.docs.clone(),
             conflict_once: Arc::new(AtomicBool::new(false)),
