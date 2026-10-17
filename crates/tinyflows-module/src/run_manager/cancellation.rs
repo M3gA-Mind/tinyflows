@@ -91,7 +91,11 @@ pub(super) async fn cancel_parked_or_stale(
     if !changed {
         return Ok(CancelRunResponse { signalled: false });
     }
-    cancel_snapshot(&catalog, &checkpointer, &request.run_id, &run.thread_id).await?;
+    if let Err(error) =
+        cancel_snapshot(&catalog, &checkpointer, &request.run_id, &run.thread_id).await
+    {
+        tracing::warn!(%error, run_id = %request.run_id, "parked/stale cancellation cleanup failed");
+    }
     append_cancelled_event(&catalog, &request.run_id, error).await?;
     if let Some(active) = active {
         unregister(&active);
@@ -126,13 +130,16 @@ pub(super) async fn cancel_parked(
     if !changed {
         return Ok(false);
     }
-    cancel_snapshot(
+    if let Err(error) = cancel_snapshot(
         &prepared.catalog,
         &prepared.checkpointer,
         run_id,
         &run.thread_id,
     )
-    .await?;
+    .await
+    {
+        tracing::warn!(%error, run_id, "parked cancellation cleanup failed");
+    }
     let seq = writer
         .emit_terminal(
             "finished",
