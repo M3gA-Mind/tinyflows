@@ -274,6 +274,7 @@ async fn read_runs(db: &LegacyDb, report: &mut ImportReport) -> Result<Vec<CronR
             (Ok(started_at), Ok(finished_at)) => runs.push(CronRun {
                 id,
                 job_id,
+                run_id: None,
                 started_at,
                 finished_at,
                 status,

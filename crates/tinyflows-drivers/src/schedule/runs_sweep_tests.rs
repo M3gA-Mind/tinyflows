@@ -16,7 +16,7 @@ async fn run(store: &CronDocuments, job_id: &str) {
 /// removal would leave it.
 async fn orphan(store: &CronDocuments, seq: i64, job_id: &str, incarnation: Option<&str>) {
     let now = Utc::now();
-    let doc = run_to_doc(seq, job_id, incarnation, now, now, "ok", None, 1, None);
+    let doc = run_to_doc(seq, job_id, None, incarnation, now, now, "ok", None, 1, None);
     store
         .docs
         .put(RUNS, &run_id(seq), doc, Precondition::Absent)

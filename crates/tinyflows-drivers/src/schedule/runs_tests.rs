@@ -91,6 +91,7 @@ async fn an_unknown_delivery_status_reads_as_none() {
     let mut doc = run_to_doc(
         1,
         &job.id,
+        None,
         incarnation(&stored.doc),
         Utc::now(),
         Utc::now(),
@@ -342,6 +343,7 @@ async fn a_reused_flow_job_id_does_not_inherit_old_runs() {
             run_to_doc(
                 999,
                 &first.id,
+                None,
                 incarnation(&old.doc),
                 now,
                 now,
