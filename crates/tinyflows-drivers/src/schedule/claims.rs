@@ -187,11 +187,24 @@ impl CronDocuments {
                 return Ok(None);
             };
             let job = doc_to_job(&stored)?;
-            if let Some(lease) = lease(&stored.doc)?
-                && lease.owner == owner
-                && lease.expires_at > now
+            if let Some(current_lease) = lease(&stored.doc)? {
+                if current_lease.owner == owner && current_lease.expires_at > now {
+                    return Ok(Some(ClaimedOccurrence {
+                        job,
+                        lease: current_lease,
+                    }));
+                }
+                if current_lease.expires_at > now {
+                    return Ok(None);
+                }
+            }
+            if job.created_at != expected.created_at
+                || job.claim_generation != expected.claim_generation
+                || !job.same_execution_definition(expected)
+                || job.schedule != expected.schedule
+                || job.next_run != expected.next_run
             {
-                return Ok(Some(ClaimedOccurrence { job, lease }));
+                return Ok(None);
             }
 
             let generation = job
