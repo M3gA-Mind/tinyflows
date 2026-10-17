@@ -213,4 +213,7 @@ pub async fn verify(
         tokio::task::yield_now().await;
     }
     assert!(finished, "queued placeholder is replaced by terminal history");
+    state
+        .defer_execute
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 }
