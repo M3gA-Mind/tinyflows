@@ -163,7 +163,9 @@ fn reply(value: tinystoragedrivers_core::Result<impl Serialize>) -> Value {
 pub(super) struct AgentCallback {
     pub(super) started: Notify,
     pub(super) release: Notify,
+    pub(super) approval_started: Notify,
     pub(super) calls: Arc<AtomicUsize>,
+    pub(super) fail_start: bool,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CapsHost")]
@@ -179,9 +181,27 @@ impl AgentCallback {
         Ok(Vec::new())
     }
 
+    async fn approval_decide(
+        &self,
+        _request: runs::ApprovalRequest,
+    ) -> tinybus::Result<runs::ApprovalOutcome> {
+        self.approval_started.notify_one();
+        Ok(runs::ApprovalOutcome::Pending)
+    }
+
+    async fn approval_cancel(
+        &self,
+        _request: runs::ApprovalCancelRequest,
+    ) -> tinybus::Result<()> {
+        Ok(())
+    }
+
     async fn agent_run(&self, _request: AgentRunRequest) -> tinybus::Result<AgentRunHandle> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.started.notify_one();
+        if self.fail_start {
+            return Err(tinybus::Error::failed("injected agent callback failure"));
+        }
         let _ =
             tokio::time::timeout(std::time::Duration::from_secs(10), self.release.notified()).await;
         Ok(AgentRunHandle {
@@ -308,10 +328,27 @@ pub(super) async fn alias_owner(
 }
 
 pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
+    serve_agent_with_failure(connection, name, false).await
+}
+
+pub(super) async fn serve_failing_agent(
+    connection: &Connection,
+    name: &str,
+) -> Arc<AgentCallback> {
+    serve_agent_with_failure(connection, name, true).await
+}
+
+async fn serve_agent_with_failure(
+    connection: &Connection,
+    name: &str,
+    fail_start: bool,
+) -> Arc<AgentCallback> {
     let callback = Arc::new(AgentCallback {
         started: Notify::new(),
         release: Notify::new(),
+                approval_started: Notify::new(),
         calls: Arc::new(AtomicUsize::new(0)),
+        fail_start,
     });
     let path = format!("/test/caps/{name}");
     connection
@@ -367,6 +404,21 @@ pub(super) fn dedup_graph(node_id: &str) -> Value {
             {"from_node":"trigger","from_port":"main","to_node":node_id,"to_port":"main"},
             {"from_node":node_id,"from_port":"main","to_node":"agent","to_port":"main"},
             {"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}
+        ]
+    })
+}
+
+pub(super) fn parked_graph() -> Value {
+    json!({
+        "inputs":[{"name":"declared","type":"string","required":true}],
+        "nodes":[
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":"dedup","name":"Dedup","kind":"dedup","config":{"key":"=item.id"}},
+            {"id":"approval","name":"Approval","kind":"approval","config":{"request_id":"review-1"}}
+        ],
+        "edges":[
+            {"from_node":"trigger","from_port":"main","to_node":"dedup","to_port":"main"},
+            {"from_node":"dedup","from_port":"main","to_node":"approval","to_port":"main"}
         ]
     })
 }
