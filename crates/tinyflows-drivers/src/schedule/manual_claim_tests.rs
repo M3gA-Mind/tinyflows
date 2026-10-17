@@ -68,4 +68,16 @@ async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
     assert_eq!(history[0].status, "success");
     assert_eq!(history[0].output.as_deref(), Some("ran once"));
     assert_eq!(store.get_job(&job.id).await.unwrap().enabled, false);
+
+    let cancelled_at = now + Duration::seconds(2);
+    let cancelled = store
+        .claim_job_now(&job, "cancelled-manual", cancelled_at, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store.queue_claimed_run(&cancelled, cancelled_at).await.unwrap());
+    assert!(store.release_claim(&cancelled, cancelled_at).await.unwrap());
+    let history = store.list_runs(&job.id, 10).await.unwrap();
+    assert_eq!(history.len(), 1, "release removes its queued placeholder");
+    assert_eq!(history[0].status, "success");
 }
