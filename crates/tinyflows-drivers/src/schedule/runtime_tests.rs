@@ -83,6 +83,7 @@ async fn completed_one_shot_is_disabled_and_successful_auto_delete_is_idempotent
             .unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
@@ -133,6 +134,7 @@ async fn completing_a_one_shot_releases_capacity_under_installed_admission_polic
             .unwrap();
         assert!(store.claim_slot(&job, job.next_run).await.unwrap());
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
@@ -301,6 +303,7 @@ async fn completion_preserves_one_shot_reenabled_during_execution() {
             .await
             .unwrap();
         let completion = Completion {
+            advance_schedule: true,
             remove,
             disable: !remove,
             next_run: None,
