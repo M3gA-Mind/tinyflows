@@ -285,22 +285,22 @@ impl ScheduleService {
         Ok(state)
     }
 
-    async fn wait_manual_run(&self, request: WaitManualRun) -> Result<ManualRunState> {
-        self.manual_workers
+    async fn wait_manual_run(&self, request: WaitManualRun) -> Result<Option<ManualRunState>> {
+        Ok(self
+            .manual_workers
             .lock()
             .await
             .get(&request.handle)
-            .map(|reservation| reservation.entry.state())
-            .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))
+            .map(|reservation| reservation.entry.state()))
     }
 
-    async fn stop_manual_run(&self, request: StopManualRun) -> Result<ManualRunState> {
-        self.manual_workers
+    async fn stop_manual_run(&self, request: StopManualRun) -> Result<Option<ManualRunState>> {
+        Ok(self
+            .manual_workers
             .lock()
             .await
             .get(&request.handle)
-            .map(|reservation| reservation.entry.request_stop())
-            .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))
+            .map(|reservation| reservation.entry.request_stop()))
     }
 
     async fn acknowledge_manual_run(&self, request: AcknowledgeManualRun) -> Result<bool> {

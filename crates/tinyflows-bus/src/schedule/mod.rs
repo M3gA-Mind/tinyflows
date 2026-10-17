@@ -88,9 +88,9 @@ pub mod members {
     pub const PREPARE_MANUAL_RUN: &str = "PrepareManualRun";
     /// `(StartManualRun) -> ManualRunState`; starts only a live prepared handle.
     pub const START_MANUAL_RUN: &str = "StartManualRun";
-    /// `(WaitManualRun) -> ManualRunState`; immediate, repeatable state snapshot.
+    /// `(WaitManualRun) -> Option<ManualRunState>`; immediate snapshot, absent means quiescent.
     pub const WAIT_MANUAL_RUN: &str = "WaitManualRun";
-    /// `(StopManualRun) -> ManualRunState`; requests cooperative stop immediately.
+    /// `(StopManualRun) -> Option<ManualRunState>`; requests stop, absent means quiescent.
     pub const STOP_MANUAL_RUN: &str = "StopManualRun";
     /// `(AcknowledgeManualRun) -> bool`; removes a retained terminal result.
     pub const ACKNOWLEDGE_MANUAL_RUN: &str = "AcknowledgeManualRun";

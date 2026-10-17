@@ -42,6 +42,11 @@ pub struct PrepareManualRun {
 }
 
 /// Opaque module-owned capability for one prepared manual worker.
+///
+/// Handles belong to one module generation. A forced unload or process crash
+/// can lose in-memory lifecycle state; a durable occurrence lease is then
+/// recovered only by expiry. Callback side effects remain at-least-once across
+/// ambiguous transport failures, with no exactly-once guarantee.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ManualRunHandle {
     /// Random, non-reused token minted by the module.
@@ -76,7 +81,8 @@ pub struct StartManualRun {
     pub request: ManualRunRequest,
 }
 
-/// Read the current state of a manual worker without consuming it.
+/// Read the current state of a manual worker without consuming it. `None`
+/// means the handle is absent and no worker can be started from it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WaitManualRun {
     /// Previously prepared module-owned handle.
@@ -84,6 +90,7 @@ pub struct WaitManualRun {
 }
 
 /// Request cooperative stopping and return the current state immediately.
+/// `None` means the handle is absent and no worker can be started from it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopManualRun {
     /// Previously prepared module-owned handle.
