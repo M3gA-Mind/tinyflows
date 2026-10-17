@@ -9,10 +9,10 @@ use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::Schedule;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
-#[path = "support/document_callbacks.rs"]
-mod document_callbacks;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/document_callbacks.rs"]
+mod document_callbacks;
 
 #[tokio::test]
 #[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled module"]
@@ -112,7 +112,11 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         let request = WaitManualRun {
             handle: handle.clone(),
         };
-        async move { schedule.call::<ManualRunState>("WaitManualRun", &request).await }
+        async move {
+            schedule
+                .call::<ManualRunState>("WaitManualRun", &request)
+                .await
+        }
     });
     canceled_waiter.abort();
     callback_state.execute_started.notified().await;
@@ -161,28 +165,40 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .await
         .unwrap()
         .expect("Stopped is terminal only after confirmed claim release");
-    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
-    assert!(schedule
-        .call::<bool>(
-            "AcknowledgeManualRun",
-            &(AcknowledgeManualRun {
-                handle: handle.clone(),
-            },),
-        )
-        .await
-        .unwrap());
-    assert!(schedule
-        .call::<ManualRunState>("StartManualRun", &start)
-        .await
-        .is_err());
+    assert!(
+        documents
+            .release_claim(&released, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
+    assert!(
+        schedule
+            .call::<bool>(
+                "AcknowledgeManualRun",
+                &(AcknowledgeManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        schedule
+            .call::<ManualRunState>("StartManualRun", &start)
+            .await
+            .is_err()
+    );
 
     let renewed: tinyflows_bus::schedule::ManualRunHandle =
         schedule.call("PrepareManualRun", &prepare).await.unwrap();
     assert_ne!(renewed.token, handle.token);
-    assert!(schedule
-        .call::<ManualRunState>("StartManualRun", &start)
-        .await
-        .is_err(), "fresh request-id generation cannot revive the old handle");
+    assert!(
+        schedule
+            .call::<ManualRunState>("StartManualRun", &start)
+            .await
+            .is_err(),
+        "fresh request-id generation cannot revive the old handle"
+    );
     callback_state
         .defer_execute
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -220,15 +236,17 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     ));
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history[0].status, "ok");
-    assert!(schedule
-        .call::<bool>(
-            "AcknowledgeManualRun",
-            &(AcknowledgeManualRun {
-                handle: completed_handle,
-            },),
-        )
-        .await
-        .unwrap());
+    assert!(
+        schedule
+            .call::<bool>(
+                "AcknowledgeManualRun",
+                &(AcknowledgeManualRun {
+                    handle: completed_handle,
+                },),
+            )
+            .await
+            .unwrap()
+    );
 }
 
 async fn wait_terminal(
@@ -237,7 +255,12 @@ async fn wait_terminal(
 ) -> ManualRunState {
     for _ in 0..10_000 {
         let state: ManualRunState = schedule
-            .call("WaitManualRun", &(WaitManualRun { handle: handle.clone() },))
+            .call(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: handle.clone(),
+                },),
+            )
             .await
             .unwrap();
         if matches!(state, ManualRunState::Terminal { .. }) {

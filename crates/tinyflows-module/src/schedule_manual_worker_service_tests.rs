@@ -3,8 +3,8 @@ use super::*;
 #[tokio::test]
 async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     use tinyflows_bus::schedule::{
-        ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState,
-        PrepareManualRun, StartManualRun, StopManualRun, StoreConfig, WaitManualRun,
+        ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
+        StartManualRun, StopManualRun, StoreConfig, WaitManualRun,
     };
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
@@ -82,7 +82,11 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         let request = WaitManualRun {
             handle: handle.clone(),
         };
-        async move { proxy.call::<ManualRunState>("WaitManualRun", &request).await }
+        async move {
+            proxy
+                .call::<ManualRunState>("WaitManualRun", &request)
+                .await
+        }
     });
     waiter.abort();
     state.execute_started.notified().await;
@@ -139,7 +143,10 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         .unwrap();
     assert!(acknowledged);
     let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
-    assert!(late_start.is_err(), "late start cannot recreate acknowledged state");
+    assert!(
+        late_start.is_err(),
+        "late start cannot recreate acknowledged state"
+    );
 
     assert!(
         documents.list_runs(&job.id, 10).await.unwrap().is_empty(),
@@ -157,7 +164,12 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let Some(released) = released else {
         panic!("terminal Stopped must follow confirmed claim release")
     };
-    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert!(
+        documents
+            .release_claim(&released, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
 
     let after_ack: tinyflows_bus::schedule::ManualRunHandle =
         proxy.call("PrepareManualRun", &prepare).await.unwrap();
@@ -221,15 +233,17 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history[0].status, "ok");
     assert_eq!(history[0].output.as_deref(), Some("executed"));
-    assert!(proxy
-        .call::<bool>(
-            "AcknowledgeManualRun",
-            &(tinyflows_bus::schedule::AcknowledgeManualRun {
-                handle: completed_handle,
-            },),
-        )
-        .await
-        .unwrap());
+    assert!(
+        proxy
+            .call::<bool>(
+                "AcknowledgeManualRun",
+                &(tinyflows_bus::schedule::AcknowledgeManualRun {
+                    handle: completed_handle,
+                },),
+            )
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -337,7 +351,12 @@ async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_termina
         .await
         .unwrap()
         .expect("claim response loss must be reconciled and released before terminal");
-    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert!(
+        documents
+            .release_claim(&released, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -446,7 +465,10 @@ async fn release_reply_loss_reports_cleanup_pending_until_retry_confirms_fence()
         }
         tokio::task::yield_now().await;
     }
-    assert!(cleanup_pending, "lost release reply must not publish terminal state");
+    assert!(
+        cleanup_pending,
+        "lost release reply must not publish terminal state"
+    );
     tokio::time::advance(std::time::Duration::from_millis(250)).await;
 
     let mut terminal = None;

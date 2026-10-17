@@ -1,12 +1,15 @@
 //! Module-owned reservations and retained lifecycle state for detached manual runs.
-use std::{collections::HashMap, sync::Mutex, time::Duration};
 use super::super::{schedule_callbacks::HostCallbacks, schedule_store::Store};
+use std::{collections::HashMap, sync::Mutex, time::Duration};
 use tinybus::Connection;
 use tinyflows_bus::schedule::{
     ManualRunHandle, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
 };
 use tinyflows_schedule::runtime::{Clock, JobStore, RunRecord, Scheduler, SchedulerConfig};
-use tokio::{sync::{Mutex as AsyncMutex, watch}, time::Instant};
+use tokio::{
+    sync::{Mutex as AsyncMutex, watch},
+    time::Instant,
+};
 
 const PREPARED_TTL: Duration = Duration::from_secs(15 * 60);
 const TERMINAL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -38,13 +41,20 @@ impl ManualWorkerEntry {
     }
 
     pub(super) fn state(&self) -> ManualRunState {
-        self.control.lock().expect("manual worker control poisoned").state.clone()
+        self.control
+            .lock()
+            .expect("manual worker control poisoned")
+            .state
+            .clone()
     }
 
     pub(super) fn begin_start(&self, fingerprint: serde_json::Value) -> anyhow::Result<bool> {
         let mut control = self.control.lock().expect("manual worker control poisoned");
         if let Some(existing) = &control.fingerprint {
-            anyhow::ensure!(existing == &fingerprint, "manual worker start payload changed");
+            anyhow::ensure!(
+                existing == &fingerprint,
+                "manual worker start payload changed"
+            );
             return Ok(false);
         }
         anyhow::ensure!(
@@ -158,11 +168,13 @@ impl ManualWorkers {
 
     pub(super) fn get(&mut self, handle: &ManualRunHandle) -> Option<ReservationView> {
         self.prune_expired();
-        self.by_handle.get(&handle.token).map(|reservation| ReservationView {
-            scope: reservation.scope.clone(),
-            request_id: reservation.request_id.clone(),
-            entry: reservation.entry.clone(),
-        })
+        self.by_handle
+            .get(&handle.token)
+            .map(|reservation| ReservationView {
+                scope: reservation.scope.clone(),
+                request_id: reservation.request_id.clone(),
+                entry: reservation.entry.clone(),
+            })
     }
 
     pub(super) fn acknowledge(&mut self, handle: &ManualRunHandle) -> bool {
@@ -174,7 +186,8 @@ impl ManualWorkers {
             return false;
         }
         let reservation = self.by_handle.remove(&handle.token).unwrap();
-        self.by_request.remove(&(reservation.scope, reservation.request_id));
+        self.by_request
+            .remove(&(reservation.scope, reservation.request_id));
         true
     }
 
@@ -189,7 +202,9 @@ impl ManualWorkers {
         let expired: Vec<_> = self
             .by_handle
             .iter()
-            .filter_map(|(handle, reservation)| reservation.entry.expired(now).then(|| handle.clone()))
+            .filter_map(|(handle, reservation)| {
+                reservation.entry.expired(now).then(|| handle.clone())
+            })
             .collect();
         for handle in expired {
             if let Some(reservation) = self.by_handle.remove(&handle) {
@@ -216,14 +231,7 @@ pub(super) async fn run_manual_worker(
     let worker_claim = claim.clone();
     let worker_entry = entry.clone();
     let worker = tokio::spawn(async move {
-        run_manual_worker_body(
-            connection,
-            scope,
-            request,
-            worker_entry,
-            worker_claim,
-        )
-        .await
+        run_manual_worker_body(connection, scope, request, worker_entry, worker_claim).await
     });
     let outcome = match worker.await {
         Ok(Ok(outcome)) => outcome,
@@ -363,7 +371,11 @@ async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
             {
                 Ok(Some(mut claim)) => {
                     claim.run_id = run_id;
-                    held = HeldClaim::Claimed { claim, store, clock };
+                    held = HeldClaim::Claimed {
+                        claim,
+                        store,
+                        clock,
+                    };
                 }
                 Ok(None) if clock.now() >= expires_at => return,
                 Ok(None) => {
@@ -398,20 +410,26 @@ async fn release_until_safe(entry: &ManualWorkerEntry, mut held: HeldClaim) {
                     };
                 }
             },
-            HeldClaim::Claimed { claim, store, clock } => {
-                match store.release_occurrence(&claim, clock.now()).await {
-                    Ok(_) => return,
-                    Err(error) => {
-                        entry.set_state(ManualRunState::CleanupPending {
-                            run_id: claim.run_id.clone(),
-                        });
-                        tracing::warn!(%error, run_id = ?claim.run_id, "manual worker claim release will retry");
-                        clock.sleep(delay).await;
-                        delay = delay.saturating_mul(2).min(Duration::from_secs(30));
-                        held = HeldClaim::Claimed { claim, store, clock };
-                    }
+            HeldClaim::Claimed {
+                claim,
+                store,
+                clock,
+            } => match store.release_occurrence(&claim, clock.now()).await {
+                Ok(_) => return,
+                Err(error) => {
+                    entry.set_state(ManualRunState::CleanupPending {
+                        run_id: claim.run_id.clone(),
+                    });
+                    tracing::warn!(%error, run_id = ?claim.run_id, "manual worker claim release will retry");
+                    clock.sleep(delay).await;
+                    delay = delay.saturating_mul(2).min(Duration::from_secs(30));
+                    held = HeldClaim::Claimed {
+                        claim,
+                        store,
+                        clock,
+                    };
                 }
-            }
+            },
         }
     }
 }

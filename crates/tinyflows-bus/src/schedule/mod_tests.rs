@@ -42,7 +42,9 @@ fn manual_worker_states_are_stable_typed_wire_values() {
     let prepared: ManualRunState = serde_json::from_value(json!({"kind":"prepared"})).unwrap();
     assert!(matches!(prepared, ManualRunState::Prepared));
     let terminal = ManualRunState::Terminal {
-        outcome: ManualRunOutcome::Stopped { run_id: Some("run".into()) },
+        outcome: ManualRunOutcome::Stopped {
+            run_id: Some("run".into()),
+        },
     };
     assert_eq!(
         serde_json::to_value(terminal).unwrap(),

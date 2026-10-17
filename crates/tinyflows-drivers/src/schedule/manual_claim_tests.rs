@@ -33,15 +33,19 @@ async fn reconciles_manual_claim_receipt_after_an_ambiguous_claim_reply() {
         .expect("a live claim for the unique owner is discoverable");
     assert_eq!(reconciled.owner(), committed.owner());
     assert_eq!(reconciled.token(), committed.token());
-    assert!(store
-        .release_claim(&reconciled, now + Duration::seconds(1))
-        .await
-        .unwrap());
-    assert!(store
-        .find_owned_manual_claim(&job, "ambiguous-owner", now + Duration::seconds(2))
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        store
+            .release_claim(&reconciled, now + Duration::seconds(1))
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .find_owned_manual_claim(&job, "ambiguous-owner", now + Duration::seconds(2))
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
