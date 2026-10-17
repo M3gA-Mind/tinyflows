@@ -21,7 +21,6 @@ use super::super::catalog_documents::Documents;
 
 pub(super) struct Prepared {
     pub catalog: FlowCatalogDocuments,
-    pub documents: Arc<dyn DocumentStore>,
     pub compiled: CompiledWorkflow,
     pub inputs: Map<String, Value>,
     pub journal: Arc<InMemoryGraphEventJournal>,
@@ -65,7 +64,6 @@ pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Resu
 
     Ok(Prepared {
         catalog,
-        documents: Arc::clone(&document_port),
         compiled,
         inputs: request.inputs.clone(),
         journal: Arc::new(InMemoryGraphEventJournal::new()),

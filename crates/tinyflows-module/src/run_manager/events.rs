@@ -73,7 +73,7 @@ impl EventWriter {
                         if let Err(error) = catalog.upsert_flow_run_step(&run_id, &step).await {
                             last_error = Some(format!("persisting run step: {error}"));
                         }
-                        persist_event(
+                        let _ = persist_event(
                             &catalog,
                             &run_id,
                             &mut seq,
