@@ -38,6 +38,7 @@ impl Continuation {
 /// (optionally journaled), re-attaches the same `checkpointer`, and resumes
 /// `thread_id`. Returns the outcome plus the resumed execution's
 /// runtime-minted run ids.
+#[allow(clippy::too_many_arguments)]
 async fn resume_with_checkpointer_inner(
     workflow: &CompiledWorkflow,
     capabilities: &Capabilities,
@@ -46,6 +47,7 @@ async fn resume_with_checkpointer_inner(
     continuation: Continuation,
     journal: Option<Arc<dyn GraphEventJournal>>,
     observer: &Arc<dyn RunObserver>,
+    token: Option<CancellationToken>,
 ) -> Result<(RunOutcome, GraphRunIds)> {
     let steps: Arc<Mutex<Vec<ExecutionStep>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -55,6 +57,9 @@ async fn resume_with_checkpointer_inner(
     // boundary, so a host observer sees the resumed steps live.
     let terminal_error: Arc<Mutex<Option<EngineError>>> = Arc::new(Mutex::new(None));
     let mut config = RunConfig::new(workflow)?.with_checkpointer(checkpointer, thread_id);
+    if let Some(token) = &token {
+        config = config.with_token(token.clone());
+    }
     if let Some(journal) = journal {
         config = config.with_journal(journal);
     }
@@ -96,7 +101,7 @@ async fn resume_with_checkpointer_inner(
             pending_approvals,
             // Checkpointed resume does not (yet) thread a caller token; a
             // cancellable resume goes through `resume_cancellable`.
-            cancelled: false,
+            cancelled: token.as_ref().is_some_and(CancellationToken::is_cancelled),
         },
         graph_run_ids,
     ))
@@ -236,6 +241,7 @@ pub async fn retry_with_checkpointer(
         Continuation::Retry,
         None,
         &observer,
+        None,
     )
     .await?;
     Ok(outcome)
@@ -268,6 +274,7 @@ pub async fn retry_with_checkpointer_journaled_observed(
         Continuation::Retry,
         Some(journal),
         observer,
+        None,
     )
     .await?;
     Ok(JournaledRunOutcome {
@@ -300,6 +307,7 @@ pub async fn retry_with_checkpointer_observed(
         Continuation::Retry,
         None,
         observer,
+        None,
     )
     .await?;
     Ok(outcome)

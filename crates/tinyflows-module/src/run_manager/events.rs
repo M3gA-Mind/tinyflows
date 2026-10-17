@@ -63,10 +63,10 @@ pub(super) struct EventWriter {
 }
 
 impl EventWriter {
-    pub fn new(catalog: FlowCatalogDocuments, run_id: String) -> Self {
+    pub fn new(catalog: FlowCatalogDocuments, run_id: String, initial_seq: u64) -> Self {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut seq = 0_u64;
+            let mut seq = initial_seq;
             let mut last_error = None;
             let mut terminal = false;
             while let Some(command) = receiver.recv().await {
@@ -184,10 +184,10 @@ pub(super) struct Observer {
 }
 
 impl Observer {
-    pub fn new(writer: EventWriter) -> Self {
+    pub fn new(writer: EventWriter, initial_steps: Vec<FlowRunStep>) -> Self {
         Self {
             writer,
-            steps: Arc::new(Mutex::new(Vec::new())),
+            steps: Arc::new(Mutex::new(initial_steps)),
         }
     }
 
@@ -261,10 +261,7 @@ impl RunObserver for Observer {
                 .map(|diagnostic| serde_json::to_value(diagnostic).unwrap_or(Value::Null))
                 .collect(),
         };
-        self.steps
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(step.clone());
+        record_step(&self.steps, step.clone());
         self.writer.step(step);
     }
 
@@ -281,3 +278,21 @@ impl RunObserver for Observer {
         );
     }
 }
+
+fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
+    let mut steps = steps
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(existing) = steps
+        .iter_mut()
+        .find(|existing| existing.node_id == step.node_id)
+    {
+        *existing = step;
+    } else {
+        steps.push(step);
+    }
+}
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

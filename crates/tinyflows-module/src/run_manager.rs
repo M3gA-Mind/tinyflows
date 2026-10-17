@@ -8,7 +8,8 @@ use anyhow::{Context, Result, bail};
 use tinybus::Connection;
 use tinyflows::engine::CancellationToken;
 use tinyflows_bus::runs::{
-    CancelRunResponse, PollRun, RunControlRequest, RunEvent, StartRun, StartRunResponse,
+    BootSweep, BootSweepResponse, CancelRunResponse, ExpireParked, ExpireParkedResponse, PollRun,
+    ResumeRun, ResumeRunResponse, RunControlRequest, RunEvent, StartRun, StartRunResponse,
 };
 use tokio::sync::Notify;
 
@@ -16,6 +17,8 @@ mod actor;
 mod cancellation;
 mod events;
 mod preparation;
+mod resume;
+mod sweeps;
 
 const RESERVING: u8 = 0;
 const RUNNING: u8 = 1;
@@ -75,6 +78,29 @@ fn register(key: ScopedRunId) -> std::result::Result<Arc<ActiveRun>, Arc<ActiveR
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(existing) = active.get(&key) {
         return Err(Arc::clone(existing));
+    }
+    let run = Arc::new(ActiveRun {
+        key: key.clone(),
+        lease: uuid::Uuid::new_v4().to_string(),
+        token: CancellationToken::new(),
+        phase: AtomicU8::new(RESERVING),
+        admitted: Notify::new(),
+        #[cfg(test)]
+        admission_waiting: Notify::new(),
+    });
+    active.insert(key, Arc::clone(&run));
+    Ok(run)
+}
+
+fn reserve_resume(key: ScopedRunId) -> Result<Arc<ActiveRun>> {
+    let mut active = ACTIVE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(existing) = active.get(&key) {
+        if existing.phase.load(Ordering::Acquire) != PARKED {
+            bail!("flow run already has an active lifecycle operation")
+        }
+        existing.phase.store(TERMINAL, Ordering::Release);
     }
     let run = Arc::new(ActiveRun {
         key: key.clone(),
@@ -316,6 +342,27 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
         done: is_terminal(&run.status)
             && terminal_seq.is_some_and(|seq| next_cursor >= seq && next_cursor >= last_seq),
     })
+}
+
+pub(super) async fn resume(
+    connection: &Connection,
+    request: ResumeRun,
+) -> Result<ResumeRunResponse> {
+    resume::resume(connection, request).await
+}
+
+pub(super) async fn expire_parked(
+    connection: &Connection,
+    request: ExpireParked,
+) -> Result<ExpireParkedResponse> {
+    sweeps::expire_parked(connection, request).await
+}
+
+pub(super) async fn boot_sweep(
+    connection: &Connection,
+    request: BootSweep,
+) -> Result<BootSweepResponse> {
+    sweeps::boot_sweep(connection, request).await
 }
 
 pub(super) async fn verify_live_owner(

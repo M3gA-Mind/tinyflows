@@ -78,6 +78,7 @@ mod revision_sequence;
 mod revisions;
 mod run_events;
 mod runs;
+mod runs_recovery;
 mod state;
 mod steps;
 mod suggestions;

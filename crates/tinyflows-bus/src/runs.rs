@@ -19,9 +19,17 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Runs";
 /// Run-control object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Runs";
 /// Version of the run-control contract.
-pub const CONTRACT_VERSION: u32 = 3;
-/// Run-control members, served by the later run-management slice.
-pub const METHODS: &[&str] = &["StartRun", "CancelRun", "PollRun", "SandboxRun"];
+pub const CONTRACT_VERSION: u32 = 4;
+/// Run-control members, in stable interface order.
+pub const METHODS: &[&str] = &[
+    "StartRun",
+    "ResumeRun",
+    "ExpireParked",
+    "BootSweep",
+    "CancelRun",
+    "PollRun",
+    "SandboxRun",
+];
 
 /// Stable member names.
 pub mod methods {
@@ -29,6 +37,10 @@ pub mod methods {
     pub const START_RUN: &str = "StartRun";
     /// Resume a parked run with approvals or inputs.
     pub const RESUME_RUN: &str = "ResumeRun";
+    /// Expire parked runs past their approval TTL.
+    pub const EXPIRE_PARKED: &str = "ExpireParked";
+    /// Reconcile orphaned local runs after module startup.
+    pub const BOOT_SWEEP: &str = "BootSweep";
     /// Cooperatively cancel a run.
     pub const CANCEL_RUN: &str = "CancelRun";
     /// Read run events after a cursor.
@@ -155,8 +167,55 @@ pub struct CancelRunResponse {
 pub struct ResumeRun {
     /// Parked run.
     pub run_id: String,
+    /// Expected owning workflow; the stored row and snapshot must agree.
+    pub flow_id: String,
+    /// Owner-scoped persisted documents and checkpoint storage.
+    pub storage: CatalogStorage,
+    /// Fresh host callback bound to this flow, run, owner and approval policy.
+    pub caps_host: CapsHost,
     /// Approved node ids.
     pub approvals: Vec<String>,
+    /// Rejected node ids.
+    pub rejections: Vec<String>,
+    /// Host-selected execution budget for the resumed segment.
+    pub timeout_ms: u64,
+}
+
+/// Result of successfully admitting a parked run for resume.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ResumeRunResponse {
+    /// Exact run id continued by the actor.
+    pub run_id: String,
+}
+
+/// Owner-scoped parked-run expiry request.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ExpireParked {
+    /// Owner-scoped catalog and checkpoint storage.
+    pub storage: CatalogStorage,
+}
+
+/// Runs settled by a parked-run expiry call.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ExpireParkedResponse {
+    /// Run ids and owning flow ids actually changed by this call.
+    pub expired: Vec<(String, String)>,
+}
+
+/// Owner-scoped startup orphan-reconciliation request.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BootSweep {
+    /// Owner-scoped catalog and checkpoint storage.
+    pub storage: CatalogStorage,
+    /// Shared backends can contain actors from other replicas and must not be swept.
+    pub shared_backend: bool,
+}
+
+/// Run ids this call actually changed to `interrupted`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BootSweepResponse {
+    /// Reconciled run ids.
+    pub interrupted: Vec<String>,
 }
 
 /// One run event returned by `PollRun`.
