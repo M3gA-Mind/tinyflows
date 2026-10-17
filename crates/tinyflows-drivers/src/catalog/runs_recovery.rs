@@ -68,6 +68,64 @@ impl FlowCatalogDocuments {
         Ok(swept)
     }
 
+    /// Lists owner-scoped parked runs older than `cutoff` in deterministic id
+    /// order. Each row is transitioned separately with
+    /// [`Self::expire_parked_run`] so one failing write cannot hide prior wins.
+    pub async fn list_expirable_parked_run_ids(
+        &self,
+        cutoff: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let docs = self.docs().await?;
+        let parked = docs
+            .query_all(
+                RUNS,
+                &Query::filter(Filter::eq("status", "pending_approval")),
+            )
+            .await?;
+        let flows = live_flows(docs).await?;
+        let (parked, orphans): (Vec<_>, Vec<_>) = parked
+            .into_iter()
+            .partition(|run| belongs_in(&run.doc, &flows));
+        reclaim(docs, RUNS, &orphans).await;
+        let mut candidates: Vec<(String, String)> = parked
+            .into_iter()
+            .filter(|run| parked_before(&run.doc, cutoff))
+            .map(|run| {
+                (
+                    run.id,
+                    text(&run.doc, "flow_id").unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        candidates.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(candidates)
+    }
+
+    /// Expires one parked row only if it still has the same parked status and
+    /// age observed by [`Self::list_expirable_parked_run_ids`].
+    pub async fn expire_parked_run(
+        &self,
+        id: &str,
+        cutoff: &str,
+        now: &str,
+        error_msg: &str,
+    ) -> Result<bool> {
+        let docs = self.docs().await?;
+        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
+            if status(doc) != "pending_approval" || !parked_before(doc, cutoff) {
+                return None;
+            }
+            let mut next = doc.clone();
+            next["status"] = json!("cancelled");
+            set_finished(&mut next, Some(now));
+            next["error"] = json!(error_msg);
+            Some(next)
+        })
+        .await
+        .context("Failed to expire parked flow run")?;
+        Ok(flipped.is_some())
+    }
+
     /// The `(id, flow_id)` of every `running` run started strictly before
     /// `started_before`, for the boot orphan sweep (B42).
     pub async fn list_running_run_ids(
