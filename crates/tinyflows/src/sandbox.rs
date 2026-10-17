@@ -72,3 +72,7 @@ pub async fn execute(
         report,
     })
 }
+
+#[cfg(test)]
+#[path = "sandbox_tests.rs"]
+mod tests;
