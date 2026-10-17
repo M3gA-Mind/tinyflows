@@ -18,13 +18,13 @@ async fn terminal_event_seals_cloned_progress_sinks() {
     let backend = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let catalog = FlowCatalogDocuments::new(backend.documents().clone());
     let run_id = format!("sealed-{}", uuid::Uuid::new_v4());
+    let graph = tinyflows::migrate::deserialize_graph(serde_json::json!({
+        "nodes":[{"id":"trigger","name":"Trigger","kind":"trigger","config":{}}],
+        "edges":[]
+    }))
+    .unwrap();
     let flow = catalog
-        .create_flow(
-            "Sealed".into(),
-            serde_json::json!({"nodes":[],"edges":[]}),
-            false,
-            true,
-        )
+        .create_flow("Sealed".into(), graph, false, true)
         .await
         .unwrap();
     catalog
@@ -32,7 +32,8 @@ async fn terminal_event_seals_cloned_progress_sinks() {
         .await
         .unwrap();
     let writer = EventWriter::new(catalog.clone(), run_id.clone());
-    let late_progress = writer.progress_sink();
+    let observer = super::events::Observer::new(writer.clone());
+    let late_progress = observer.progress_sink();
     let terminal_seq = writer
         .emit_terminal("finished", serde_json::json!({"status":"completed"}))
         .await
