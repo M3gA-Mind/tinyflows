@@ -24,6 +24,7 @@ struct Fixture {
     release_terminal_commit: Notify,
     persisted_completions: AtomicUsize,
     pause_terminal_commit: bool,
+    heartbeat_renew_error: bool,
     execution_entered: Notify,
     release_execution: Notify,
     pause_execution: bool,
@@ -105,6 +106,9 @@ impl JobStore for Fixture {
         }
         if self.persisted_completions.load(Ordering::SeqCst) > 0 {
             self.renewal_failed.notify_one();
+            if self.heartbeat_renew_error {
+                return Err(anyhow::anyhow!("injected heartbeat transport error"));
+            }
             return Ok(false);
         }
         let renewal = self.renewals.fetch_add(1, Ordering::SeqCst) + 1;
@@ -209,6 +213,7 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
         release_terminal_commit: Notify::new(),
         persisted_completions: AtomicUsize::new(0),
         pause_terminal_commit: false,
+        heartbeat_renew_error: false,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
         pause_execution: false,
@@ -220,7 +225,7 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
     })
 }
 
-fn terminal_heartbeat_fixture() -> Arc<Fixture> {
+fn terminal_heartbeat_fixture(heartbeat_renew_error: bool) -> Arc<Fixture> {
     Arc::new(Fixture {
         now: "2026-01-01T00:00:00Z".parse().unwrap(),
         block_on_renewal: usize::MAX,
@@ -233,6 +238,7 @@ fn terminal_heartbeat_fixture() -> Arc<Fixture> {
         release_terminal_commit: Notify::new(),
         persisted_completions: AtomicUsize::new(0),
         pause_terminal_commit: true,
+        heartbeat_renew_error,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
         pause_execution: false,
@@ -260,7 +266,7 @@ fn assert_persisted_success(fixture: &Fixture, outcome: &super::ManualRunOutcome
 
 #[tokio::test]
 async fn cooperative_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome() {
-    let fixture = terminal_heartbeat_fixture();
+    let fixture = terminal_heartbeat_fixture(false);
     let scheduler = Scheduler::new(
         "completion-heartbeat-race",
         SchedulerConfig::default(),
@@ -284,7 +290,7 @@ async fn cooperative_heartbeat_loss_during_terminal_reply_keeps_persisted_outcom
 
 #[tokio::test]
 async fn scheduled_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome() {
-    let fixture = terminal_heartbeat_fixture();
+    let fixture = terminal_heartbeat_fixture(false);
     let ports = fixture.ports();
     let config = SchedulerConfig::default();
     let claim = fixture.claim();
@@ -307,6 +313,30 @@ async fn scheduled_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome(
 }
 
 #[tokio::test]
+async fn heartbeat_transport_error_during_terminal_reply_keeps_persisted_outcome() {
+    let fixture = terminal_heartbeat_fixture(true);
+    let scheduler = Scheduler::new(
+        "completion-heartbeat-transport-error",
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
+    let claim = fixture.claim();
+    let worker = tokio::spawn(async move {
+        scheduler
+            .run_manual_claim_cooperative(
+                claim,
+                ManualDelivery::NotRequested,
+                watch::channel(false).1,
+            )
+            .await
+    });
+    trigger_terminal_heartbeat(&fixture).await;
+
+    let outcome = worker.await.unwrap().unwrap().unwrap();
+    assert_persisted_success(&fixture, &outcome);
+}
+
+#[tokio::test]
 async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks() {
     let fixture = Arc::new(Fixture {
         now: "2026-01-01T00:00:00Z".parse().unwrap(),
@@ -320,6 +350,7 @@ async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks(
         release_terminal_commit: Notify::new(),
         persisted_completions: AtomicUsize::new(0),
         pause_terminal_commit: false,
+        heartbeat_renew_error: false,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
         pause_execution: true,
