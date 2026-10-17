@@ -54,7 +54,11 @@ impl Store {
             .migrate(&storage, &MigrateOptions::default())
             .await?;
         let counter_imported = tinyflows_drivers::import_legacy_cron_counters(&storage).await?;
-        Ok(serde_json::json!({"report": report, "counter_imported": counter_imported}))
+        Ok(serde_json::json!({
+            "steps_run": report.ran.len(),
+            "already_done": report.already_done,
+            "counter_imported": counter_imported,
+        }))
     }
     async fn execute(&self, operation: Operation) -> Result<Value> {
         // The store owns validation, migration, output limits and history pruning.

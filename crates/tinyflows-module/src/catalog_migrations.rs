@@ -24,5 +24,9 @@ pub(super) async fn migrate(
         .migrate(&scoped, &MigrateOptions::default())
         .await?;
     let imported_kv = import_legacy_kv(&scoped).await?;
-    Ok(serde_json::json!({"report": report, "imported_kv": imported_kv}))
+    Ok(serde_json::json!({
+        "steps_run": report.ran.len(),
+        "already_done": report.already_done,
+        "imported_kv": imported_kv,
+    }))
 }

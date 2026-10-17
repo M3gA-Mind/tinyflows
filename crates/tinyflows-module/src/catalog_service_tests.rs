@@ -7,8 +7,8 @@ use tinyflows_bus::catalog::{
     PutWorkflowRequest, PutWorkflowResponse,
 };
 use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, DocumentStoreExt, Key, MemoryStorage, Precondition, Scope,
-    StorageBackend, WriteOptions,
+    CollectionSpec, DocumentStore, Key, MemoryStorage, Precondition, Scope, StorageBackend,
+    WriteOptions,
 };
 
 pub(super) struct HostDocuments {
