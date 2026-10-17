@@ -327,17 +327,17 @@ async fn run_claim_with_renewal(
                     return Err(anyhow::anyhow!("scheduler stopped before occurrence completion"));
                 }
             }
-            result = &mut work => {
-                if result.is_err() {
-                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await;
-                }
-                return result;
-            }
             _ = ports.clock.lease_wait(Duration::from_secs(30)) => {
                 anyhow::ensure!(
                     ports.store.renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE).await?,
                     "scheduler lost the occurrence lease"
                 );
+            }
+            result = &mut work => {
+                if result.is_err() {
+                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await;
+                }
+                return result;
             }
         }
     }
