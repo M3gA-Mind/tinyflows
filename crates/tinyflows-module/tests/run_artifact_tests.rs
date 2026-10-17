@@ -191,7 +191,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let error = runs_proxy.call::<runs::StartRunResponse>("StartRun", (invalid,)).await;
     assert!(error.is_err(), "missing declared input must reject synchronously");
     let missing = catalog_proxy
-        .call::<catalog::FlowRun>(
+        .call::<Option<catalog::FlowRun>>(
             "GetRun",
             (RunIdRequest {
                 storage: alice.storage.clone(),
@@ -199,7 +199,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             },),
         )
         .await;
-    assert!(missing.is_err(), "preflight failure must leave no row");
+    assert_eq!(missing.unwrap(), None, "preflight failure must leave no row");
 
     let started: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -257,7 +257,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     );
     assert!(bob_poll.events.iter().any(|event| event.kind == "finished"));
 
-    let alice_row: catalog::FlowRun = catalog_proxy
+    let alice_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
             (RunIdRequest {
@@ -267,7 +267,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )
         .await
         .unwrap();
-    let bob_row: catalog::FlowRun = catalog_proxy
+    let bob_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
             (RunIdRequest {
@@ -277,6 +277,8 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )
         .await
         .unwrap();
+    let alice_row = alice_row.expect("alice run row persisted");
+    let bob_row = bob_row.expect("bob run row persisted");
     assert_eq!(alice_row.status, "cancelled");
     assert_eq!(bob_row.status, "completed");
     assert!(alice_row.steps.iter().any(|step| step.node_id == "agent"));
