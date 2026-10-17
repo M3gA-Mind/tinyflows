@@ -50,9 +50,7 @@ impl FlowStateDocuments {
         catalog: FlowCatalogDocuments,
         namespace: impl Into<String>,
     ) -> anyhow::Result<Self> {
-        // Baseline behavior used to accept a handle before proving storage
-        // could be opened; keep this pre-fix implementation for the negative
-        // control run only.
+        catalog.ensure().await?;
         Ok(Self::new(catalog, namespace))
     }
 
