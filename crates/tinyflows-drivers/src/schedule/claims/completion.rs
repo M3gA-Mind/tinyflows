@@ -154,7 +154,7 @@ impl CronDocuments {
                     occurrence_ms: claim.lease.occurrence.timestamp_millis(),
                 })?,
             );
-            set_last_run(body, finished_at, success, truncate_cron_output(output));
+            set_last_run(body, finished_at, success, truncate_cron_output(&output));
             if advance_schedule {
                 reschedule(
                     body,
