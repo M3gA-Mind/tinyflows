@@ -15,6 +15,10 @@ pub struct State {
     pub release: tokio::sync::Notify,
     pub exclusions: Mutex<Vec<Vec<String>>>,
     pub leases: Mutex<HashMap<String, (String, DateTime<Utc>)>>,
+    pub fail_send: std::sync::atomic::AtomicBool,
+    pub sends: std::sync::atomic::AtomicUsize,
+    pub projections: Mutex<Vec<Value>>,
+    pub executions: Mutex<Vec<String>>,
 }
 pub struct Callbacks(pub Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
@@ -146,16 +150,31 @@ impl Callbacks {
         self.0.completions.lock().unwrap().push(completion);
         Ok(true)
     }
-    async fn execute(&self, _job: Value, _run_id: String) -> Result<Value> {
-        Err(tinybus::Error::failed("a flow must use ScheduleTrigger"))
+    async fn execute(&self, job: Value, run_id: String) -> Result<Value> {
+        if job["job_type"] == "flow" {
+            return Err(tinybus::Error::failed("a flow must use ScheduleTrigger"));
+        }
+        self.0.executions.lock().unwrap().push(run_id);
+        Ok(json!({"success":true,"output":"manual output","retryable":false}))
     }
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
         Ok(())
     }
     async fn send(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
-        Ok("not_requested".into())
+        self.0.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(if self
+            .0
+            .fail_send
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            "failed"
+        } else {
+            "not_requested"
+        }
+        .into())
     }
-    async fn deliver(&self, _projection: Value) -> Result<()> {
+    async fn deliver(&self, projection: Value) -> Result<()> {
+        self.0.projections.lock().unwrap().push(projection);
         Ok(())
     }
     async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
