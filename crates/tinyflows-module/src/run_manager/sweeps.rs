@@ -26,29 +26,31 @@ pub(super) async fn expire_parked(
     let cutoff = (now
         - chrono::Duration::seconds(tinyflows_catalog::run_management::PARKED_RUN_TTL_SECS))
     .to_rfc3339();
-    let expired = catalog
-        .expire_parked_runs(
-            &cutoff,
-            &now.to_rfc3339(),
-            &tinyflows_catalog::run_management::parked_expiry_message(
-                tinyflows_catalog::run_management::PARKED_RUN_TTL_SECS,
-            ),
-        )
-        .await?;
+    let candidates = catalog.list_expirable_parked_run_ids(&cutoff).await?;
+    let now = now.to_rfc3339();
+    let expiry_message = tinyflows_catalog::run_management::parked_expiry_message(
+        tinyflows_catalog::run_management::PARKED_RUN_TTL_SECS,
+    );
+    let mut expired = Vec::new();
     let mut terminal_error = None;
-    for (run_id, _) in &expired {
-        if let Some(run) = active(&key(&request.storage, run_id))
-            && run.phase.load(std::sync::atomic::Ordering::Acquire) == PARKED
+    for (run_id, flow_id) in candidates {
+        let changed = match catalog
+            .expire_parked_run(&run_id, &cutoff, &now, &expiry_message)
+            .await
         {
-            unregister(&run);
+            Ok(changed) => changed,
+            Err(error) => {
+                terminal_error.get_or_insert_with(|| {
+                    anyhow::anyhow!("expiring parked run {run_id}: {error:#}")
+                });
+                continue;
+            }
+        };
+        if !changed {
+            continue;
         }
-        if let Err(error) =
-            settle_terminal_event(&catalog, run_id, "cancelled", "parked run expired").await
-        {
-            terminal_error
-                .get_or_insert_with(|| anyhow::anyhow!("settling expired run {run_id}: {error:#}"));
-        }
-        let snapshot = match catalog.flow_run_snapshot(run_id).await {
+        expired.push((run_id.clone(), flow_id));
+        let snapshot = match catalog.flow_run_snapshot(&run_id).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 terminal_error.get_or_insert_with(|| {
@@ -57,8 +59,19 @@ pub(super) async fn expire_parked(
                 None
             }
         };
-        settle_snapshot_dedup(&catalog, snapshot.as_ref(), run_id).await;
-        let run = match catalog.get_flow_run(run_id).await {
+        let live_lease = snapshot
+            .as_ref()
+            .and_then(|value| value.get("lease"))
+            .and_then(Value::as_str)
+            .and_then(active_lease);
+        let parked_actor = live_lease.or_else(|| active(&key(&request.storage, &run_id)));
+        if let Some(actor) = parked_actor
+            && actor.phase.load(std::sync::atomic::Ordering::Acquire) == PARKED
+        {
+            unregister(&actor);
+        }
+        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
+        let run = match catalog.get_flow_run(&run_id).await {
             Ok(run) => run,
             Err(error) => {
                 terminal_error.get_or_insert_with(|| {
@@ -75,12 +88,14 @@ pub(super) async fn expire_parked(
                         tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
                     }
                 }
-                Err(error) => {
-                    terminal_error.get_or_insert_with(|| {
-                        anyhow::anyhow!("opening expired run checkpoint scope: {error:#}")
-                    });
-                }
+                Err(error) => tracing::warn!(%error, run_id, "opening expired run checkpoint scope failed"),
             }
+        }
+        if let Err(error) =
+            settle_terminal_event(&catalog, &run_id, "cancelled", "parked run expired").await
+        {
+            terminal_error
+                .get_or_insert_with(|| anyhow::anyhow!("settling expired run {run_id}: {error:#}"));
         }
     }
     if let Some(error) = terminal_error {
@@ -149,16 +164,16 @@ pub(super) async fn boot_sweep(
         {
             continue;
         }
+        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
+        if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
+            tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
+        }
         if let Err(error) =
             settle_terminal_event(&catalog, &run_id, "interrupted", BOOT_REASON).await
         {
             terminal_error.get_or_insert_with(|| {
                 anyhow::anyhow!("settling interrupted run {run_id}: {error:#}")
             });
-        }
-        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
-        if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
-            tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
         }
         interrupted.push(run_id);
     }
