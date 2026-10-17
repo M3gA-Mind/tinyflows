@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use serde_json::Value;
+use serde_json::json;
 
 use crate::authoring_report::{self, AuthoringReport};
 use crate::caps::Capabilities;
@@ -71,6 +72,75 @@ pub async fn execute(
         pending_approvals: outcome.pending_approvals,
         report,
     })
+}
+
+/// Converts an execution result to the canonical builder dry-run JSON report.
+///
+/// Compile and migration failures remain caller errors, as they are in the
+/// copilot tool. Timed-out executions likewise remain tool errors; a settled
+/// or failed node execution returns a sandbox report with `ok: false`.
+pub fn report(
+    execution: Result<SandboxOutcome, SandboxError>,
+    timeout_secs: u64,
+    permissions_manifest: Vec<Value>,
+) -> Result<Value, String> {
+    let outcome = match execution {
+        Ok(outcome) => outcome,
+        Err(SandboxError::TimedOut) => {
+            return Err(format!("Sandbox dry-run timed out after {timeout_secs}s"));
+        }
+        Err(SandboxError::Failed {
+            message,
+            unverifiable_bindings,
+        }) => {
+            let result = if unverifiable_bindings.is_empty() {
+                json!({
+                    "sandbox": true,
+                    "ok": false,
+                    "error": message,
+                    "note": "SANDBOX (mock) output — a node errored during simulation. No real side effects occurred."
+                })
+            } else {
+                json!({
+                    "sandbox": true,
+                    "ok": false,
+                    "error": message,
+                    "unverifiable_bindings": unverifiable_bindings,
+                    "note": "SANDBOX (mock) output — a tool_call node aborted because a required arg binds to the output of an upstream Composio tool_call, which the sandbox can only ECHO (it never produces real tool output fields). See unverifiable_bindings: each MAY already be wired correctly — confirm the path with get_tool_contract {{ slug }} (output_fields / primary_array_path; Composio results nest under .item.json.data.) or get_tool_output_sample {{ slug, args }} instead of re-wiring blindly. No real side effects occurred."
+                })
+            };
+            return Ok(result);
+        }
+    };
+    let report = outcome.report;
+    let result = if report.is_failing() {
+        json!({
+            "sandbox": true,
+            "ok": false,
+            "null_resolutions": report.null_resolutions,
+            "agent_prompt_nulls": report.agent_prompt_nulls,
+            "agent_input_context_nulls": report.agent_input_context_nulls,
+            "node_errors": report.node_errors,
+            "routing_divergence_warnings": report.routing_divergence_warnings,
+            "permissions_manifest": permissions_manifest,
+            "message": "These tool_call args resolved to null, an agent node's prompt or input_context resolved to null (an EMPTY prompt — see agent_prompt_nulls — or no upstream data at all — see agent_input_context_nulls), or a tool_call node failed during the sandbox run (even one recovered via on_error: continue/route) — wire null-resolved args from an upstream node's real output (give any agent node an output_parser.schema so its fields are addressable), feed upstream data into a null-resolved agent prompt/input_context from a real upstream field instead of a jq expression inside the prompt text, and fix or rewire whatever tool_call node_errors names. Also check routing_divergence_warnings: any agent/tool_call node listed there never ran in this sandbox at all because an upstream condition routed the mock data past it — verify that wiring by hand too."
+        })
+    } else {
+        json!({
+            "sandbox": true,
+            "ok": true,
+            "output": outcome.output,
+            "pending_approvals": outcome.pending_approvals,
+            "null_resolutions": report.null_resolutions,
+            "agent_prompt_nulls": report.agent_prompt_nulls,
+            "agent_input_context_nulls": report.agent_input_context_nulls,
+            "node_errors": report.node_errors,
+            "routing_divergence_warnings": report.routing_divergence_warnings,
+            "permissions_manifest": permissions_manifest,
+            "note": "SANDBOX (mock) output — LLM/tool/HTTP/code nodes returned deterministic echoes; NO real side effects occurred. This checks wiring/routing only, not whether real integrations work. If routing_divergence_warnings is non-empty, an agent/tool_call node never ran in this sandbox because an upstream condition routed the mock data past it — that node's wiring is unverified; check it by hand."
+        })
+    };
+    Ok(result)
 }
 
 #[cfg(test)]

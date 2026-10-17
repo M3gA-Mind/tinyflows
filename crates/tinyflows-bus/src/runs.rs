@@ -193,6 +193,10 @@ pub struct SandboxRun {
     pub input: Value,
     /// Exact host callback address that performs ToolInvoke preflight only.
     pub tool_invoker: CallbackAddress,
+    /// Permission report precomputed by the trusted host's policy classifier.
+    /// It is included in the settled report and never authorizes execution.
+    #[serde(default)]
+    pub permissions_manifest: Vec<Value>,
 }
 
 /// Shared dry-run report envelope returned by `SandboxRun`.

@@ -147,11 +147,13 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
                 destination: "host.preflight".into(),
                 object_path: "/sandbox/1".into(),
             },
+            permissions_manifest: vec![serde_json::json!({"node_id":"send","risk":"write"})],
         },
         serde_json::json!({
             "graph":{"nodes":[],"edges":[]},
             "input":{},
-            "tool_invoker":{"destination":"host.preflight","object_path":"/sandbox/1"}
+            "tool_invoker":{"destination":"host.preflight","object_path":"/sandbox/1"},
+            "permissions_manifest":[{"node_id":"send","risk":"write"}]
         }),
     );
     pin(

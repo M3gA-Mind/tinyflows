@@ -15,7 +15,6 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tinyflows::caps::ToolInvoker;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::types::FlowSuggestion;
@@ -23,6 +22,25 @@ use tinyflows_catalog::{DraftOrigin, Flow, FlowDraft, FlowRevision, FlowRun, Flo
 
 /// A port call that failed, as the sentence the model will read.
 pub type PortResult<T> = Result<T, String>;
+
+/// An unsaved candidate graph prepared for the module's isolated sandbox.
+#[derive(Debug, Clone)]
+pub struct SandboxRunRequest {
+    /// Graph JSON selected by the dry-run tool.
+    pub graph: Value,
+    /// Trigger input passed to the graph.
+    pub input: Value,
+    /// Host-classified permission report to include with a settled run.
+    pub permissions_manifest: Vec<Value>,
+}
+
+/// Runs an unsaved graph through the compiled TinyFlows module sandbox.
+#[async_trait]
+pub trait SandboxRunner: Send + Sync {
+    /// Returns the canonical JSON report, or a tool-level error string for
+    /// invalid, uncompilable, or timed-out executions.
+    async fn run(&self, request: SandboxRunRequest) -> PortResult<Value>;
+}
 
 /// A written value plus the explanatory log lines the host produced alongside it
 /// (for example the manual-to-automatic auto-disarm message of a save).
@@ -127,9 +145,6 @@ pub trait BuilderGates: Send + Sync {
         draft_id: Option<String>,
         flow_id: Option<String>,
     ) -> Result<Value, String>;
-    /// Host-bound tool preflight used by sandbox runs. It must validate only;
-    /// it must never invoke a real integration or cause an external effect.
-    fn sandbox_tool_invoker(&self) -> std::sync::Arc<dyn ToolInvoker>;
 }
 
 /// One selectable agent definition, already rendered the way the tool returns it.
