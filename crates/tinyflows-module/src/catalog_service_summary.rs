@@ -6,10 +6,7 @@ use tinyflows_bus::catalog::WorkflowSummary;
 use tinyflows_catalog::Flow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 
-pub(super) async fn summary(
-    store: &FlowCatalogDocuments,
-    flow: Flow,
-) -> Result<WorkflowSummary> {
+pub(super) async fn summary(store: &FlowCatalogDocuments, flow: Flow) -> Result<WorkflowSummary> {
     let trigger_kind = serde_json::to_value(&flow.graph)?
         .get("nodes")
         .and_then(Value::as_array)

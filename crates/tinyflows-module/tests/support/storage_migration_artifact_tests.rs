@@ -74,7 +74,10 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
         "operation": {"op":"migrate"}
     });
     for _ in 0..2 {
-        let _: Value = schedule.call("ScheduleStore", &(request.clone(),)).await.unwrap();
+        let _: Value = schedule
+            .call("ScheduleStore", &(request.clone(),))
+            .await
+            .unwrap();
     }
 
     let migrated = docs.get("cron.jobs", "legacy-job").await.unwrap().unwrap();
