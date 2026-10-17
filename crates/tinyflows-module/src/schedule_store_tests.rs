@@ -169,7 +169,11 @@ impl JobStore for LegacyClaimSlotStore {
 }
 
 async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool) -> usize {
-    let now = Utc::now() - chrono::Duration::seconds(60);
+    // Stored instants have millisecond precision, so the in-memory job must too.
+    let now = DateTime::from_timestamp_millis(
+        (Utc::now() - chrono::Duration::seconds(60)).timestamp_millis(),
+    )
+    .unwrap();
     let backend = MemoryStorage::new();
     let scoped = backend
         .for_scope(&Scope::new("lease-recovery").unwrap())
