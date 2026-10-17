@@ -18,6 +18,11 @@ use tokio::sync::Notify;
 #[path = "graphs.rs"]
 mod graphs;
 pub(super) use graphs::{dedup_graph, graph, parked_graph, request};
+#[path = "flow_helpers.rs"]
+mod flow_helpers;
+pub(super) use flow_helpers::{
+    create_flow, create_flow_with_graph, serve_agent, serve_failing_agent,
+};
 
 struct OwnerDocuments {
     docs: Arc<dyn DocumentStore>,
@@ -143,11 +148,8 @@ impl OwnerDocuments {
             && let (Some(started), Some(release)) = (&self.cleanup_started, &self.release_cleanup)
         {
             started.notify_one();
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                release.notified(),
-            )
-            .await;
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(10), release.notified()).await;
         }
         if request["collection"] == "flows_graph_checkpoints"
             && self
@@ -411,7 +413,8 @@ pub(super) async fn owner_with_lifecycle_gates(
         .unwrap();
     let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{}", name.replace('-', "_"));
-    let expiry_failure = expiry_failure_id.map(|id| (id.to_owned(), Arc::new(AtomicBool::new(true))));
+    let expiry_failure =
+        expiry_failure_id.map(|id| (id.to_owned(), Arc::new(AtomicBool::new(true))));
     connection
         .serve_at(
             path.parse().unwrap(),
@@ -452,67 +455,6 @@ pub(super) async fn owner_with_lifecycle_gates(
         },
         docs,
     }
-}
-
-pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
-    serve_agent_with_failure(connection, name, false).await
-}
-
-pub(super) async fn serve_failing_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
-    serve_agent_with_failure(connection, name, true).await
-}
-
-async fn serve_agent_with_failure(
-    connection: &Connection,
-    name: &str,
-    fail_start: bool,
-) -> Arc<AgentCallback> {
-    let callback = Arc::new(AgentCallback {
-        started: Notify::new(),
-        release: Notify::new(),
-        approval_started: Notify::new(),
-        calls: Arc::new(AtomicUsize::new(0)),
-        fail_start,
-    });
-    let path = format!("/test/caps/{}", name.replace('-', "_"));
-    connection
-        .serve_at(path.parse().unwrap(), callback.clone())
-        .await
-        .unwrap();
-    connection.request_name("test.CapsHost").await.unwrap();
-    callback
-}
-
-pub(super) async fn create_flow(
-    proxy: &tinybus::Proxy,
-    storage: &CatalogStorage,
-    name: &str,
-) -> String {
-    create_flow_with_graph(proxy, storage, name, graph(true)).await
-}
-
-pub(super) async fn create_flow_with_graph(
-    proxy: &tinybus::Proxy,
-    storage: &CatalogStorage,
-    name: &str,
-    graph: Value,
-) -> String {
-    let response: PutWorkflowResponse = proxy
-        .call(
-            "PutWorkflow",
-            &(PutWorkflowRequest::Create {
-                storage: storage.clone(),
-                name: name.into(),
-                graph,
-                require_approval: false,
-            }),
-        )
-        .await
-        .unwrap();
-    let PutWorkflowResponse::Ok(created) = response else {
-        panic!("failed to create flow: {response:?}");
-    };
-    created.workflow.id
 }
 
 pub(super) async fn wait_notify(notify: &Notify, boundary: &str) {
