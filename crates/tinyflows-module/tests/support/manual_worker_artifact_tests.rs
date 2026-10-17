@@ -247,6 +247,9 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         )
         .await
         .unwrap();
+    callback_state
+        .defer_execute
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let completed_start = StartManualRun {
         handle: completed_handle.clone(),
         request: ManualRunRequest {
@@ -258,6 +261,27 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .call::<ManualRunState>("StartManualRun", &completed_start)
         .await
         .unwrap();
+    callback_state.execute_started.notified().await;
+    let completed_queued_history: Value = schedule
+        .call(
+            "ScheduleStore",
+            &(StoreRequest {
+                storage: storage.clone(),
+                operation: serde_json::to_value(StoreOperation::ListRuns {
+                    job_id: job.id.clone(),
+                    limit: 10,
+                })
+                .unwrap(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(
+        completed_queued_history[0]["status"] == "queued"
+            && completed_queued_history[0]["run_id"].as_str() == Some("artifact-completed-run"),
+        "queued history retains the completing invocation identity: {completed_queued_history:?}"
+    );
+    callback_state.execute_release.notify_one();
     let completed = wait_terminal(&schedule, &completed_handle).await;
     assert!(matches!(
         completed,
@@ -288,7 +312,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
     assert!(
         queued_history[0]["run_id"].as_str() == Some("artifact-manual-run")
             && terminal_history[0]["run_id"].as_str() == Some("artifact-completed-run"),
-        "ScheduleStore ListRuns retains queued and terminal invocation IDs: queued={queued_history:?}, terminal={terminal_history:?}"
+        "ScheduleStore ListRuns retains stopped and terminal invocation IDs: stopped={queued_history:?}, terminal={terminal_history:?}"
     );
     assert!(
         schedule
