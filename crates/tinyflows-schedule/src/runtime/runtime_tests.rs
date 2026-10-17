@@ -134,12 +134,13 @@ impl JobExecutor for Fixture {
             success: call >= self.fail_count,
             output: "result".into(),
             retryable: !self.permanent,
+            raw_detail: None,
         })
     }
 }
 #[async_trait]
 impl RunDelivery for Fixture {
-    async fn deliver(&self, _: &CronJob, _: &str, _: &Attempt) -> Result<DeliveryStatus> {
+    async fn send(&self, _: &CronJob, _: &str, _: &Attempt) -> Result<DeliveryStatus> {
         if self.delivery_fails {
             anyhow::bail!("delivery unavailable");
         }
@@ -149,15 +150,19 @@ impl RunDelivery for Fixture {
             DeliveryStatus::NotRequested
         })
     }
+    async fn deliver(&self, _: &tinyflows_bus::schedule::DeliveryProjection) -> Result<()> {
+        Ok(())
+    }
 }
 #[async_trait]
 impl TriggerSink for Fixture {
-    async fn schedule(&self, _: &str, _: &str) -> Result<Attempt> {
+    async fn schedule(&self, _: &CronJob, _: &str) -> Result<Attempt> {
         self.triggers.fetch_add(1, Ordering::SeqCst);
         Ok(Attempt {
             success: true,
             output: "triggered".into(),
             retryable: false,
+            raw_detail: None,
         })
     }
 }
@@ -299,6 +304,7 @@ impl JobExecutor for BlockExecutor {
             success: true,
             output: "ok".into(),
             retryable: false,
+            raw_detail: None,
         })
     }
 }
