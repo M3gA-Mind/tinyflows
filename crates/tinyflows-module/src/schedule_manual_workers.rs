@@ -195,9 +195,8 @@ impl ManualWorkers {
         let expired: Vec<_> = self
             .by_handle
             .iter()
-            .filter_map(|(handle, reservation)| {
-                reservation.entry.expired(now).then(|| handle.clone())
-            })
+            .filter(|&(_, reservation)| reservation.entry.expired(now))
+            .map(|(handle, _)| handle.clone())
             .collect();
         for handle in expired {
             if let Some(reservation) = self.by_handle.remove(&handle) {
