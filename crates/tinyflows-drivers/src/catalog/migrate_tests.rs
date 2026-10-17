@@ -154,6 +154,56 @@ async fn v1_catalog_records_migrate_to_bare_ms_bodies_and_read_back() {
 }
 
 #[tokio::test]
+async fn v1_revision_sequence_run_events_and_snapshot_migrate_and_read_back() {
+    let storage = scoped();
+    let at = "2026-03-04T05:06:07.250+00:00";
+    seed(
+        &storage,
+        "flows_definitions",
+        "f1",
+        json!({"name": "n", "graph_json": graph().to_string(), "enabled": true,
+               "created_at": at, "updated_at": at, "require_approval": false,
+               "incarnation": "inc", "revision": 4}),
+    )
+    .await;
+    seed(
+        &storage,
+        "flows_runs",
+        "run1",
+        json!({"flow_id": "f1", "thread_id": "t", "status": "completed",
+               "started_at": at, "finished_at": at, "flow_incarnation": "inc",
+               "steps_json": "[]", "pending_approvals_json": "[]",
+               "events_json": "[{\"seq\":1,\"kind\":\"started\"},{\"seq\":2,\"kind\":\"finished\",\"data\":{\"status\":\"completed\"}}]",
+               "execution_snapshot": {"lease": "actor", "timeout_ms": 5},
+               "terminal_event_seq": 2}),
+    )
+    .await;
+
+    migrate(&storage).await;
+
+    let docs = storage.documents();
+    let def = docs.get("flows.definitions", "f1").await.unwrap().unwrap();
+    assert_eq!(def.doc["revision"], 4, "the revision sequence is carried");
+    let run = docs.get("flows.runs", "run1").await.unwrap().unwrap();
+    assert_eq!(run.doc["events"][1]["kind"], "finished", "events are a real array");
+    assert!(run.doc.get("events_json").is_none());
+    assert_eq!(run.doc["execution_snapshot"]["lease"], "actor");
+    assert_eq!(run.doc["terminal_event_seq"], 2);
+
+    let catalog = FlowCatalogDocuments::new(std::sync::Arc::clone(docs));
+    assert_eq!(catalog.latest_revision_number("f1").await.unwrap(), Some(4));
+    assert_eq!(catalog.flow_run_event_last_seq("run1").await.unwrap(), 2);
+    assert_eq!(
+        catalog.flow_run_terminal_event_seq("run1").await.unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        catalog.flow_run_events_after("run1", 1, 10).await.unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn a_corrupt_v1_graph_string_stays_a_string_and_migrating_twice_changes_nothing() {
     let storage = scoped();
     seed(

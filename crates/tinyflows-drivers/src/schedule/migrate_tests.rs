@@ -163,6 +163,51 @@ async fn v1_jobs_runs_and_the_ledger_migrate_and_read_back() {
 }
 
 #[tokio::test]
+async fn a_v1_claims_queued_placeholder_run_is_kept_on_the_job_and_removed_by_the_next_claim() {
+    let storage = scoped();
+    let mut job = v1_job(json!({"kind": "every", "every_ms": 60000}));
+    job["occurrence_lease"] = json!({"owner": "w", "token": "x", "queued_run": 7});
+    job["next_run_ms"] = json!(1_000_i64);
+    seed(&storage, "cron_jobs", "j1", job).await;
+    seed(
+        &storage,
+        "cron_runs",
+        "00000000000000000007",
+        json!({"seq": 7, "job_id": "j1", "status": "queued", "incarnation": "inc",
+               "started_at": "2026-03-04T05:06:07+00:00", "finished_at": "2026-03-04T05:06:07+00:00",
+               "duration_ms": 0}),
+    )
+    .await;
+    migrate(&storage).await;
+
+    let docs = storage.documents();
+    let migrated = docs.get("cron.jobs", "j1").await.unwrap().unwrap();
+    assert_eq!(migrated.doc["queued_run"], 7);
+    assert!(migrated.doc.get("occurrence_lease").is_none());
+
+    let store = CronDocuments::new(std::sync::Arc::clone(docs));
+    let claim = store
+        .claim_due_job(
+            "j1",
+            "worker",
+            chrono::Utc.timestamp_millis_opt(2_000).unwrap(),
+            chrono::Duration::seconds(30),
+        )
+        .await
+        .unwrap();
+    assert!(claim.is_some());
+    assert!(
+        docs.get("cron.runs", "00000000000000000007")
+            .await
+            .unwrap()
+            .is_none(),
+        "the placeholder of the claim that did not survive the migration is gone"
+    );
+    let after = docs.get("cron.jobs", "j1").await.unwrap().unwrap();
+    assert!(after.doc.get("queued_run").is_none());
+}
+
+#[tokio::test]
 async fn migrating_twice_changes_nothing() {
     let storage = scoped();
     seed(
