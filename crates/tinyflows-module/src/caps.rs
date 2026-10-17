@@ -38,7 +38,11 @@ const EMPTY_POLL_DELAY: Duration = Duration::from_millis(25);
 pub struct CapsHostPorts {
     connection: Connection,
     address: runs::CallbackAddress,
+    progress: Option<RunProgressSink>,
 }
+
+/// Synchronous, non-blocking sink for bounded host agent progress events.
+pub type RunProgressSink = Arc<dyn Fn(String, Value) + Send + Sync>;
 
 /// Trusted values supplied by run management, separate from graph and trigger
 /// JSON. `storage` is already bound to the acting owner scope.
@@ -60,6 +64,17 @@ impl CapsHostPorts {
         host: CapsHost,
         scope: RunScope,
     ) -> Result<caps::Capabilities> {
+        Self::capabilities_with_progress(connection, host, scope, None).await
+    }
+
+    /// Builds the run capability bundle and forwards agent progress to the
+    /// module's run event writer when a sink is supplied.
+    pub async fn capabilities_with_progress(
+        connection: Connection,
+        host: CapsHost,
+        scope: RunScope,
+        progress: Option<RunProgressSink>,
+    ) -> Result<caps::Capabilities> {
         let documents =
             super::catalog_documents::Documents::new(connection.clone(), scope.storage.callback)
                 .await
@@ -73,6 +88,7 @@ impl CapsHostPorts {
         let ports = Arc::new(Self {
             connection,
             address: host.callback,
+            progress,
         });
         let mut capabilities = caps::Capabilities {
             llm: ports.clone(),
@@ -99,6 +115,12 @@ impl CapsHostPorts {
         task_runner.bind(&runner);
         capabilities.tasks = Some(runner);
         Ok(capabilities)
+    }
+
+    pub(super) fn publish_progress(&self, kind: String, data: Value) {
+        if let Some(progress) = &self.progress {
+            progress(kind, data);
+        }
     }
 
     async fn call<A, R>(&self, member: &str, args: &A) -> Result<R>

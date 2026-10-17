@@ -76,6 +76,7 @@ mod kv;
 mod lineage;
 mod revision_sequence;
 mod revisions;
+mod run_events;
 mod runs;
 mod state;
 mod steps;

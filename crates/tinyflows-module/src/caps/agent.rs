@@ -38,6 +38,7 @@ impl AgentRunner for CapsHostPorts {
     }
 
     async fn run(&self, request: AgentRunRequest) -> Result<AgentRunOutcome> {
+        let node_id = request.identity.node_id.clone();
         let wire_request: runs::AgentRunRequest = convert(request)?;
         let started = tokio::time::Instant::now();
         let handle: runs::AgentRunHandle = self
@@ -94,6 +95,16 @@ impl AgentRunner for CapsHostPorts {
                     )));
                 }
                 cursor = event.seq;
+                self.publish_progress(
+                    "agent_progress".into(),
+                    serde_json::json!({
+                        "node_id": &node_id,
+                        "at_ms": event.at_ms,
+                        "event_kind": &event.kind,
+                        "text": &event.text,
+                        "agent_seq": event.seq,
+                    }),
+                );
                 transcript.push(TranscriptEntry::bounded(
                     event.at_ms,
                     event.kind,

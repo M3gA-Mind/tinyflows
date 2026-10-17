@@ -44,6 +44,7 @@ fn manifest() -> TbSlice {
             object_path: ObjectPath::new(tinyflows_bus::OBJECT_PATH).expect("static object path"),
             provides: vec![
                 provided(tinyflows_bus::INTERFACE, tinyflows_bus::METHODS),
+                provided(tinyflows_bus::runs::INTERFACE, tinyflows_bus::runs::METHODS),
                 provided(
                     tinyflows_bus::catalog::INTERFACE,
                     tinyflows_bus::catalog::METHODS,

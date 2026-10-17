@@ -16,7 +16,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | --- | --- | --- |
 | Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
+| Runs | served, v2 | `StartRun`, `CancelRun`, `PollRun` (`ResumeRun` is a later slice) |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
@@ -43,12 +43,34 @@ host-owned.
 
 ### Run / resume / cancel
 
-`StartRun` returns a run id at once and the module drives the run on its own
-executor. `ResumeRun` supplies approvals for a parked run. `CancelRun` is
-cooperative (the engine's cancel token). Progress is not a transport stream:
-`PollRun(run_id, cursor)` returns events with a monotonic `seq`, so the host
-can republish them on its event bus and a restart resumes from its last
-cursor. Run checkpoints live in the host document port (below).
+`StartRun` accepts a required host-chosen opaque `run_id`, a trusted execution
+context, a separately bound `CapsHost` and owner-scoped `CatalogStorage`, the
+graph, a typed trigger kind plus its distinct payload, declared inputs, and a
+required nonzero `timeout_ms`. The host chooses the budget; the module enforces
+it cooperatively at engine node boundaries. There is no module default or
+unbounded value. OpenHuman continues to supply its existing 600 second policy.
+Compatibility, compilation and declared-input resolution complete before a run
+row or live cancellation token is created. After preflight, row insertion uses
+create-if-absent and the owner-scoped live token is registered before the id is
+acknowledged. The exact storage callback address is the stable owner key for
+live Poll/Cancel; owner ids never come from graph or trigger data.
+
+The module drives the run on its executor. `CancelRun` signals a live run's
+engine token; the actor persists its own terminal row and event. A parked or
+orphaned run is cancelled through the row's compare-and-swap, and its checkpoint
+is removed only if that transition wins. `PollRun(run_id, cursor)` returns a
+bounded page with a monotonic next cursor. Step writes and their events are
+queued out of synchronous observer callbacks and drained before terminal
+settlement; graph observations and live agent progress join the same event
+sequence. The final event follows the terminal row write, and `done` remains
+false for `pending_approval`. Checkpoints and the exact executed graph snapshot
+live in the owner-scoped document port. Persisted-row rebinding after module
+restart and `ResumeRun` are left to the next slice.
+
+The host's CatalogStorage callback allowlist must also admit
+`flows_graph_checkpoints`, `flows_graph_threads` and `flows_graph_writes` for
+the module's DriverCheckpointer. It must apply the same owner scope to those
+collections as it does to the workflow catalog collections.
 
 ### Node kinds, graph_ops, gates, preflight
 

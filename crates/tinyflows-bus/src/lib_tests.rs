@@ -23,7 +23,6 @@ fn method_constants_match_advertised_members() {
         runs::METHODS,
         &[
             runs::methods::START_RUN,
-            runs::methods::RESUME_RUN,
             runs::methods::CANCEL_RUN,
             runs::methods::POLL_RUN
         ]
@@ -101,6 +100,7 @@ fn run_event_round_trips() {
         seq: 3,
         kind: "step".into(),
         data: serde_json::json!({"a": 1}),
+        graph_run_id: None,
     };
     let back: runs::RunEvent = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
     assert_eq!(ev, back);
