@@ -65,6 +65,12 @@ impl TaskExecutor for CapabilityTaskExecutor {
                 if outcome.cancelled {
                     return Err(capability_error("spawned child workflow was cancelled"));
                 }
+                if !outcome.pending_approvals.is_empty() {
+                    return Err(capability_error(format!(
+                        "spawned child workflow is waiting for approvals {:?}; task tickets cannot be resumed",
+                        outcome.pending_approvals
+                    )));
+                }
                 Ok(outcome.output)
             }
         }

@@ -181,3 +181,46 @@ async fn inline_child_workflow_refuses_legacy_unsupported_engine_topology() {
     };
     assert!(message.contains("unsupported_nested_conditional_fan_in"));
 }
+
+#[tokio::test]
+async fn parked_child_workflow_fails_explicitly_before_downstream_actions() {
+    let (module, host) = support::memory_bus().await;
+    let calls = support::serve_caps(&host, "alice", "/caps/alice", false).await;
+    host.request_name("test.CatalogStorage").await.unwrap();
+    let (storage, _) = super::scope_tests::storage_callback(&host, "alice").await;
+    let capabilities = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/alice"),
+        RunScope {
+            flow_id: "flow-1".into(),
+            storage,
+        },
+    )
+    .await
+    .unwrap();
+    let child = json!({
+        "nodes": [
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":"review","name":"Review","kind":"approval","config":{"request_id":"child-approval","title":"Proceed?"}},
+            {"id":"after","name":"After approval","kind":"tool_call","config":{"slug":"nested.after-approval","args":{}}}
+        ],
+        "edges": [
+            {"from_node":"trigger","from_port":"main","to_node":"review","to_port":"main"},
+            {"from_node":"review","from_port":"approved","to_node":"after","to_port":"main"}
+        ]
+    });
+    let runner = capabilities.tasks.as_ref().unwrap();
+    let ticket = runner
+        .start(TaskSpec::Workflow {
+            graph: child,
+            input: json!({}),
+        })
+        .await
+        .unwrap();
+    let TaskState::Failed(message) = await_task(runner.as_ref(), &ticket).await else {
+        panic!("a parked child cannot be reported as a completed task")
+    };
+    assert!(message.contains("waiting for approvals"), "{message}");
+    assert!(message.contains("child-approval") || message.contains("review"));
+    assert!(!calls.lock().unwrap().iter().any(|call| call == "alice:ToolInvoke"));
+}
