@@ -8,6 +8,7 @@ fn terminal_payload_uses_the_engine_success_vocabulary() {
         ("failed", false),
         ("cancelled", false),
         ("interrupted", false),
+        ("future_terminal_status", false),
     ] {
         let payload = finished_payload(status, None, None);
         assert_eq!(payload.status, status);

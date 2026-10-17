@@ -47,6 +47,11 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         ("at", json!({"kind":"at","at":"2027-01-01T00:00:00Z"})),
         ("every", json!({"kind":"every","every_ms":60000})),
     ] {
+        let expected_schedule = serde_json::to_value(
+            serde_json::from_value::<tinyflows_bus::schedule::Schedule>(schedule.clone())
+                .unwrap(),
+        )
+        .unwrap();
         let graph = json!({"name":"schedule","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
             "trigger_kind":"schedule","schedule":schedule
         }}],"edges":[]});
@@ -57,7 +62,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         assert_eq!(details.kind.as_deref(), Some("schedule"));
         assert_eq!(
             serde_json::to_value(details.schedule).unwrap(),
-            schedule,
+            expected_schedule,
             "schedule variant {kind} should remain typed and intact"
         );
     }
