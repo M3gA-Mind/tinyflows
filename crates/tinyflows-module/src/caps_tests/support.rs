@@ -78,7 +78,7 @@ impl FakeHost {
         self.record("ShellRun");
         Ok(ShellRunOutcome {
             exit_code: 7,
-            stdout: format!("{}", request.script_name()),
+            stdout: request.script_name(),
             stderr: "script error".into(),
         })
     }
