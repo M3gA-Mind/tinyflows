@@ -1,5 +1,7 @@
 use super::*;
 use tinyflows_bus::catalog::CallbackAddress;
+use tinyflows_drivers::catalog::FlowCatalogDocuments;
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 fn storage(owner: &str) -> tinyflows_bus::catalog::CatalogStorage {
     tinyflows_bus::catalog::CatalogStorage {
@@ -47,4 +49,55 @@ fn duplicate_registration_keeps_the_original_cancellation_owner() {
     first.token.cancel();
     assert!(duplicate.token.is_cancelled());
     unregister(&first);
+}
+
+#[tokio::test]
+async fn admission_waiter_rechecks_after_rollback_and_after_success() {
+    let backend = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let catalog = FlowCatalogDocuments::new(backend.documents().clone());
+    let run_id = format!("admission-{}", uuid::Uuid::new_v4());
+    let storage = storage("alice");
+    let scoped_key = key(&storage, &run_id);
+    let reservation = register(scoped_key.clone()).unwrap_or_else(|_| panic!("new reservation"));
+
+    let (finished, result) = tokio::sync::oneshot::channel();
+    let waiter_catalog = catalog.clone();
+    let waiter_key = scoped_key.clone();
+    let waiter_run = Arc::clone(&reservation);
+    tokio::spawn(async move {
+        let result = wait_for_admission(
+            &waiter_catalog,
+            &run_id,
+            &waiter_key,
+            waiter_run,
+        )
+        .await;
+        let _ = finished.send(result);
+    });
+    reservation.admission_waiting.notified().await;
+    assert!(matches!(result.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+    unregister(&reservation);
+    assert_eq!(result.await.unwrap().unwrap(), None);
+
+    let flow_graph = tinyflows::migrate::deserialize_graph(serde_json::json!({
+        "nodes":[{"id":"trigger","name":"Trigger","kind":"trigger","config":{}}],
+        "edges":[]
+    }))
+    .unwrap();
+    let flow = catalog
+        .create_flow("Admission".into(), flow_graph, false, true)
+        .await
+        .unwrap();
+    catalog
+        .insert_flow_run(&run_id, &flow.id, &run_id, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    let admitted = register(scoped_key.clone()).unwrap_or_else(|_| panic!("retry reservation"));
+    admitted.phase.store(RUNNING, Ordering::Release);
+    let duplicate = wait_for_admission(&catalog, &run_id, &scoped_key, Arc::clone(&admitted))
+        .await
+        .unwrap()
+        .expect("the durable row and live token make the retry idempotent");
+    assert!(duplicate.already_running);
+    unregister(&admitted);
 }

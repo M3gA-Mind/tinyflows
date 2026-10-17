@@ -40,6 +40,8 @@ pub(super) struct ActiveRun {
     token: CancellationToken,
     phase: AtomicU8,
     admitted: Notify,
+    #[cfg(test)]
+    pub(super) admission_waiting: Notify,
 }
 
 static ACTIVE: LazyLock<Mutex<HashMap<ScopedRunId, Arc<ActiveRun>>>> =
@@ -80,6 +82,8 @@ fn register(key: ScopedRunId) -> std::result::Result<Arc<ActiveRun>, Arc<ActiveR
         token: CancellationToken::new(),
         phase: AtomicU8::new(RESERVING),
         admitted: Notify::new(),
+        #[cfg(test)]
+        admission_waiting: Notify::new(),
     });
     active.insert(key, Arc::clone(&run));
     Ok(run)
@@ -244,6 +248,8 @@ async fn wait_for_admission(
 ) -> Result<Option<StartRunResponse>> {
     if existing.phase.load(Ordering::Acquire) == RESERVING {
         let admitted = existing.admitted.notified();
+        #[cfg(test)]
+        existing.admission_waiting.notify_one();
         if existing.phase.load(Ordering::Acquire) == RESERVING {
             admitted.await;
         }
