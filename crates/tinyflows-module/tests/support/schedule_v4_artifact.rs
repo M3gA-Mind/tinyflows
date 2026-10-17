@@ -1,5 +1,5 @@
 use super::{
-    schedule_artifact_callbacks, schedule_v4_delivery_artifact, schedule_v4_manual_artifact,
+    callbacks, schedule_v4_delivery_artifact, schedule_v4_manual_artifact,
     schedule_v4_recovery_artifact,
 };
 use serde_json::Value;
@@ -12,7 +12,7 @@ pub async fn verify(
     proxy: &Proxy,
     docs: Arc<dyn DocumentStore>,
     storage: Value,
-    state: Arc<schedule_artifact_callbacks::State>,
+    state: Arc<callbacks::State>,
 ) {
     let callback = CallbackAddress {
         destination: "test.ScheduleCallbacks".into(),

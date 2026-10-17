@@ -1,4 +1,4 @@
-use super::schedule_artifact_callbacks;
+use super::callbacks;
 use chrono::{Duration, Utc};
 use serde_json::Value;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ pub async fn verify(
     docs: Arc<dyn DocumentStore>,
     storage: Value,
     callback: CallbackAddress,
-    state: Arc<schedule_artifact_callbacks::State>,
+    state: Arc<callbacks::State>,
 ) {
     let store = CronDocuments::new(docs);
     let now = Utc::now();

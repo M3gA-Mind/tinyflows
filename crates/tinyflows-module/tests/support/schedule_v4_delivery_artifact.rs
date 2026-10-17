@@ -1,4 +1,4 @@
-use super::schedule_artifact_callbacks;
+use super::callbacks;
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tinyflows_bus::schedule::{
 };
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::{CronJobPatch, DeliveryStatus, Schedule};
-use tinystoragedrivers_core::{DocumentStore, DocumentStoreExt};
+use tinystoragedrivers_core::DocumentStore;
 
 /// Verifies one actual send and truthful terminal projection through the cdylib.
 pub async fn verify(
@@ -16,7 +16,7 @@ pub async fn verify(
     docs: Arc<dyn DocumentStore>,
     storage: Value,
     callback: CallbackAddress,
-    state: Arc<schedule_artifact_callbacks::State>,
+    state: Arc<callbacks::State>,
 ) {
     let store = CronDocuments::new(docs.clone());
     let job = store

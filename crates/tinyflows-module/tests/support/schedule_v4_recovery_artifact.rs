@@ -1,4 +1,4 @@
-use super::schedule_artifact_callbacks;
+use super::callbacks;
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use tinybus::Proxy;
 use tinyflows_bus::schedule::{CallbackAddress, StartScheduler, StoreConfig};
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::Schedule;
-use tinystoragedrivers_core::{DocumentStore, DocumentStoreExt};
+use tinystoragedrivers_core::DocumentStore;
 
 /// Recovers an expired persisted lease through the loaded cdylib, then proves
 /// the former owner cannot renew, release or complete the recovered run.
@@ -15,7 +15,7 @@ pub async fn verify(
     docs: Arc<dyn DocumentStore>,
     storage: Value,
     callback: CallbackAddress,
-    state: Arc<schedule_artifact_callbacks::State>,
+    state: Arc<callbacks::State>,
 ) {
     let store = CronDocuments::new(docs.clone());
     let job = store
