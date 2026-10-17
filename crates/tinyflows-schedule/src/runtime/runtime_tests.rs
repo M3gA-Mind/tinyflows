@@ -311,14 +311,14 @@ async fn retries_use_clock_and_zero_override_is_one_attempt() {
 
 #[tokio::test]
 async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    Arc::get_mut(&mut fixture).unwrap().fail_count = 1;
     fixture.raw_details.lock().unwrap().extend([
         Some("opaque host classification".into()),
         None,
     ]);
     let mut job = fixture.job();
     job.policy.retries = Some(1);
-    Arc::get_mut(&mut Arc::clone(&fixture)).unwrap();
     let result = execute_with_retry(
         &fixture.ports(),
         &SchedulerConfig::default(),
@@ -397,6 +397,9 @@ async fn required_delivery_failure_disables_failed_one_shot_without_deleting() {
     let r = f.records.lock().unwrap();
     assert_eq!(r[0].status, "error");
     assert_eq!(r[0].delivery_status, Some(DeliveryStatus::Failed));
+    let projection = &f.projections.lock().unwrap()[0];
+    assert!(!projection.success, "terminal delivery sees required-send failure");
+    assert_eq!(projection.delivery_status, Some(DeliveryStatus::Failed));
 }
 
 #[tokio::test]
@@ -590,6 +593,9 @@ async fn explicit_failed_delivery_prevents_auto_delete_only_when_required() {
         let records = f.records.lock().unwrap();
         assert_eq!(records[0].status, if best_effort { "ok" } else { "error" });
         assert_eq!(records[0].delivery_status, Some(DeliveryStatus::Failed));
+        let projection = &f.projections.lock().unwrap()[0];
+        assert_eq!(projection.success, best_effort);
+        assert_eq!(projection.delivery_status, Some(DeliveryStatus::Failed));
     }
 }
 

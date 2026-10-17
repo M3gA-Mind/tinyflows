@@ -1,7 +1,10 @@
 // Shared fixture for the compiled module test; client uses only the bus wire vocabulary.
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use chrono::{DateTime, Utc};
 use tinybus::Result;
+use tinyflows_bus::schedule::{ManualClaimReply, OccurrenceClaim, RunJobRefusal};
 #[derive(Default)]
 pub struct State {
     pub records: Mutex<Vec<Value>>,
@@ -11,6 +14,7 @@ pub struct State {
     pub started: tokio::sync::Notify,
     pub release: tokio::sync::Notify,
     pub exclusions: Mutex<Vec<Vec<String>>>,
+    pub leases: Mutex<HashMap<String, (String, DateTime<Utc>)>>,
 }
 pub struct Callbacks(pub Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
@@ -40,6 +44,110 @@ impl Callbacks {
     }
     async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
         Ok(())
+    }
+    async fn claim_due_occurrence(
+        &self,
+        value: Value,
+        owner: String,
+        now: DateTime<Utc>,
+        lease_ms: i64,
+    ) -> Result<Option<OccurrenceClaim>> {
+        let job: tinyflows_bus::schedule::CronJob = serde_json::from_value(value)?;
+        let mut leases = self.0.leases.lock().unwrap();
+        if leases.get(&job.id).is_some_and(|(_, expiry)| *expiry > now) {
+            return Ok(None);
+        }
+        let receipt = uuid::Uuid::new_v4().to_string();
+        leases.insert(
+            job.id.clone(),
+            (receipt.clone(), now + chrono::Duration::milliseconds(lease_ms)),
+        );
+        Ok(Some(OccurrenceClaim {
+            receipt,
+            occurrence: job.next_run,
+            started_at: now,
+            owner,
+            job,
+            run_id: None,
+        }))
+    }
+    async fn claim_manual_occurrence(
+        &self,
+        job: tinyflows_bus::schedule::CronJob,
+        owner: String,
+        now: DateTime<Utc>,
+        lease_ms: i64,
+    ) -> Result<ManualClaimReply> {
+        let mut leases = self.0.leases.lock().unwrap();
+        if leases.get(&job.id).is_some_and(|(_, expiry)| *expiry > now) {
+            return Ok(ManualClaimReply::Refused {
+                reason: RunJobRefusal::AlreadyRunning,
+            });
+        }
+        let receipt = uuid::Uuid::new_v4().to_string();
+        leases.insert(
+            job.id.clone(),
+            (receipt.clone(), now + chrono::Duration::milliseconds(lease_ms)),
+        );
+        Ok(ManualClaimReply::Claimed {
+            claim: OccurrenceClaim {
+                receipt,
+                occurrence: job.next_run,
+                started_at: now,
+                owner,
+                job,
+                run_id: None,
+            },
+        })
+    }
+    async fn renew_occurrence(
+        &self,
+        receipt: String,
+        now: DateTime<Utc>,
+        lease_ms: i64,
+    ) -> Result<bool> {
+        let mut leases = self.0.leases.lock().unwrap();
+        let Some((_, expiry)) = leases
+            .values_mut()
+            .find(|(current, expiry)| current == &receipt && *expiry > now)
+        else {
+            return Ok(false);
+        };
+        *expiry = (*expiry).max(now + chrono::Duration::milliseconds(lease_ms));
+        Ok(true)
+    }
+    async fn release_occurrence(&self, receipt: String, _: DateTime<Utc>) -> Result<bool> {
+        let mut leases = self.0.leases.lock().unwrap();
+        let Some(job_id) = leases
+            .iter()
+            .find_map(|(id, (current, _))| (current == &receipt).then(|| id.clone()))
+        else {
+            return Ok(false);
+        };
+        leases.remove(&job_id);
+        Ok(true)
+    }
+    async fn queue_occurrence(&self, _: String, record: Value) -> Result<bool> {
+        self.0.records.lock().unwrap().push(record);
+        Ok(true)
+    }
+    async fn complete_occurrence(
+        &self,
+        receipt: String,
+        record: Value,
+        completion: Value,
+    ) -> Result<bool> {
+        let mut leases = self.0.leases.lock().unwrap();
+        let Some(job_id) = leases
+            .iter()
+            .find_map(|(id, (current, _))| (current == &receipt).then(|| id.clone()))
+        else {
+            return Ok(false);
+        };
+        leases.remove(&job_id);
+        self.0.records.lock().unwrap().push(record);
+        self.0.completions.lock().unwrap().push(completion);
+        Ok(true)
     }
     async fn record_run(&self, record: Value) -> Result<()> {
         self.0.records.lock().unwrap().push(record);
