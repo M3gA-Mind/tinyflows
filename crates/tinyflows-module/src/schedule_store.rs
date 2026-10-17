@@ -13,6 +13,7 @@ use tinyflows_schedule::{
     CronJob,
     runtime::{Completion, RunRecord},
 };
+use tinystoragedrivers_core::{MigrateOptions, Registry, Scope};
 
 /// The module's schedule store: `CronDocuments` over the host's document port.
 pub(super) struct Store(CronDocuments);
@@ -27,10 +28,29 @@ impl Store {
         ))
     }
     pub(super) async fn request(connection: Connection, request: StoreRequest) -> Result<Value> {
-        Self::new(connection, request.storage)
-            .await?
-            .execute(serde_json::from_value(request.operation)?)
+        let StoreRequest { storage, operation } = request;
+        let operation: Operation = serde_json::from_value(operation)?;
+        if matches!(operation, Operation::Migrate) {
+            return Self::migrate(connection, storage).await;
+        }
+        Self::new(connection, storage).await?.execute(operation).await
+    }
+    async fn migrate(connection: Connection, config: StoreConfig) -> Result<Value> {
+        let StoreBackend::Documents { callback } = config.backend;
+        let documents = Arc::new(
+            super::schedule_documents::Documents::new(connection, callback).await?,
+        );
+        documents.require_record_metadata()?;
+        let _guard = super::migration_lock::lock(documents.migration_lock_key()).await;
+        let storage = tinyflows_drivers::document_only_scope(Scope::local(), documents.clone())?;
+        CronDocuments::new(documents)
+            .ensure()
             .await
+            .map_err(anyhow::Error::msg)?;
+        let registry = Registry::compose([tinyflows_drivers::cron_storage_schema()])?;
+        let report = registry.migrate(&storage, &MigrateOptions::default()).await?;
+        let counter_imported = tinyflows_drivers::import_legacy_cron_counters(&storage).await?;
+        Ok(serde_json::json!({"report": report, "counter_imported": counter_imported}))
     }
     async fn execute(&self, operation: Operation) -> Result<Value> {
         // The store owns validation, migration, output limits and history pruning.
@@ -96,6 +116,7 @@ impl Store {
             Operation::SetMaxActiveJobs { limit } => dispatch!(set_max_active_jobs, limit),
             Operation::ImportJob { job } => dispatch!(import_job, &job),
             Operation::ImportRun { run } => dispatch!(import_run, &run),
+            Operation::Migrate => anyhow::bail!("migration operation was not dispatched"),
         })
     }
 }

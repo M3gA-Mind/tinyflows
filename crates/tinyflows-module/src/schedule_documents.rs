@@ -13,7 +13,6 @@ use tinystoragedrivers_core::{
 const SHARED: [&str; 3] = ["tsd.counters", "tsd.leases", "tsd.migrations"];
 /// Every `cron` record in a shared collection is keyed `Key::of(["cron", ..])`.
 const CRON_KEY_PREFIX: &str = "cron/";
-const LEGACY: [&str; 3] = ["cron_jobs", "cron_runs", "cron_counters"];
 
 pub(super) struct Documents {
     connection: Connection,
@@ -83,6 +82,16 @@ impl Documents {
         }
         Ok(documents)
     }
+    pub(super) fn require_record_metadata(&self) -> anyhow::Result<()> {
+        if self.capabilities.contains(Capability::RecordMetadata) {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("schedule migration requires record metadata support"))
+        }
+    }
+    pub(super) fn migration_lock_key(&self) -> String {
+        format!("schedule:{}:{}", self.address.destination, self.address.object_path)
+    }
     fn validate_collection(collection: &str) -> Result<()> {
         // Only schedule-owned collections can cross this narrow callback seam.
         if ![
@@ -95,6 +104,7 @@ impl Documents {
             "cron_jobs",
             "cron_runs",
             "cron_counters",
+            "tsd.migrations",
         ]
         .contains(&collection)
         {
@@ -207,20 +217,15 @@ impl DocumentStore for Documents {
         precondition: Precondition,
         options: WriteOptions,
     ) -> Result<Version> {
-        if options.created_ms.is_some() {
-            // A creation time is a host-only migration option; the callback
-            // seam cannot carry it.
-            return Err(StorageError::unsupported(
-                Capability::RecordMetadata,
-                "a module cannot set a document's creation time",
-            ));
-        }
         let mut request = json!({"op":"put","collection":collection,"id":id,"doc":doc,"precondition":precondition});
         if options.schema != 0 {
             request["schema"] = json!(options.schema);
         }
         if let Some(expires_ms) = options.expires_ms {
             request["expires_ms"] = json!(expires_ms);
+        }
+        if let Some(created_ms) = options.created_ms {
+            request["created_ms"] = json!(created_ms);
         }
         self.call_record(collection, id, request).await
     }
