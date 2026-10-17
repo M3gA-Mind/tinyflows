@@ -236,7 +236,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
 async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_terminal() {
     use tinyflows_bus::schedule::{
         ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
-        StartManualRun, StoreConfig, WaitManualRun,
+        StartManualRun, WaitManualRun,
     };
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
