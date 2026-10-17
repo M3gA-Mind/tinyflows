@@ -11,8 +11,9 @@ pub mod types;
 pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
-    CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunsCloserThanRequest,
-    ValidateScheduleRequest,
+    CheckOriginRequest, CheckPatchRequest, DeliveryProjection, ManualDelivery,
+    NextRunRequest, OccurrenceClaim, RunJobNow, RunJobRefusal, RunJobReply,
+    RunsCloserThanRequest, ValidateScheduleRequest,
 };
 pub use store_types::{
     AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, StoreOperation, TRUNCATED_OUTPUT_MARKER,
@@ -34,9 +35,9 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// `sqlite` store backend; storage is the host's document port only. 3 moved
 /// the job/run/policy records and the callback records into this crate
 /// (`types`, `Attempt`/`RunRecord`/`Completion`, `AgentJobSpec`,
-/// `StoreOperation`) and added the schedule-maths and validation members and
-/// the `set_max_active_jobs`/`import_job`/`import_run` store operations.
-pub const CONTRACT_VERSION: u32 = 3;
+/// `StoreOperation`) and added occurrence leases, module-owned manual run
+/// admission and explicit send/terminal delivery phases.
+pub const CONTRACT_VERSION: u32 = 4;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     members::SCHEDULE_STORE,
@@ -45,6 +46,7 @@ pub const METHODS: &[&str] = &[
     members::TICK_SCHEDULER,
     members::DRAIN_SCHEDULER,
     members::EXECUTE_JOB,
+    members::RUN_JOB_NOW,
     members::PARSE_HUMAN_DELAY,
     members::VALIDATE_DELIVERY,
     members::NEXT_RUN,
@@ -72,6 +74,8 @@ pub mod members {
     pub const DRAIN_SCHEDULER: &str = "DrainScheduler";
     /// `(scope, CallbackAddress, config, job, run_id) -> Attempt`.
     pub const EXECUTE_JOB: &str = "ExecuteJob";
+    /// `(RunJobNow) -> RunJobReply`; durable admission precedes acknowledgement.
+    pub const RUN_JOB_NOW: &str = "RunJobNow";
     /// `(delay: string) -> milliseconds: i64`.
     pub const PARSE_HUMAN_DELAY: &str = "ParseHumanDelay";
     /// `(DeliveryConfig, Option<JobOrigin>, Option<Vec<String>>) -> ()`.
@@ -135,6 +139,18 @@ pub mod callbacks {
     /// `(job: JSON, next_run: RFC3339) -> ()`: claim or return an error.
     /// Preserve concurrent edits; disable one-shots durably before success.
     pub const CLAIM_SLOT: &str = "ClaimSlot";
+    /// `(job_id, owner, now, lease_ms) -> Option<OccurrenceClaim>`.
+    pub const CLAIM_DUE_OCCURRENCE: &str = "ClaimDueOccurrence";
+    /// `(job, owner, now, lease_ms) -> Option<OccurrenceClaim>`; manual force-run.
+    pub const CLAIM_MANUAL_OCCURRENCE: &str = "ClaimManualOccurrence";
+    /// `(receipt, now, lease_ms) -> bool`.
+    pub const RENEW_OCCURRENCE: &str = "RenewOccurrence";
+    /// `(receipt, now) -> bool`.
+    pub const RELEASE_OCCURRENCE: &str = "ReleaseOccurrence";
+    /// `(receipt, record) -> ()`; durable queued history before acknowledgement.
+    pub const QUEUE_OCCURRENCE: &str = "QueueOccurrence";
+    /// `(receipt, record, completion) -> bool`; atomic terminal commit.
+    pub const COMPLETE_OCCURRENCE: &str = "CompleteOccurrence";
     /// `(record: JSON) -> ()`; fields match runtime run records.
     pub const RECORD_RUN: &str = "RecordRun";
     /// `(job: JSON, completion: JSON) -> ()`; apply the computed mutation.
@@ -143,9 +159,11 @@ pub mod callbacks {
     pub const EXECUTE: &str = "Execute";
     /// `(job: JSON, run_id: string, attempt: JSON) -> ()` after final failure.
     pub const FAILED: &str = "Failed";
-    /// `(job: JSON, run_id: string, attempt: JSON) -> delivery-status string.
+    /// `(job, run_id, attempt) -> delivery-status`; performs the one actual send.
+    pub const SEND: &str = "Send";
+    /// `(DeliveryProjection) -> ()`; observes final state and never sends.
     pub const DELIVER: &str = "Deliver";
-    /// `(flow_id: string, run_id: string) -> {success, output, retryable}`.
+    /// `(captured_job: CronJob, run_id: string) -> Attempt`.
     pub const SCHEDULE_TRIGGER: &str = "ScheduleTrigger";
 }
 

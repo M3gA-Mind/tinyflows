@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 pub use tinyflows_bus::schedule::{Attempt, Completion, RunRecord};
+use tinyflows_bus::schedule::DeliveryProjection;
 
 /// Storage bound to one agent/tenant scope.
 #[async_trait]
@@ -53,20 +54,23 @@ pub trait JobExecutor: Send + Sync {
 /// Product delivery to channels, conversation origins and alerts.
 #[async_trait]
 pub trait RunDelivery: Send + Sync {
-    /// Deliver one final attempt; an error may fail required delivery.
-    async fn deliver(
+    /// Perform the one actual product send; an error may fail required delivery.
+    async fn send(
         &self,
         job: &CronJob,
         run_id: &str,
         attempt: &Attempt,
     ) -> Result<DeliveryStatus>;
+    /// Project the module's truthful terminal decision. This callback must not
+    /// send again; it receives the result only after `send` has returned.
+    async fn deliver(&self, projection: &DeliveryProjection) -> Result<()>;
 }
 
 /// Direct schedule-trigger dispatch; no host domain-event round trip.
 #[async_trait]
 pub trait TriggerSink: Send + Sync {
     /// Fire the bound flow's schedule trigger once for this attempt.
-    async fn schedule(&self, flow_id: &str, run_id: &str) -> Result<Attempt>;
+    async fn schedule(&self, job: &CronJob, run_id: &str) -> Result<Attempt>;
 }
 
 /// Injectable wall clock and wait primitive. Tests advance time without sleeping.
