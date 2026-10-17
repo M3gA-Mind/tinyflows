@@ -230,7 +230,7 @@ async fn expiry_keeps_processing_rows_after_one_row_write_fails() {
 async fn expiry_via_an_alias_retires_the_parked_actor_lease() {
     let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
     let owner = owner(&connection, "expiry-owner", None, None, None, None).await;
-    let mut graph = parked_graph();
+    let graph = parked_graph();
     let flow_id = create_flow_with_graph(
         &catalog_proxy,
         &owner.storage,
@@ -306,7 +306,7 @@ async fn stale_refusal_does_not_mark_the_run_done_until_dedup_cleanup_finishes()
         Some((cleanup_started.clone(), release_cleanup.clone())),
     )
     .await;
-    let graph = parked_graph();
+    let mut graph = parked_graph();
     let flow_id = create_flow_with_graph(
         &catalog_proxy,
         &owner.storage,
