@@ -178,26 +178,30 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
             .await
             .unwrap()
     );
-    assert!(schedule
-        .call::<Option<ManualRunState>>(
-            "WaitManualRun",
-            &(WaitManualRun {
-                handle: handle.clone(),
-            },),
-        )
-        .await
-        .unwrap()
-        .is_none());
-    assert!(schedule
-        .call::<Option<ManualRunState>>(
-            "StopManualRun",
-            &(StopManualRun {
-                handle: handle.clone(),
-            },),
-        )
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        schedule
+            .call::<Option<ManualRunState>>(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        schedule
+            .call::<Option<ManualRunState>>(
+                "StopManualRun",
+                &(StopManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(
         schedule
             .call::<ManualRunState>("StartManualRun", &start)

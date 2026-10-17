@@ -106,6 +106,7 @@ fn manual_worker_requests_and_outcomes_round_trip_as_typed_wire_contracts() {
         handle: handle.clone(),
     });
     round_trip(AcknowledgeManualRun { handle });
+    round_trip(Option::<ManualRunState>::None);
 
     round_trip(ManualRunState::Prepared);
     round_trip(ManualRunState::Starting);

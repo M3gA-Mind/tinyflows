@@ -143,26 +143,30 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         .await
         .unwrap();
     assert!(acknowledged);
-    assert!(proxy
-        .call::<Option<ManualRunState>>(
-            "WaitManualRun",
-            &(WaitManualRun {
-                handle: handle.clone(),
-            },),
-        )
-        .await
-        .unwrap()
-        .is_none());
-    assert!(proxy
-        .call::<Option<ManualRunState>>(
-            "StopManualRun",
-            &(StopManualRun {
-                handle: handle.clone(),
-            },),
-        )
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        proxy
+            .call::<Option<ManualRunState>>(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        proxy
+            .call::<Option<ManualRunState>>(
+                "StopManualRun",
+                &(StopManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
     let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
     assert!(
         late_start.is_err(),
