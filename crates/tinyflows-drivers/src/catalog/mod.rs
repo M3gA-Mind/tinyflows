@@ -145,7 +145,10 @@ impl FlowCatalogDocuments {
     pub async fn ensure(&self) -> Result<()> {
         self.declared
             .get_or_try_init(|| async {
-                for spec in Self::collections() {
+                for spec in Self::collections()
+                    .into_iter()
+                    .chain(tinystoragedrivers_core::primitives::collection_specs())
+                {
                     self.docs
                         .ensure_collection(&spec)
                         .await

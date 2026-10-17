@@ -198,6 +198,12 @@ impl CronDocuments {
             options = options.created_ms(created_ms);
         }
         let member = member(id, &doc)?;
+        // A nontransactional backend cannot enrol, so check the persisted
+        // policy before the job exists rather than after it is written.
+        let transactional = self.docs.capabilities().contains(Capability::Transactions);
+        if !transactional {
+            self.require_unlimited_backend().await?;
+        }
         match self
             .docs
             .put_with(JOBS, id, doc.clone(), Precondition::Absent, options)
@@ -214,8 +220,8 @@ impl CronDocuments {
             }
             Err(error) => return Err(storage_error(error)),
         }
-        if !self.docs.capabilities().contains(Capability::Transactions) {
-            return self.require_unlimited_backend().await;
+        if !transactional {
+            return Ok(());
         }
         let enrolled = self.enrol(member).await;
         if enrolled.is_err() {

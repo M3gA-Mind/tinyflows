@@ -84,6 +84,16 @@ impl DocumentStore for FaultDocuments {
     ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
         self.inner.put(c, id, doc, p).await
     }
+    async fn put_with(
+        &self,
+        c: &str,
+        id: &str,
+        doc: serde_json::Value,
+        p: tinystoragedrivers_core::Precondition,
+        options: tinystoragedrivers_core::WriteOptions,
+    ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
+        self.inner.put_with(c, id, doc, p, options).await
+    }
     async fn delete(
         &self,
         c: &str,

@@ -9,18 +9,15 @@
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use tinystoragedrivers_core::{Kv, primitives};
+use tinystoragedrivers_core::Kv;
 
 use super::FlowCatalogDocuments;
 use crate::storage::{KV_OWNER, catalog_namespace};
 
 impl FlowCatalogDocuments {
-    /// The `tsd.kv` handle of `namespace`, after declaring `tsd.kv`.
+    /// The `tsd.kv` handle of `namespace`, (`tsd.kv` is declared once by [`FlowCatalogDocuments::ensure`]).
     async fn kv(&self, namespace: &str) -> Result<Kv> {
         let docs = self.docs().await?;
-        for spec in primitives::collection_specs() {
-            docs.ensure_collection(&spec).await?;
-        }
         Ok(Kv::ns(docs, KV_OWNER, catalog_namespace(namespace))?)
     }
 
