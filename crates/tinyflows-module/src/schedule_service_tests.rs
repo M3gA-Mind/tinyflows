@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::json;
-use tinyflows_bus::schedule::CALLBACK_INTERFACE;
+use tinyflows_bus::schedule::{CALLBACK_INTERFACE, CallbackAddress};
 use tokio::sync::Mutex;
 
 #[derive(Default)]
