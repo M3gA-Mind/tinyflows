@@ -229,19 +229,12 @@ impl CronDocuments {
                 0,
                 None,
             );
-            let mut extra = vec![WriteOp::Put {
+            let extra = vec![WriteOp::Put {
                 collection: RUNS.into(),
                 id: run_id(seq),
                 doc: run,
                 precondition: Precondition::Absent,
             }];
-            if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run) {
-                extra.push(WriteOp::Delete {
-                    collection: RUNS.into(),
-                    id: run_id(queued_run),
-                    precondition: Precondition::None,
-                });
-            }
             match self
                 .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
                 .await
@@ -445,12 +438,19 @@ impl CronDocuments {
                 (finished_at - claim.lease.started_at).num_milliseconds(),
                 delivery_status.as_ref(),
             );
-            let extra = vec![WriteOp::Put {
+            let mut extra = vec![WriteOp::Put {
                 collection: RUNS.into(),
                 id: run_id(seq),
                 doc: run,
                 precondition: Precondition::Absent,
             }];
+            if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run) {
+                extra.push(WriteOp::Delete {
+                    collection: RUNS.into(),
+                    id: run_id(queued_run),
+                    precondition: Precondition::None,
+                });
+            }
             match self
                 .commit_job(&job.id, Some(&stored), Some(doc), extra)
                 .await
