@@ -174,13 +174,20 @@ impl Scheduler {
     ) -> Result<usize> {
         let mut count = 0;
         for claim in claims {
-            let permits = Arc::clone(&self.permits);
             let ports = self.ports.clone();
             let config = self.config.clone();
             let cancellation = self.cancellation.subscribe();
             let permits = Arc::clone(&self.permits);
             self.tasks.spawn(async move {
-                run_claim_with_renewal(&ports, &config, claim, delivery, true, cancellation)
+                run_claim_with_renewal(
+                    &ports,
+                    &config,
+                    claim,
+                    delivery,
+                    true,
+                    Some(permits),
+                    cancellation,
+                )
                     .await
                     .map(|_| ())
             });
@@ -205,13 +212,6 @@ impl Scheduler {
             self.cancellation.subscribe(),
         )
         .await
-    }
-                    .await
-                    .map(|_| ())
-            });
-            count += 1;
-        }
-        Ok(count)
     }
 
     /// Wait for every dispatched job, returning persistence or task failures.
@@ -275,15 +275,23 @@ async fn run_claim_with_renewal(
     claim: OccurrenceClaim,
     delivery: ManualDelivery,
     advance_schedule: bool,
+    permits: Option<Arc<Semaphore>>,
     mut cancellation: watch::Receiver<bool>,
 ) -> Result<ManualRunOutcome> {
-    let work = execution::execute_and_persist(
-        ports,
-        config,
-        &claim,
-        delivery,
-        advance_schedule,
-    );
+    let work = async {
+        let _permit = match permits {
+            Some(permits) => Some(permits.acquire_owned().await?),
+            None => None,
+        };
+        anyhow::ensure!(
+            ports
+                .store
+                .renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE)
+                .await?,
+            "scheduler lost the occurrence before execution"
+        );
+        execution::execute_and_persist(ports, config, &claim, delivery, advance_schedule).await
+    };
     tokio::pin!(work);
     loop {
         tokio::select! {
