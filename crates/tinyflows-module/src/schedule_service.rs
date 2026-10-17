@@ -264,16 +264,17 @@ impl ScheduleService {
             .get(&request.handle)
             .ok_or_else(|| Error::failed("unknown, expired, or acknowledged manual run handle"))?;
         let fingerprint = serde_json::to_value(&request.request).map_err(failure)?;
-        let should_spawn = reservation
+        let (should_spawn, run_id) = reservation
             .entry
-            .begin_start(fingerprint)
+            .begin_start_with_run_id(fingerprint, &request.request.run_id)
             .map_err(failure)?;
         let state = reservation.entry.state();
         if should_spawn {
             let connection = self.connection.clone();
             let entry = reservation.entry.clone();
             let scope = reservation.scope.clone();
-            let run_request = request.request;
+            let mut run_request = request.request;
+            run_request.run_id = run_id;
             tokio::spawn(async move {
                 manual_workers::run_manual_worker(connection, scope, run_request, entry).await;
             });

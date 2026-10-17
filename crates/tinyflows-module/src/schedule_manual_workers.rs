@@ -51,21 +51,42 @@ impl ManualWorkerEntry {
     }
 
     pub(super) fn begin_start(&self, fingerprint: serde_json::Value) -> anyhow::Result<bool> {
+        self.begin_start_with_run_id(fingerprint, "")
+            .map(|(should_start, _)| should_start)
+    }
+
+    pub(super) fn begin_start_with_run_id(
+        &self,
+        fingerprint: serde_json::Value,
+        requested_run_id: &str,
+    ) -> anyhow::Result<(bool, String)> {
         let mut control = self.control.lock().expect("manual worker control poisoned");
         if let Some(existing) = &control.fingerprint {
             anyhow::ensure!(
                 existing == &fingerprint,
                 "manual worker start payload changed"
             );
-            return Ok(false);
+            return Ok((
+                false,
+                control
+                    .run_id
+                    .clone()
+                    .expect("started manual worker has an identity"),
+            ));
         }
         anyhow::ensure!(
             matches!(control.state, ManualRunState::Prepared),
             "manual worker handle is no longer startable"
         );
         control.fingerprint = Some(fingerprint);
+        let run_id = if requested_run_id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            requested_run_id.to_string()
+        };
+        control.run_id = Some(run_id.clone());
         control.state = ManualRunState::Starting;
-        Ok(true)
+        Ok((true, run_id))
     }
 
     pub(super) fn stopped(&self) -> bool {
@@ -117,7 +138,9 @@ impl ManualWorkerEntry {
             }
             ManualRunState::Starting => {
                 control.stop_requested = true;
-                control.state = ManualRunState::Stopping { run_id: None };
+                control.state = ManualRunState::Stopping {
+                    run_id: control.run_id.clone(),
+                };
                 self.stop.send_replace(true);
             }
             ManualRunState::Running { run_id } => {
@@ -233,16 +256,9 @@ pub(super) struct ReservationView {
 pub(super) async fn run_manual_worker(
     connection: Connection,
     scope: String,
-    mut request: ManualRunRequest,
+    request: ManualRunRequest,
     entry: std::sync::Arc<ManualWorkerEntry>,
 ) {
-    let run_id = if request.run_id.trim().is_empty() {
-        uuid::Uuid::new_v4().to_string()
-    } else {
-        request.run_id.clone()
-    };
-    request.run_id = run_id.clone();
-    entry.set_run_id(run_id);
     let claim = std::sync::Arc::new(AsyncMutex::new(None));
     let worker_claim = claim.clone();
     let worker_entry = entry.clone();
@@ -287,14 +303,18 @@ async fn run_manual_worker_body(
     claim_slot: std::sync::Arc<AsyncMutex<Option<HeldClaim>>>,
 ) -> anyhow::Result<ManualRunOutcome> {
     if entry.stopped() {
-        return Ok(ManualRunOutcome::Stopped { run_id: None });
+        return Ok(ManualRunOutcome::Stopped {
+            run_id: Some(request.run_id.clone()),
+        });
     }
     let config: SchedulerConfig = serde_json::from_value(request.config)?;
     let mut ports = HostCallbacks::ports(connection.clone(), request.callback);
     ports.store = std::sync::Arc::new(Store::new(connection, request.storage).await?);
     ports.store.validate_manual_claim_support().await?;
     if entry.stopped() {
-        return Ok(ManualRunOutcome::Stopped { run_id: None });
+        return Ok(ManualRunOutcome::Stopped {
+            run_id: Some(request.run_id.clone()),
+        });
     }
     let run_id = request.run_id;
     let owner = uuid::Uuid::new_v4().to_string();
