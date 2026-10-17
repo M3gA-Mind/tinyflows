@@ -5,7 +5,9 @@ use tokio::sync::Mutex;
 
 #[derive(Default)]
 pub(super) struct State {
-    records: Mutex<Vec<Value>>,
+    pub(super) records: Mutex<Vec<Value>>,
+    pub(super) jobs: Mutex<Vec<Value>>,
+    pub(super) observed_times: Mutex<Vec<chrono::DateTime<chrono::Utc>>>,
     completions: Mutex<Vec<Value>>,
     executions: Mutex<Vec<String>>,
     triggers: Mutex<Vec<String>>,
@@ -13,8 +15,14 @@ pub(super) struct State {
 struct Callbacks(Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
 impl Callbacks {
-    async fn due_jobs(&self, _now: String) -> Result<Vec<Value>> {
-        Ok(vec![])
+    async fn due_jobs(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Value>> {
+        self.0.observed_times.lock().await.push(now);
+        Ok(self.0.jobs.lock().await.iter().filter(|job| {
+            job["enabled"] == true && serde_json::from_value::<chrono::DateTime<chrono::Utc>>(job["next_run"].clone()).unwrap() <= now
+        }).cloned().collect())
+    }
+    async fn due_jobs_excluding(&self, now: chrono::DateTime<chrono::Utc>, excluded: Vec<String>) -> Result<Vec<Value>> {
+        Ok(self.due_jobs(now).await?.into_iter().filter(|job| !excluded.iter().any(|id| job["id"] == *id)).collect())
     }
     async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
         Ok(())
@@ -63,13 +71,13 @@ pub(super) async fn connections() -> (Connection, Connection, Arc<State>) {
     host.request_name("test.ScheduleHost").await.unwrap();
     (server, host, state)
 }
-fn callback() -> CallbackAddress {
+pub(super) fn callback() -> CallbackAddress {
     CallbackAddress {
         destination: "test.ScheduleHost".into(),
         object_path: "/test/ScheduleHost".into(),
     }
 }
-fn job(kind: &str) -> Value {
+pub(super) fn job(kind: &str) -> Value {
     json!({"id":"one","expression":"","schedule":{"kind":"every","every_ms":60000},"command":"flow-a","prompt":null,"name":null,"job_type":kind,"session_target":"isolated","model":null,"agent_id":null,"enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,"created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z","last_run":null,"last_status":null,"last_output":null})
 }
 

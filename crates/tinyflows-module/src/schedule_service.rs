@@ -255,3 +255,7 @@ mod members_tests;
 #[cfg(test)]
 #[path = "schedule_service_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "schedule_clock_tests.rs"]
+mod clock_tests;
