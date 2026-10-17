@@ -64,6 +64,13 @@ pub(super) async fn execute_and_persist(
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let started_at = claim.started_at;
     let attempt = execute_with_retry(ports, config, job, &run_id).await?;
+    anyhow::ensure!(
+        ports
+            .store
+            .renew_occurrence(claim, ports.clock.now(), super::OCCURRENCE_LEASE)
+            .await?,
+        "scheduler lost the occurrence before delivery"
+    );
     let (delivery_status, delivery_error) = match delivery {
         tinyflows_bus::schedule::ManualDelivery::NotRequested => (None, None),
         tinyflows_bus::schedule::ManualDelivery::Requested => {
@@ -79,6 +86,13 @@ pub(super) async fn execute_and_persist(
     if let Some(error) = delivery_error {
         tracing::warn!(job_id = %job.id, %error, "scheduled delivery failed");
     }
+    anyhow::ensure!(
+        ports
+            .store
+            .renew_occurrence(claim, ports.clock.now(), super::OCCURRENCE_LEASE)
+            .await?,
+        "scheduler lost the occurrence before terminal projection"
+    );
     let projection = tinyflows_bus::schedule::DeliveryProjection {
         job: job.clone(),
         run_id: run_id.clone(),
