@@ -7,7 +7,7 @@ async fn wiring_warnings_authoring_member_is_dispatchable() -> Result<()> {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let server = Connection::connect(bus.connect().await?).await?;
-    super::service::setup(server).await?;
+    setup(server).await?;
     let client = Connection::connect(bus.connect().await?).await?;
     let proxy = client.proxy(
         tinyflows_bus::BUS_NAME,
