@@ -84,7 +84,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         };
         async move {
             proxy
-                .call::<ManualRunState>("WaitManualRun", &request)
+                .call::<Option<ManualRunState>>("WaitManualRun", &request)
                 .await
         }
     });
@@ -97,7 +97,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         ManualRunState::Running { .. } | ManualRunState::Stopping { .. }
     ));
     assert_eq!(*state.executions.lock().await, ["manual-worker-run"]);
-    let stopping: ManualRunState = proxy
+    let stopping: Option<ManualRunState> = proxy
         .call(
             "StopManualRun",
             &(StopManualRun {
@@ -106,7 +106,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         )
         .await
         .unwrap();
-    assert!(matches!(stopping, ManualRunState::Stopping { .. }));
+    assert!(matches!(stopping, Some(ManualRunState::Stopping { .. })));
     state.execute_release.notify_one();
 
     let mut terminal = None;
@@ -119,7 +119,8 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
                 },),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .expect("a live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
@@ -142,6 +143,26 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         .await
         .unwrap();
     assert!(acknowledged);
+    assert!(proxy
+        .call::<Option<ManualRunState>>(
+            "WaitManualRun",
+            &(WaitManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap()
+        .is_none());
+    assert!(proxy
+        .call::<Option<ManualRunState>>(
+            "StopManualRun",
+            &(StopManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap()
+        .is_none());
     let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
     assert!(
         late_start.is_err(),
@@ -213,7 +234,8 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
                 },),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .expect("a live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             completed = Some(current);
             break;
