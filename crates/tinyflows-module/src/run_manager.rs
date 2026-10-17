@@ -7,6 +7,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use anyhow::{Context, Result, bail};
 use tinybus::Connection;
 use tinyflows::engine::CancellationToken;
+use tokio::sync::Notify;
 use tinyflows_bus::runs::{
     CancelRunResponse, PollRun, RunControlRequest, StartRun, StartRunResponse,
 };
@@ -16,6 +17,7 @@ mod cancellation;
 mod events;
 mod preparation;
 
+const RESERVING: u8 = 0;
 const RUNNING: u8 = 1;
 const PARKED: u8 = 2;
 const TERMINAL: u8 = 3;
@@ -36,6 +38,7 @@ pub(super) struct ActiveRun {
     key: ScopedRunId,
     token: CancellationToken,
     phase: AtomicU8,
+    admitted: Notify,
 }
 
 static ACTIVE: LazyLock<Mutex<HashMap<ScopedRunId, Arc<ActiveRun>>>> =
@@ -73,7 +76,8 @@ fn register(key: ScopedRunId) -> std::result::Result<Arc<ActiveRun>, Arc<ActiveR
     let run = Arc::new(ActiveRun {
         key: key.clone(),
         token: CancellationToken::new(),
-        phase: AtomicU8::new(RUNNING),
+        phase: AtomicU8::new(RESERVING),
+        admitted: Notify::new(),
     });
     active.insert(key, Arc::clone(&run));
     Ok(run)
@@ -88,6 +92,7 @@ fn unregister(run: &Arc<ActiveRun>) {
         .is_some_and(|current| Arc::ptr_eq(current, run))
     {
         active.remove(&run.key);
+        run.admitted.notify_waiters();
     }
 }
 
@@ -97,6 +102,13 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
     let prepared = preparation::prepare(connection, &request).await?;
     let run_key = key(&request.storage, &request.run_id);
     if let Some(existing) = active(&run_key) {
+        if existing.phase.load(Ordering::Acquire) == RESERVING {
+            let admitted = existing.admitted.notified();
+            if existing.phase.load(Ordering::Acquire) == RESERVING {
+                admitted.await;
+            }
+        }
+        if active(&run_key).is_some_and(|current| Arc::ptr_eq(&current, &existing)) {
         if existing.phase.load(Ordering::Acquire) == RUNNING
             || existing.phase.load(Ordering::Acquire) == PARKED
         {
@@ -112,6 +124,7 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
                 run_id: request.run_id,
                 already_running: true,
             });
+        }
         }
     }
     if prepared
@@ -159,8 +172,11 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
             )
             .await;
         unregister(&active);
+        active.admitted.notify_waiters();
         return Err(error).context("pinning flow run execution snapshot");
     }
+    active.phase.store(RUNNING, Ordering::Release);
+    active.admitted.notify_waiters();
     tokio::spawn(actor::drive(
         connection.clone(),
         request,
@@ -218,7 +234,9 @@ pub(super) async fn cancel(
     }
     let scoped = key(&request.storage, &request.run_id);
     if let Some(active) = active(&scoped) {
-        if active.phase.load(Ordering::Acquire) == RUNNING {
+        if active.phase.load(Ordering::Acquire) == RESERVING
+            || active.phase.load(Ordering::Acquire) == RUNNING
+        {
             active.token.cancel();
             return Ok(CancelRunResponse { signalled: true });
         }

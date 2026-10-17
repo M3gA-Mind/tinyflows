@@ -159,6 +159,10 @@ pub(super) async fn drive(
         return;
     }
 
+    active
+        .phase
+        .store(super::TERMINAL, std::sync::atomic::Ordering::Release);
+
     let success = dedup_settle::is_success_status(status);
     settle_dedup(
         prepared.catalog.clone(),
