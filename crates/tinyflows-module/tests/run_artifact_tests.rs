@@ -21,6 +21,8 @@ use tokio::sync::Notify;
 
 struct OwnerDocuments {
     docs: Arc<dyn DocumentStore>,
+    terminal_write_started: Option<Arc<Notify>>,
+    release_terminal_write: Option<Arc<Notify>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
@@ -42,6 +44,17 @@ impl OwnerDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        if let Some(events_json) = request["doc"]["events_json"].as_str()
+            && serde_json::from_str::<Vec<Value>>(events_json)
+                .ok()
+                .and_then(|events| events.last().cloned())
+                .is_some_and(|event| event["kind"] == "finished")
+            && let (Some(started), Some(release)) =
+                (&self.terminal_write_started, &self.release_terminal_write)
+        {
+            started.notify_one();
+            release.notified().await;
+        }
         Ok(reply(
             self.docs
                 .put(
@@ -170,8 +183,18 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
         .unwrap();
 
-    let alice = owner(&connection, "alice").await;
-    let bob = owner(&connection, "bob").await;
+    let terminal_write_started = Arc::new(Notify::new());
+    let release_terminal_write = Arc::new(Notify::new());
+    let alice = owner(
+        &connection,
+        "alice",
+        Some((
+            terminal_write_started.clone(),
+            release_terminal_write.clone(),
+        )),
+    )
+    .await;
+    let bob = owner(&connection, "bob", None).await;
     let alice_flow = create_flow(&catalog_proxy, &alice.storage, "Alice").await;
     let bob_flow = create_flow(&catalog_proxy, &bob.storage, "Bob").await;
     let alice_agent = serve_agent(&connection, "alice").await;
@@ -216,6 +239,8 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(started.run_id, run_id);
     assert!(!started.already_running);
     alice_agent.started.notified().await;
+    let live_graph = poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
+    assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
 
     let duplicate: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -256,6 +281,22 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert!(alice_cancel.signalled);
     alice_agent.release.notify_one();
     bob_agent.release.notify_one();
+
+    terminal_write_started.notified().await;
+    let gap: runs::PollRun = runs_proxy
+        .call(
+            "PollRun",
+            (RunControlRequest {
+                storage: alice.storage.clone(),
+                run_id: run_id.into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(!gap.done, "terminal row cannot finish polling before its event");
+    assert!(gap.events.iter().all(|event| event.kind != "finished"));
+    release_terminal_write.notify_one();
 
     let alice_poll = poll_until_done(&runs_proxy, &alice.storage, run_id).await;
     let bob_poll = poll_until_done(&runs_proxy, &bob.storage, run_id).await;
@@ -330,7 +371,11 @@ struct Owner {
     caps: runs::CallbackAddress,
 }
 
-async fn owner(connection: &Connection, name: &str) -> Owner {
+async fn owner(
+    connection: &Connection,
+    name: &str,
+    terminal_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+) -> Owner {
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
         .unwrap();
@@ -340,6 +385,8 @@ async fn owner(connection: &Connection, name: &str) -> Owner {
             path.parse().unwrap(),
             OwnerDocuments {
                 docs: scoped.documents().clone(),
+                terminal_write_started: terminal_gate.as_ref().map(|(started, _)| started.clone()),
+                release_terminal_write: terminal_gate.map(|(_, release)| release),
             },
         )
         .await
@@ -360,6 +407,39 @@ async fn owner(connection: &Connection, name: &str) -> Owner {
             object_path: format!("/test/caps/{name}"),
         },
     }
+}
+
+async fn poll_until_kind(
+    proxy: &tinybus::Proxy,
+    storage: &CatalogStorage,
+    run_id: &str,
+    kind: &str,
+) -> Vec<runs::RunEvent> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut cursor = 0;
+        let mut all = Vec::new();
+        loop {
+            let page: runs::PollRun = proxy
+                .call(
+                    "PollRun",
+                    (RunControlRequest {
+                        storage: storage.clone(),
+                        run_id: run_id.into(),
+                        cursor,
+                    },),
+                )
+                .await
+                .unwrap();
+            cursor = page.next_cursor;
+            all.extend(page.events);
+            if all.iter().any(|event| event.kind == kind) {
+                return all;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("requested run event should reach PollRun")
 }
 
 async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
