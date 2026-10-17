@@ -19,20 +19,23 @@ impl JobExecutor for Replacement {
             success: true,
             output: "old incarnation".into(),
             retryable: false,
+            raw_detail: None,
         })
     }
 }
 #[async_trait]
 impl RunDelivery for Replacement {
-    async fn deliver(&self, _: &CronJob, _: &str, _: &Attempt) -> Result<DeliveryStatus> {
+    async fn send(&self, _: &CronJob, _: &str, _: &Attempt) -> Result<DeliveryStatus> {
         Ok(DeliveryStatus::NotRequested)
+    }
+    async fn deliver(&self, _: &tinyflows_bus::schedule::DeliveryProjection) -> Result<()> {
+        Ok(())
     }
 }
 #[async_trait]
 impl TriggerSink for Replacement {
-    async fn schedule(&self, flow_id: &str, run_id: &str) -> Result<Attempt> {
-        let job = self.0.find_flow_schedule_job(flow_id).await?.unwrap();
-        self.execute(&job, run_id).await
+    async fn schedule(&self, job: &CronJob, run_id: &str) -> Result<Attempt> {
+        self.execute(job, run_id).await
     }
 }
 #[tokio::test]
