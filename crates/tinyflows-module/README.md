@@ -45,8 +45,10 @@ that effect, so the contract makes no exactly-once claim.
 Due queries filter excluded identities before their batch limit. If a returned
 job already has a live lease, the scheduler excludes it and fetches later due
 jobs; it does not advance the occurrence or write a skipped run. Recurrences
-advance only after terminal completion. One-shots remain due and enabled while
-leased, then disable or delete only after a successful terminal commit.
+advance only after terminal completion. Scheduled one-shots remain enabled
+while leased, then disable at terminal completion; a successful
+`delete_after_run` removes the completed incarnation. Manual Run Now preserves
+the saved schedule state.
 
 `RunJobNow` force-claims the captured saved definition even when disabled or
 scheduled in the future. It writes a queued history row before an accepted
