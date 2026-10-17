@@ -19,6 +19,10 @@ pub struct State {
     pub sends: std::sync::atomic::AtomicUsize,
     pub projections: Mutex<Vec<Value>>,
     pub executions: Mutex<Vec<String>>,
+    pub defer_execute: std::sync::atomic::AtomicBool,
+    pub execute_started: tokio::sync::Notify,
+    pub execute_release: tokio::sync::Notify,
+    pub terminal_projection: tokio::sync::Notify,
 }
 pub struct Callbacks(pub Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
@@ -154,6 +158,14 @@ impl Callbacks {
         if job["job_type"] == "flow" {
             return Err(tinybus::Error::failed("a flow must use ScheduleTrigger"));
         }
+        if self
+            .0
+            .defer_execute
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            self.0.execute_started.notify_one();
+            self.0.execute_release.notified().await;
+        }
         self.0.executions.lock().unwrap().push(run_id);
         Ok(json!({"success":true,"output":"manual output","retryable":false}))
     }
@@ -175,6 +187,7 @@ impl Callbacks {
     }
     async fn deliver(&self, projection: Value) -> Result<()> {
         self.0.projections.lock().unwrap().push(projection);
+        self.0.terminal_projection.notify_one();
         Ok(())
     }
     async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
