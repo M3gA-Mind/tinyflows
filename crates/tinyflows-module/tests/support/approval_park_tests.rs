@@ -39,7 +39,7 @@ async fn compiled_module_resumes_a_parked_approval_run() {
             "ResumeRun",
             (runs::ResumeRun {
                 run_id: "resume-run".into(),
-                flow_id,
+                flow_id: flow_id.clone(),
                 storage: owner.storage.clone(),
                 caps_host: runs::CapsHost {
                     callback: owner.caps,
