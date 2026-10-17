@@ -32,10 +32,10 @@
 //! `enabled`/`require_approval` (it CAN auto-disable an already-enabled flow
 //! when the graph's trigger transitions from manual to automatic — see its
 //! own doc). `revise_workflow` / `edit_workflow` / `validate_workflow` only
-//! validate or mutate a draft and never persist. `dry_run_workflow` executes
-//! only against `tinyflows`' deterministic **mock** capabilities, so no real
-//! LLM / tool / HTTP / code side effect can fire from it regardless of tier
-//! (F7 — it is deliberately NOT tier-gated; see its own doc).
+//! validate or mutate a draft and never persist. `dry_run_workflow` delegates
+//! to the `SandboxRunner` port; production hosts route it through
+//! `Runs.SandboxRun`, where only a preflight-only tool echo callback crosses
+//! the bus. It is deliberately not tier-gated (F7).
 //! [`ResumeFlowRunTool`] is the one place a non-persistence tool can cause a
 //! real effect: resuming a parked run lets its already-approved nodes fire,
 //! which is why it is `Execute`-gated rather than `None`/`Write`.

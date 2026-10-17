@@ -15,31 +15,22 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 // dry_run_workflow — execute a DRAFT against MOCK capabilities (ungated, F7)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `dry_run_workflow`: compile a **draft** graph and run it against tinyflows'
-/// deterministic **mock** capabilities, returning the merged node-state output
-/// so the builder can self-verify a proposal before presenting it.
+/// `dry_run_workflow`: resolve an unsaved graph, then delegate execution to the
+/// host's `SandboxRunner` port. Production hosts route that port through the
+/// compiled module's `Runs.SandboxRun`; the report is shared with every
+/// sandbox entry point.
 ///
-/// **No real side effects:** the run is wired to
-/// [`tinyflows::caps::mock::mock_capabilities`] — the LLM / tool / HTTP / code
-/// capabilities are echo stubs, so nothing external ever fires regardless of
-/// the graph. The output is explicitly labeled `sandbox: true`.
+/// **No real side effects:** the compiled module uses deterministic mocks for
+/// LLM, agent, HTTP, code, shell, memory, state and approval capabilities. The
+/// only callback it accepts is the host-bound `ToolInvoke` preflight/echo; the
+/// host must never forward that callback to a real integration.
 ///
 /// **Not autonomy-tier gated (F7):** `permission_level()` returns
-/// [`PermissionLevel::None`], so this tool runs on EVERY tier, read-only
-/// included — a read-only agent must be able to self-verify its own proposal.
-/// This is intentional, not an oversight: the mock capabilities never touch a
-/// real integration, so there is nothing for a tier gate to protect. See
-/// `dry_run_allowed_under_readonly_tier` in the host's builder tool tests for the
-/// pinned regression (an earlier draft of this tool *was* tier-gated via an
-/// unused `SecurityPolicy` field; the field was dead code by the time it
-/// shipped and was removed rather than wired up, since side-effect-free
-/// simulation has no tier to gate against).
+/// [`PermissionLevel::None`], so a read-only agent may self-verify its proposal.
 ///
-/// **Wiring preflight:** the mock tool invoker is wrapped in the host's
-/// the host's wiring-preflight tool invoker,
-/// so a Composio `tool_call` whose required arg is missing or `=`-resolved to
-/// null fails the dry run with the same actionable, field-naming error a real
-/// run would produce — the echo mocks alone would happily accept a null `to`.
+/// **Wiring preflight:** the host callback validates required tool arguments
+/// before returning its deterministic echo. Missing or null arguments therefore
+/// fail simulation with the same actionable diagnostic as a real run.
 ///
 /// **Null-resolution check (the "produces functionally-broken workflows" fix):**
 /// a required arg can be present *and non-Composio* (a native `oh:` tool, or a
