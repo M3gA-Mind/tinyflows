@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tinybus::Connection;
 use tinyflows_bus::catalog::{
-    CallbackAddress, CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest,
+    CallbackAddress, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply, DocDeleteRequest,
     DocDeleteWhereRequest, DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
     STORAGE_INTERFACE, storage,
 };
@@ -16,7 +16,7 @@ use tinystoragedrivers_core::{
 
 /// The catalog's own collections (storage schema v2, owner `flows`) and the
 /// graph checkpointer's (owner `graph`).
-const ALLOWED: [&str; 8] = [
+const ALLOWED: [&str; 16] = [
     "flows.definitions",
     "flows.revisions",
     "flows.runs",
@@ -25,9 +25,17 @@ const ALLOWED: [&str; 8] = [
     "graph.checkpoints",
     "graph.threads",
     "graph.writes",
+    "flows_definitions",
+    "flows_revisions",
+    "flows_runs",
+    "flows_suggestions",
+    "flows_drafts",
+    "flows_kv",
+    "flows_state",
+    "tsd.migrations",
 ];
 /// Collections owned by `tsd`, shared by every owner's primitives.
-const SHARED: [&str; 3] = ["tsd.kv", "tsd.leases", "tsd.counters"];
+const SHARED: [&str; 4] = ["tsd.kv", "tsd.leases", "tsd.counters", "tsd.migrations"];
 /// Every `flows` record in a shared collection is keyed `Key::of(["flows", ..])`.
 const FLOWS_KEY_PREFIX: &str = "flows/";
 
@@ -74,6 +82,20 @@ impl Documents {
             capabilities: Capabilities::none(),
         })
     }
+
+    pub(super) async fn require_record_metadata(&mut self) -> Result<()> {
+        let report: CatalogStorageCapabilities = self.request(storage::CAPABILITIES, ()).await?;
+        if report.record_metadata {
+            self.capabilities = self.capabilities.with(Capability::RecordMetadata);
+            Ok(())
+        } else {
+            Err(StorageError::unsupported(
+                Capability::RecordMetadata,
+                "catalog migration requires record metadata support",
+            ))
+        }
+    }
+
 
     fn validate_collection(collection: &str) -> Result<()> {
         if !ALLOWED.contains(&collection) && !SHARED.contains(&collection) {
@@ -241,6 +263,7 @@ impl DocumentStore for Documents {
                 precondition: serde_json::from_value(serde_json::to_value(precondition)?)?,
                 schema: options.schema,
                 expires_ms: options.expires_ms,
+                created_ms: options.created_ms,
             },
         )
         .await

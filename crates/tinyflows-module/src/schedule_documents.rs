@@ -89,9 +89,6 @@ impl Documents {
             Err(anyhow::anyhow!("schedule migration requires record metadata support"))
         }
     }
-    pub(super) fn migration_lock_key(&self) -> String {
-        format!("schedule:{}:{}", self.address.destination, self.address.object_path)
-    }
     fn validate_collection(collection: &str) -> Result<()> {
         // Only schedule-owned collections can cross this narrow callback seam.
         if ![

@@ -41,7 +41,7 @@ impl Store {
             super::schedule_documents::Documents::new(connection, callback).await?,
         );
         documents.require_record_metadata()?;
-        let _guard = super::migration_lock::lock(documents.migration_lock_key()).await;
+        let _guard = super::migration_lock::schedule().await;
         let storage = tinyflows_drivers::document_only_scope(Scope::local(), documents.clone())?;
         CronDocuments::new(documents)
             .ensure()
