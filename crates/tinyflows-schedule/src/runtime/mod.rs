@@ -399,14 +399,13 @@ async fn release_claim_after_work_error(
     claim: &OccurrenceClaim,
     result: Result<ManualRunOutcome>,
 ) -> Result<ManualRunOutcome> {
-    if result.is_err() {
-        if let Err(error) = ports
+    if result.is_err()
+        && let Err(error) = ports
             .store
             .release_occurrence(claim, ports.clock.now())
             .await
-        {
-            tracing::warn!(%error, "failed to release an occurrence claim after work failed");
-        }
+    {
+        tracing::warn!(job_id = %claim.job.id, %error, "failed to release an occurrence claim after work failed");
     }
     result
 }
