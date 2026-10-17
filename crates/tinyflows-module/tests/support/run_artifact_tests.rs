@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 use tinyflows_bus::{
     catalog::{self, RunIdRequest},
