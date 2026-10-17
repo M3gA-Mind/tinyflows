@@ -308,6 +308,7 @@ async fn run_claim_with_renewal(
     permits: Option<Arc<Semaphore>>,
     mut cancellation: watch::Receiver<bool>,
 ) -> Result<ManualRunOutcome> {
+    let work_cancellation = cancellation.clone();
     let work = async {
         let _permit = match permits {
             Some(permits) => Some(permits.acquire_owned().await?),
@@ -320,23 +321,27 @@ async fn run_claim_with_renewal(
                 .await?,
             "scheduler lost the occurrence before execution"
         );
+        anyhow::ensure!(
+            !*work_cancellation.borrow(),
+            "scheduler stopped before execution"
+        );
         execution::execute_and_persist(ports, config, &claim, delivery, advance_schedule).await
     };
     tokio::pin!(work);
     loop {
         tokio::select! {
             biased;
-            result = &mut work => {
-                if result.is_err() {
-                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await;
-                }
-                return result;
-            }
             changed = cancellation.changed() => {
                 if changed.is_ok() && *cancellation.borrow() {
                     let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await?;
                     return Err(anyhow::anyhow!("scheduler stopped before occurrence completion"));
                 }
+            }
+            result = &mut work => {
+                if result.is_err() {
+                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await;
+                }
+                return result;
             }
             _ = ports.clock.lease_wait(Duration::from_secs(30)) => {
                 anyhow::ensure!(
