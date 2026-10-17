@@ -223,18 +223,8 @@ impl Tool for DryRunWorkflowTool {
         tracing::debug!(
             target: "flows",
             node_count = graph.nodes.len(),
-            "[flows] dry_run_workflow: compiling + running draft against MOCK capabilities"
+            "[flows] dry_run_workflow: delegating draft to compiled module sandbox"
         );
-
-        let compiled = match tinyflows::compiler::compile(&graph) {
-            Ok(c) => c,
-            Err(e) => {
-                return Ok(ToolResult::error(format!(
-                    "Draft graph failed to compile: {e}"
-                )));
-            }
-        };
-
         let permissions_manifest = self.gates.approval_manifest(&graph).await;
         let result = self
             .sandbox

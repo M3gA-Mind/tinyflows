@@ -27,6 +27,10 @@ pub struct MemHost {
     pub fail_set_enabled: Mutex<bool>,
     /// Calls the cancel/resume ports received, for assertions.
     pub calls: Mutex<Vec<String>>,
+    /// Permission manifest passed to a sandbox-run port call.
+    pub sandbox_manifest: Mutex<Vec<Value>>,
+    /// Sandbox requests received by this test-only local runner.
+    pub sandbox_requests: Mutex<Vec<SandboxRunRequest>>,
     next_id: Mutex<u32>,
 }
 
@@ -322,7 +326,7 @@ impl BuilderGates for MemHost {
     }
 
     async fn approval_manifest(&self, _graph: &WorkflowGraph) -> Vec<Value> {
-        Vec::new()
+        self.sandbox_manifest.lock().unwrap().clone()
     }
 
     async fn build_proposal(
@@ -356,8 +360,27 @@ impl BuilderGates for MemHost {
         }))
     }
 
-    fn sandbox_tool_invoker(&self) -> std::sync::Arc<dyn tinyflows::caps::ToolInvoker> {
-        tinyflows::caps::mock::mock_capabilities().tools
+}
+
+#[async_trait]
+impl SandboxRunner for MemHost {
+    async fn run(&self, request: SandboxRunRequest) -> PortResult<Value> {
+        self.sandbox_requests.lock().unwrap().push(request.clone());
+        let graph = tinyflows::authoring::validate_and_migrate_graph(request.graph)
+            .map_err(|error| format!("Cannot dry-run an invalid graph: {error}"))?;
+        let compiled = tinyflows::compiler::compile(&graph)
+            .map_err(|error| format!("Draft graph failed to compile: {error}"))?;
+        let mock_tools = tinyflows::caps::mock::mock_capabilities().tools;
+        let capabilities = tinyflows::caps::mock_schema_aware::sandbox_capabilities(mock_tools);
+        let execution = tinyflows::sandbox::execute(
+            &graph,
+            &compiled,
+            request.input,
+            &capabilities,
+            std::time::Duration::from_secs(30),
+        )
+        .await;
+        tinyflows::sandbox::report(execution, 30, request.permissions_manifest)
     }
 }
 

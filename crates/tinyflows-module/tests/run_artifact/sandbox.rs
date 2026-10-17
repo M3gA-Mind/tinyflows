@@ -85,12 +85,14 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
                     graph: agent_graph(named),
                     input: json!({}),
                     tool_invoker: callback.clone(),
+                    permissions_manifest: vec![json!({"node_id":"approval","permission":"write"})],
                 },),
             )
             .await
             .unwrap();
         assert_eq!(response.result["sandbox"], true);
         assert_eq!(response.result["ok"], true, "{response:?}");
+        assert_eq!(response.result["permissions_manifest"][0]["node_id"], "approval");
         assert_eq!(
             response.result["output"]["nodes"]["agent"]["items"][0]["json"]["json"]["subject"], "",
             "{response:?}"
@@ -111,6 +113,7 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
                 graph: tool_graph,
                 input: json!({}),
                 tool_invoker: callback,
+                permissions_manifest: vec![],
             },),
         )
         .await
@@ -141,6 +144,7 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
                     destination: "test.SandboxPreflight".into(),
                     object_path: "/test/SandboxPreflight".into(),
                 },
+                permissions_manifest: vec![],
             },),
         )
         .await
