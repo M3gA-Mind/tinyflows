@@ -280,17 +280,10 @@ impl RunObserver for Observer {
 }
 
 fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
-    let mut steps = steps
+    steps
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(existing) = steps
-        .iter_mut()
-        .find(|existing| existing.node_id == step.node_id)
-    {
-        *existing = step;
-    } else {
-        steps.push(step);
-    }
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(step);
 }
 
 #[cfg(test)]
