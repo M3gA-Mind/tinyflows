@@ -7,7 +7,8 @@ use tinyflows_bus::catalog::{
     PutWorkflowRequest, PutWorkflowResponse,
 };
 use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend,
+    CollectionSpec, DocumentStore, DocumentStoreExt, Key, MemoryStorage, Precondition, Scope,
+    StorageBackend, WriteOptions,
 };
 
 pub(super) struct HostDocuments {
@@ -17,6 +18,10 @@ pub(super) struct HostDocuments {
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl HostDocuments {
+    async fn doc_capabilities(&self) -> tinybus::Result<Value> {
+        Ok(reply(Ok(json!({"record_metadata":true}))))
+    }
+
     async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
         Ok(reply(
             self.documents
@@ -34,13 +39,21 @@ impl HostDocuments {
     }
 
     async fn doc_put(&self, request: Value) -> tinybus::Result<Value> {
+        let mut options = WriteOptions::new();
+        if let Some(schema) = request["schema"].as_u64() {
+            options = options.schema(u32::try_from(schema).unwrap_or(0));
+        }
+        if let Some(created_ms) = request["created_ms"].as_i64() {
+            options = options.created_ms(created_ms);
+        }
         let result = self
             .documents
-            .put(
+            .put_with(
                 text(&request, "collection"),
                 text(&request, "id"),
                 request["doc"].clone(),
                 decode(&request["precondition"])?,
+                options,
             )
             .await;
         Ok(reply(result))
