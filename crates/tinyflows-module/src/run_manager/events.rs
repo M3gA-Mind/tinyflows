@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use crate::caps::RunProgressSink;
 use anyhow::Result;
 use serde_json::{Value, json};
+use tinyflows::engine::{GraphEventJournal, GraphObservation, InMemoryGraphEventJournal};
 use tinyflows::observability::{ExecutionStep, Run, RunObserver, RunStatus, StepStatus};
 use tinyflows_bus::runs::RunEvent;
 use tinyflows_catalog::FlowRunStep;
@@ -19,7 +20,7 @@ async fn persist_event(
     data: Value,
     graph_run_id: Option<String>,
     last_error: &mut Option<String>,
-) -> Result<()> {
+) -> Result<u64> {
     let event = RunEvent {
         seq: seq.saturating_add(1),
         kind,
@@ -32,7 +33,7 @@ async fn persist_event(
     {
         Ok(()) => {
             *seq = event.seq;
-            Ok(())
+            Ok(event.seq)
         }
         Err(error) => {
             let message = error.to_string();
@@ -51,7 +52,7 @@ enum WriteCommand {
         kind: String,
         data: Value,
         graph_run_id: Option<String>,
-        ack: Option<oneshot::Sender<Result<()>>>,
+        ack: Option<oneshot::Sender<Result<u64>>>,
     },
     Barrier(oneshot::Sender<Option<String>>),
 }
