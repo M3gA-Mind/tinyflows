@@ -1,6 +1,10 @@
 use super::*;
 
 #[cfg(test)]
+#[path = "schedule_manual_worker_stop_identity_tests.rs"]
+mod stop_identity_tests;
+
+#[cfg(test)]
 #[path = "schedule_manual_worker_lifecycle_service_tests.rs"]
 mod lifecycle_tests;
 
