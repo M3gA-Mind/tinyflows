@@ -10,6 +10,8 @@ mod copilot_artifact;
 mod document_callbacks;
 #[path = "support/manual_worker_artifact_tests.rs"]
 mod manual_worker_artifact_tests;
+#[path = "support/storage_migration_artifact_tests.rs"]
+mod storage_migration_artifact_tests;
 #[path = "support/portability_artifact.rs"]
 mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
