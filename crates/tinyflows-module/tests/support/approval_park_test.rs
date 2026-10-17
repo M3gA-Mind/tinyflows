@@ -22,7 +22,15 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
     let runs_proxy = connection
         .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
         .unwrap();
-    let owner = owner(&connection, "approval-park", None, None, None).await;
+    let owner = owner(
+        &connection,
+        "approval-park",
+        None,
+        None,
+        None,
+        Some(Arc::new(std::sync::atomic::AtomicBool::new(true))),
+    )
+    .await;
     let graph = parked_graph();
     let flow_id =
         create_flow_with_graph(&catalog_proxy, &owner.storage, "Parked flow", graph.clone()).await;
@@ -112,6 +120,30 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
             .get("parked-run", None)
             .await
             .unwrap()
-            .is_none()
+            .is_some(),
+        "a failed best-effort checkpoint deletion does not wedge terminal polling"
     );
+    let repeated_cancel: runs::CancelRunResponse = runs_proxy
+        .call(
+            "CancelRun",
+            (RunControlRequest {
+                storage: owner.storage.clone(),
+                run_id: "parked-run".into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(!repeated_cancel.signalled);
+    let settled: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "parked-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(settled.unwrap().status, "cancelled");
 }
