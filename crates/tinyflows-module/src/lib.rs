@@ -5,6 +5,7 @@ mod host;
 mod service;
 mod validation;
 
+pub mod caps;
 mod catalog_authoring;
 mod catalog_documents;
 mod catalog_extended_ops;

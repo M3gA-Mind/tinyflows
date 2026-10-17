@@ -3,7 +3,32 @@
 The compiled TinyBus module serves Authoring and Schedule objects under the
 shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
 `tinyflows-bus` contract and call the compiled module. The module manifest
-advertises each interface's exact member set.
+advertises each interface's exact member set. The Runs control surface remains
+a skeleton; its v1 `CapsHost` interface is a host-served callback contract used
+by the module's run-capability adapter.
+
+### CapsHost callbacks (contract v1)
+
+The run manager supplies a `tinyflows_bus::runs::CapsHost` address and a
+separate trusted `RunScope` to `caps::CapsHostPorts::capabilities`. The host
+must create that callback object for one flow, run, approval policy and owner
+scope. The module never chooses a default callback from graph or trigger JSON.
+The adapter constructs state over `FlowStateDocuments` with namespace
+`flow:<flow_id>` and resolves saved workflows from the same owner-scoped
+catalog document port. `TaskRunner` remains module-side; spawned tool, HTTP and
+child-workflow tasks run with the bundle's capabilities, and nested workflow
+tasks reuse the runner through a weak reference.
+An approval parked inside a child workflow fails the task explicitly instead
+of returning partial output as success, because task tickets do not yet carry a
+checkpoint/resume state and detached task tickets are process-local.
+
+`AgentRun` returns an opaque handle. `AgentEvents` pages are contiguous from
+sequence one and bounded to 256 entries; the accumulated transcript is bounded
+to 10,000 entries. The typed terminal outcome may arrive on an empty final
+page. Its settled host transcript is kept when present; progress entries fill
+the transcript only when the terminal transcript is empty. Callback transport,
+decode and cursor errors surface as capability failures, and approval errors
+cannot become a pending review.
 
 Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound

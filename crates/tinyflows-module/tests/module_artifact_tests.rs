@@ -37,6 +37,9 @@ impl HostCallback {
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
     assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
+    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 1);
+    assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
+    assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 19);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
@@ -62,6 +65,10 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         dependency.optional
             && dependency.interface.interface.as_str()
                 == tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE
+    }));
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str() == tinyflows_bus::runs::CAPS_INTERFACE
     }));
     let provided = info
         .manifest

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Module CapsHost callbacks and capability-backed tasks
+
+- **Added** the serde-only `Runs.CapsHost` v1 callback contract for LLM, tool,
+  HTTP, code, shell, memory, approval, and agent-runner capabilities. Agent
+  progress uses typed cursor pages and a typed terminal outcome; callback
+  addresses remain host-bound to the acting run.
+- **Added** module adapters that call only the exact run callback object,
+  construct flow-scoped state and catalog resolution over the document port,
+  and execute spawned tool, HTTP, and child-workflow tasks with the same run
+  capabilities.
+- **Added** `TaskExecutor` and `TokioTaskRunner::with_executor`; the existing
+  `TokioTaskRunner::new` behavior remains available for callers that do not
+  supply an executor.
+- **Changed** the runtime resolver and inline child-task path to reject saved
+  or inline graphs with engine-incompatible topology before compilation.
+
 ### Schedule bus contract v3: hosts need only `tinyflows-bus`
 
 - **Moved** the schedule wire records (`Schedule`, `CronJob`, `CronRun`,
