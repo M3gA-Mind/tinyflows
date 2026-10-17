@@ -11,7 +11,7 @@ pub const CONTRACT_VERSION: u32 = 1;
 pub const METHODS: &[&str] = &["PrepareHttpRequest", "AppEventBinding", "PinnedInputs"];
 
 /// Credential material already resolved by the trusted host.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PrepareHttpRequest {
     /// Request object to prepare.
     pub request: Value,
