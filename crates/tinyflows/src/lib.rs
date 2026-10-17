@@ -84,6 +84,9 @@ pub mod store;
 /// A one-line trigger description and a per-step config hint for a graph,
 /// surfaced on workflow proposal cards.
 pub mod summary;
+/// Shared deterministic graph execution for dry-run surfaces.
+#[cfg(feature = "mock")]
+pub mod sandbox;
 /// Testing, mocking, and live debugging for workflows: programmable capability
 /// doubles, a structured run trace, breakpoints, and an agent-facing tool
 /// surface over all of it. Behind the `testkit` feature.
