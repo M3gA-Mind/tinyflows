@@ -19,9 +19,13 @@ async fn a_manual_pass_uses_the_supplied_time_for_due_jobs_and_run_records() {
     job["schedule"] = json!({"kind":"at", "at": now});
     job["next_run"] = json!(now);
     state.jobs.lock().await.push(job);
+    let mut repeating = tests::job("shell");
+    repeating["id"] = json!("repeat");
+    repeating["next_run"] = json!(now);
+    state.jobs.lock().await.push(repeating);
 
     // The exact same future job is not due before the supplied instant.
-    for (at, expected) in [(now - Duration::seconds(1), 0), (now, 1)] {
+    for (at, expected) in [(now - Duration::seconds(1), 0), (now, 2)] {
         let request = json!({
             "scope": "fixed-clock", "callback": tests::callback(),
             "manual_ticks": true, "config": {"now": at},
@@ -48,9 +52,19 @@ async fn a_manual_pass_uses_the_supplied_time_for_due_jobs_and_run_records() {
     assert!(times.contains(&(now - Duration::seconds(1))));
     assert!(times.contains(&now));
     let records = state.records.lock().await;
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0]["started_at"], json!(now));
-    assert_eq!(records[0]["finished_at"], json!(now));
+    assert_eq!(records.len(), 2);
+    for record in records.iter() {
+        assert_eq!(record["started_at"], json!(now));
+        assert_eq!(record["finished_at"], json!(now));
+    }
+    assert!(
+        state
+            .completions
+            .lock()
+            .await
+            .iter()
+            .any(|completion| { completion["next_run"] == json!(now + Duration::seconds(60)) })
+    );
 }
 
 #[tokio::test]
@@ -72,4 +86,28 @@ async fn a_fixed_calendar_time_is_refused_for_an_automatic_loop() {
         .await
         .unwrap_err();
     assert!(error.to_string().contains("manual ticks"), "{error}");
+}
+
+#[tokio::test]
+async fn an_invalid_calendar_time_is_refused() {
+    let (_server, host, _) = tests::connections().await;
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    for now in [json!("not a date"), json!(42), Value::Null] {
+        let request = json!({
+            "scope": "invalid-clock", "callback": tests::callback(),
+            "manual_ticks": true, "config": {"now": now},
+        });
+        assert!(
+            proxy
+                .call::<String>(schedule::members::START_SCHEDULER, &(request,))
+                .await
+                .is_err()
+        );
+    }
 }

@@ -8,7 +8,7 @@ pub(super) struct State {
     pub(super) records: Mutex<Vec<Value>>,
     pub(super) jobs: Mutex<Vec<Value>>,
     pub(super) observed_times: Mutex<Vec<chrono::DateTime<chrono::Utc>>>,
-    completions: Mutex<Vec<Value>>,
+    pub(super) completions: Mutex<Vec<Value>>,
     executions: Mutex<Vec<String>>,
     triggers: Mutex<Vec<String>>,
 }
