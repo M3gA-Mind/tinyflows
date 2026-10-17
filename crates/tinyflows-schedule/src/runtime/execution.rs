@@ -21,16 +21,37 @@ async fn execute_with_retry_guard(
     run_id: &str,
     claim: Option<&tinyflows_bus::schedule::OccurrenceClaim>,
 ) -> Result<Attempt> {
+    execute_with_retry_impl(ports, config, job, run_id, claim, None)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("non-cooperative execution was stopped"))
+}
+
+async fn execute_with_retry_impl(
+    ports: &RuntimePorts,
+    config: &SchedulerConfig,
+    job: &CronJob,
+    run_id: &str,
+    claim: Option<&tinyflows_bus::schedule::OccurrenceClaim>,
+    mut stop: Option<&mut tokio::sync::watch::Receiver<bool>>,
+) -> Result<Option<Attempt>> {
     let retries = job.policy.retries.unwrap_or(config.retries);
     let mut backoff_ms = config.backoff_ms.max(200);
     let mut last_raw_detail = None;
     for attempt in 0..=retries {
+        if stop.as_deref().is_some_and(|stop| *stop.borrow()) {
+            return Ok(None);
+        }
         ensure_claim_owned(ports, claim, "retry attempt").await?;
         let result = if matches!(job.job_type, JobType::Flow) {
             ports.triggers.schedule(job, run_id).await
         } else {
             ports.executor.execute(job, run_id).await
         };
+        // A stop never drops an in-flight host callback. Observe it only once
+        // the current callback's reply has arrived.
+        if stop.as_deref().is_some_and(|stop| *stop.borrow()) {
+            return Ok(None);
+        }
         let result = result.unwrap_or_else(|error| Attempt {
             success: false,
             output: error.to_string(),
@@ -49,18 +70,30 @@ async fn execute_with_retry_guard(
             ..result
         };
         if result.success {
-            return Ok(result);
+            return Ok(Some(result));
         }
         if !result.retryable || attempt == retries {
+            if stop.as_deref().is_some_and(|stop| *stop.borrow()) {
+                return Ok(None);
+            }
             ensure_claim_owned(ports, claim, "final failure callback").await?;
             ports.executor.failed(job, run_id, &result).await;
-            return Ok(result);
+            return Ok(Some(result));
         }
         let jitter_ms = u64::from(ports.clock.now().timestamp_subsec_millis() % 250);
-        ports
-            .clock
-            .sleep(Duration::from_millis(backoff_ms.saturating_add(jitter_ms)))
-            .await;
+        let delay = Duration::from_millis(backoff_ms.saturating_add(jitter_ms));
+        if let Some(stop) = stop.as_deref_mut() {
+            tokio::select! {
+                _ = ports.clock.sleep(delay) => {}
+                changed = stop.changed() => {
+                    if changed.is_ok() && *stop.borrow() {
+                        return Ok(None);
+                    }
+                }
+            }
+        } else {
+            ports.clock.sleep(delay).await;
+        }
         backoff_ms = backoff_ms.saturating_mul(2).min(30_000);
     }
     unreachable!("inclusive attempts always execute at least once")
@@ -90,74 +123,6 @@ async fn execute_with_retry_claimed(
     run_id: &str,
 ) -> Result<Attempt> {
     execute_with_retry_guard(ports, config, &claim.job, run_id, Some(claim)).await
-}
-
-async fn execute_with_retry_claimed_cooperative(
-    ports: &RuntimePorts,
-    config: &SchedulerConfig,
-    claim: &tinyflows_bus::schedule::OccurrenceClaim,
-    run_id: &str,
-    stop: &mut tokio::sync::watch::Receiver<bool>,
-) -> Result<Option<Attempt>> {
-    let retries = claim.job.policy.retries.unwrap_or(config.retries);
-    let mut backoff_ms = config.backoff_ms.max(200);
-    let mut last_raw_detail = None;
-    for attempt in 0..=retries {
-        if *stop.borrow() {
-            return Ok(None);
-        }
-        ensure_claim_owned(ports, Some(claim), "retry attempt").await?;
-        let result = if matches!(claim.job.job_type, JobType::Flow) {
-            ports.triggers.schedule(&claim.job, run_id).await
-        } else {
-            ports.executor.execute(&claim.job, run_id).await
-        };
-        // Bus callbacks are never dropped by cancellation. Observe stop only
-        // after the current callback reply has arrived.
-        if *stop.borrow() {
-            return Ok(None);
-        }
-        let result = result.unwrap_or_else(|error| Attempt {
-            success: false,
-            output: error.to_string(),
-            retryable: true,
-            raw_detail: None,
-        });
-        if result
-            .raw_detail
-            .as_ref()
-            .is_some_and(|detail| !detail.is_empty())
-        {
-            last_raw_detail = result.raw_detail.clone();
-        }
-        let result = Attempt {
-            raw_detail: last_raw_detail.clone(),
-            ..result
-        };
-        if result.success {
-            return Ok(Some(result));
-        }
-        if !result.retryable || attempt == retries {
-            if *stop.borrow() {
-                return Ok(None);
-            }
-            ensure_claim_owned(ports, Some(claim), "final failure callback").await?;
-            ports.executor.failed(&claim.job, run_id, &result).await;
-            return Ok(Some(result));
-        }
-        let jitter_ms = u64::from(ports.clock.now().timestamp_subsec_millis() % 250);
-        let delay = Duration::from_millis(backoff_ms.saturating_add(jitter_ms));
-        tokio::select! {
-            _ = ports.clock.sleep(delay) => {}
-            changed = stop.changed() => {
-                if changed.is_ok() && *stop.borrow() {
-                    return Ok(None);
-                }
-            }
-        }
-        backoff_ms = backoff_ms.saturating_mul(2).min(30_000);
-    }
-    unreachable!("inclusive attempts always execute at least once")
 }
 
 pub(super) async fn execute_and_persist(
