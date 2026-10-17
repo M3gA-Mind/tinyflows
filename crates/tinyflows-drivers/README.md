@@ -87,7 +87,7 @@ let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
 - Every guarded SQL `UPDATE … WHERE status = …` (finish, resume, interrupt,
   TTL expiry) is a compare-and-swap on the run, so a transition happens at
   most once across processes sharing one database.
-- A run's steps live on the run document (`steps_json`, as in SQLite), so a
+- A run's steps live on the run document (`steps`, a JSON array), so a
   run settles with its step list in one compare-and-swap, and a step written
   by a parallel branch retries on the winner's list rather than losing to it
   (what SQLite's `BEGIN IMMEDIATE`, R-m1, protected).
@@ -110,8 +110,9 @@ let state = Arc::new(FlowStateDocuments::new(catalog.clone(), flow.id.clone()));
 - Pruning deletes a revision only at the version it read, re-checking an
   abandoned one's age and pending state first; an update whose in-flight
   revision was pruned anyway writes it again after its swap.
-- Graphs, steps, drafts and state values are JSON strings, optional fields
-  are omitted rather than `null`, and ordering uses epoch-nanosecond fields.
+- Graphs, steps, drafts and state values are real JSON values, optional
+  fields are omitted rather than `null`, and ordering uses epoch-millisecond
+  `*_ms` fields with the id as the tie-break.
 
 `FlowStateDocuments` is one flow's namespaced state over the same `tsd.kv`
 documents as `kv_get` / `kv_set` / `kv_delete`. It is the engine's
@@ -180,8 +181,7 @@ Across processes sharing one database:
 - run numbers come from a compare-and-swap counter.
 
 `due_jobs` is a read, so two schedulers can both run the same due job (as
-with two processes on one SQLite file); it orders by `next_run_ns`, falling
-back to `next_run_ms` for documents written before that field. Recording a
+with two processes on one SQLite file); it orders by `next_run_ms`. Recording a
 run and pruning history are separate writes, and so are removing a job and
 its runs; `sweep_orphan_runs` (run by `clear_all_jobs`) collects runs whose
 job is gone or was re-created.
@@ -265,8 +265,8 @@ already exists, mutations fail closed. No local fallback is used.
   queries and walks the lineage in memory, rather than two round trips per
   ancestor.
 - Pending writes merge with `merge_writes` under compare-and-swap.
-- Key components are length-prefixed and namespaces encoded injectively; ids
-  over 400 bytes become their SHA-256.
+- Ids are `Key::of` keys: parts are escaped and joined with `/`, and a key
+  over 400 bytes becomes `~` plus the base32 SHA-256 of the escaped key.
 
 ## Why a separate crate
 
