@@ -16,6 +16,11 @@ impl Preflight {
         _connection: Option<String>,
     ) -> tinybus::Result<serde_json::Value> {
         self.0.fetch_add(1, Ordering::SeqCst);
+        if args.get("text").is_none_or(serde_json::Value::is_null) {
+            return Err(tinybus::Error::failed(
+                "required arg 'text' is missing or null",
+            ));
+        }
         Ok(json!({"sandbox_echo": true, "slug": slug, "args": args}))
     }
 }
@@ -117,4 +122,31 @@ async fn compiled_module_sandbox_uses_schema_mocks_and_only_the_preflight_callba
             .to_string()
             .contains("sandbox_echo")
     );
+
+    let null_arg_graph = json!({
+        "nodes":[
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":"shape","name":"Shape","kind":"transform","config":{"set":{"text":{}}}},
+            {"id":"echo","name":"Echo","kind":"tool_call","config":{"slug":"demo:echo","args":{"text":"=nodes.shape.item.text.missing"}}}
+        ],
+        "edges":[{"from_node":"trigger","to_node":"shape"},{"from_node":"shape","to_node":"echo"}]
+    });
+    let response: runs::SandboxRunResponse = proxy
+        .call(
+            runs::methods::SANDBOX_RUN,
+            (SandboxRun {
+                graph: null_arg_graph,
+                input: json!({}),
+                tool_invoker: CallbackAddress {
+                    destination: "test.SandboxPreflight".into(),
+                    object_path: "/test/SandboxPreflight".into(),
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.result["sandbox"], true);
+    assert_eq!(response.result["ok"], false, "{response:?}");
+    assert!(response.result["error"].as_str().unwrap().contains("text"));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

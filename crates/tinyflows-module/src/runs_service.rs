@@ -123,7 +123,7 @@ async fn sandbox_run(connection: &Connection, request: SandboxRun) -> Result<San
             "node_errors": report.node_errors,
             "routing_divergence_warnings": report.routing_divergence_warnings,
             "permissions_manifest": [],
-            "message": "These tool_call args resolved to null, an agent node's prompt or input_context resolved to null (an EMPTY prompt or no upstream data at all), or a tool_call node failed during the sandbox run. Fix or rewire the named fields and nodes. Routing warnings are advisory and do not fail the dry run."
+            "message": "These tool_call args resolved to null, an agent node's prompt or input_context resolved to null (an EMPTY prompt — see agent_prompt_nulls — or no upstream data at all — see agent_input_context_nulls), or a tool_call node failed during the sandbox run (even one recovered via on_error: continue/route) — wire null-resolved args from an upstream node's real output (give any agent node an output_parser.schema so its fields are addressable), feed upstream data into a null-resolved agent prompt/input_context from a real upstream field instead of a jq expression inside the prompt text, and fix or rewire whatever tool_call node_errors names. Also check routing_divergence_warnings: any agent/tool_call node listed there never ran in this sandbox at all because an upstream condition routed the mock data past it — verify that wiring by hand too."
         })
     } else {
         json!({
@@ -137,7 +137,7 @@ async fn sandbox_run(connection: &Connection, request: SandboxRun) -> Result<San
             "node_errors": report.node_errors,
             "routing_divergence_warnings": report.routing_divergence_warnings,
             "permissions_manifest": [],
-            "note": "SANDBOX (mock) output — LLM/tool/HTTP/code nodes returned deterministic echoes; NO real side effects occurred. This checks wiring/routing only, not whether real integrations work."
+            "note": "SANDBOX (mock) output — LLM/tool/HTTP/code nodes returned deterministic echoes; NO real side effects occurred. This checks wiring/routing only, not whether real integrations work. If routing_divergence_warnings is non-empty, an agent/tool_call node never ran in this sandbox because an upstream condition routed the mock data past it — that node's wiring is unverified; check it by hand."
         })
     };
     Ok(SandboxRunResponse { result })
