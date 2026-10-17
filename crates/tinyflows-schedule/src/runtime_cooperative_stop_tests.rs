@@ -27,7 +27,9 @@ struct Fixture {
     heartbeat_renew_error: bool,
     execution_entered: Notify,
     release_execution: Notify,
-    pause_execution: bool,
+    pause_execution: std::sync::atomic::AtomicBool,
+    execution_in_flight: std::sync::atomic::AtomicBool,
+    released_during_execution: std::sync::atomic::AtomicBool,
     claim_lost: std::sync::atomic::AtomicBool,
     fail_next_renewal: std::sync::atomic::AtomicBool,
     released_claims: AtomicUsize,
@@ -127,6 +129,10 @@ impl JobStore for Fixture {
 
     async fn release_occurrence(&self, _: &OccurrenceClaim, _: DateTime<Utc>) -> Result<bool> {
         self.released_claims.fetch_add(1, Ordering::SeqCst);
+        if self.execution_in_flight.load(Ordering::SeqCst) {
+            self.released_during_execution
+                .store(true, Ordering::SeqCst);
+        }
         Ok(true)
     }
 
@@ -149,10 +155,12 @@ impl JobStore for Fixture {
 impl JobExecutor for Fixture {
     async fn execute(&self, _: &CronJob, _: &str) -> Result<Attempt> {
         self.executions.fetch_add(1, Ordering::SeqCst);
+        self.execution_in_flight.store(true, Ordering::SeqCst);
         self.execution_entered.notify_one();
-        if self.pause_execution {
+        if self.pause_execution.load(Ordering::SeqCst) {
             self.release_execution.notified().await;
         }
+        self.execution_in_flight.store(false, Ordering::SeqCst);
         Ok(Attempt {
             success: !self.fail_execution,
             output: "result".into(),
@@ -223,7 +231,9 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
         heartbeat_renew_error: false,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
-        pause_execution: false,
+        pause_execution: std::sync::atomic::AtomicBool::new(false),
+        execution_in_flight: std::sync::atomic::AtomicBool::new(false),
+        released_during_execution: std::sync::atomic::AtomicBool::new(false),
         claim_lost: std::sync::atomic::AtomicBool::new(false),
         fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
         released_claims: AtomicUsize::new(0),
@@ -250,7 +260,9 @@ fn terminal_heartbeat_fixture(heartbeat_renew_error: bool) -> Arc<Fixture> {
         heartbeat_renew_error,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
-        pause_execution: false,
+        pause_execution: std::sync::atomic::AtomicBool::new(false),
+        execution_in_flight: std::sync::atomic::AtomicBool::new(false),
+        released_during_execution: std::sync::atomic::AtomicBool::new(false),
         claim_lost: std::sync::atomic::AtomicBool::new(false),
         fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
         released_claims: AtomicUsize::new(0),
@@ -364,7 +376,9 @@ async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks(
         heartbeat_renew_error: false,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
-        pause_execution: true,
+        pause_execution: std::sync::atomic::AtomicBool::new(true),
+        execution_in_flight: std::sync::atomic::AtomicBool::new(false),
+        released_during_execution: std::sync::atomic::AtomicBool::new(false),
         claim_lost: std::sync::atomic::AtomicBool::new(false),
         fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
         released_claims: AtomicUsize::new(0),
@@ -398,7 +412,7 @@ async fn heartbeat_loss_during_execute_waits_for_it_then_blocks_later_callbacks(
 }
 
 #[tokio::test]
-async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim() {
+async fn scheduled_heartbeat_error_and_shutdown_wait_for_execute_then_release_claim() {
     let fixture = Arc::new(Fixture {
         now: "2026-01-01T00:00:00Z".parse().unwrap(),
         block_on_renewal: usize::MAX,
@@ -414,7 +428,9 @@ async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim(
         heartbeat_renew_error: false,
         execution_entered: Notify::new(),
         release_execution: Notify::new(),
-        pause_execution: true,
+        pause_execution: std::sync::atomic::AtomicBool::new(true),
+        execution_in_flight: std::sync::atomic::AtomicBool::new(false),
+        released_during_execution: std::sync::atomic::AtomicBool::new(false),
         claim_lost: std::sync::atomic::AtomicBool::new(false),
         fail_next_renewal: std::sync::atomic::AtomicBool::new(false),
         released_claims: AtomicUsize::new(0),
@@ -426,6 +442,7 @@ async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim(
     let ports = fixture.ports();
     let config = SchedulerConfig::default();
     let claim = fixture.claim();
+    let (shutdown, shutdown_receiver) = watch::channel(false);
     let worker = tokio::spawn(async move {
         run_claim_with_renewal(
             &ports,
@@ -434,7 +451,7 @@ async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim(
             ManualDelivery::Requested,
             false,
             None,
-            watch::channel(false).1,
+            shutdown_receiver,
         )
         .await
     });
@@ -442,6 +459,7 @@ async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim(
     fixture.fail_next_renewal.store(true, Ordering::SeqCst);
     fixture.heartbeat_tick.notify_one();
     fixture.renewal_failed.notified().await;
+    shutdown.send_replace(true);
     fixture.claim_lost.store(true, Ordering::SeqCst);
     fixture.release_execution.notify_one();
 
@@ -451,6 +469,7 @@ async fn scheduled_heartbeat_error_waits_for_execute_then_releases_failed_claim(
     assert_eq!(fixture.deliveries.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.persisted_completions.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.released_claims.load(Ordering::SeqCst), 1);
+    assert!(!fixture.released_during_execution.load(Ordering::SeqCst));
 }
 
 async fn stop_during_renewal(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
