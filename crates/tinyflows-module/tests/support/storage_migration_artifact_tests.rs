@@ -171,9 +171,11 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
         },
         "operation": {"op":"migrate"}
     });
+    let schedule_args_a = (request.clone(),);
+    let schedule_args_b = (request.clone(),);
     let (first, concurrent) = tokio::join!(
-        schedule.call::<Value>("ScheduleStore", &(request.clone(),)),
-        schedule.call::<Value>("ScheduleStore", &(request.clone(),)),
+        schedule.call::<Value>("ScheduleStore", &schedule_args_a),
+        schedule.call::<Value>("ScheduleStore", &schedule_args_b),
     );
     first.unwrap();
     concurrent.unwrap();
@@ -270,9 +272,11 @@ async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call
             object_path: path.into(),
         },
     };
+    let catalog_args_a = (storage.clone(),);
+    let catalog_args_b = (storage.clone(),);
     let (first, concurrent) = tokio::join!(
-        catalog.call::<()>("MigrateStorage", &(storage.clone(),)),
-        catalog.call::<()>("MigrateStorage", &(storage.clone(),)),
+        catalog.call::<()>("MigrateStorage", &catalog_args_a),
+        catalog.call::<()>("MigrateStorage", &catalog_args_b),
     );
     first.unwrap();
     concurrent.unwrap();
