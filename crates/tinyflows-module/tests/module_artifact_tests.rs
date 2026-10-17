@@ -414,10 +414,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
     let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
-    assert_eq!(
-        stored.doc["claim_generation"], 1,
-        "compiled scheduler must durably advance the claim generation"
+    assert!(
+        stored.doc["next_run_ms"].as_i64().unwrap() > due_at.timestamp_millis(),
+        "compiled scheduler advances the occurrence only at terminal completion"
     );
+    assert!(stored.doc.get("occurrence_lease").is_none());
     assert_eq!(
         *state.triggers.lock().unwrap(),
         ["artifact-flow", "stored-flow"]
