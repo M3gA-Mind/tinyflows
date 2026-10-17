@@ -463,6 +463,13 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
     assert_eq!(migrated.doc["name"], "Legacy");
     assert_eq!(migrated.doc["created_ms"], created_ms);
     assert_eq!(migrated.meta.created_ms, created_ms);
+    let migrated_revision = docs
+        .get("flows.revisions", "legacy-revision")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(migrated_revision.doc["created_ms"], revision_created_ms);
+    assert_eq!(migrated_revision.meta.created_ms, revision_created_ms);
     assert!(
         docs.get("flows_definitions", "legacy-flow")
             .await
@@ -487,6 +494,35 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
             .doc["value"],
         "state-value"
     );
+}
+
+#[tokio::test]
+async fn catalog_migration_refuses_missing_record_metadata_before_writing() {
+    let (_server, host) = connections().await;
+    let (storage, docs, _) = scope_with_test_options(&host, "missing-metadata", false, false).await;
+    docs.ensure_collection(&CollectionSpec::new("flows_definitions"))
+        .await
+        .unwrap();
+    docs.put(
+        "flows_definitions",
+        "legacy-flow",
+        json!({"name":"Legacy","graph_json":graph("manual", false).to_string(),
+            "enabled":true,"require_approval":false}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    let proxy = put_proxy(&host).unwrap();
+
+    assert!(proxy.call::<()>("MigrateStorage", &(storage,)).await.is_err());
+    assert!(
+        docs.get("flows_definitions", "legacy-flow")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(docs.get("flows.definitions", "legacy-flow").await.unwrap().is_none());
+    assert!(docs.get("tsd.migrations", "flows/flows.definitions/definitions_v2").await.unwrap().is_none());
 }
 
 #[tokio::test]

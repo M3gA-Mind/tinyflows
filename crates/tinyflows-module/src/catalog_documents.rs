@@ -338,3 +338,7 @@ impl DocumentStore for Documents {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "catalog_documents_tests.rs"]
+mod tests;

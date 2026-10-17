@@ -256,9 +256,16 @@ async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call
             object_path: path.into(),
         },
     };
-    for _ in 0..2 {
-        catalog.call::<()>("MigrateStorage", &(storage.clone(),)).await.unwrap();
-    }
+    let (first, concurrent) = tokio::join!(
+        catalog.call::<()>("MigrateStorage", &(storage.clone(),)),
+        catalog.call::<()>("MigrateStorage", &(storage.clone(),)),
+    );
+    first.unwrap();
+    concurrent.unwrap();
+    catalog
+        .call::<()>("MigrateStorage", &(storage.clone(),))
+        .await
+        .unwrap();
 
     let workflow: Option<Workflow> = catalog
         .call("GetWorkflow", &(storage.clone(), "legacy-flow".to_owned()))
