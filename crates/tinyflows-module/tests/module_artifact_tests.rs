@@ -58,8 +58,8 @@ async fn compiled_module_prepares_manual_worker_through_schedule_abi() {
         )
         .await
         .unwrap();
-    assert!(prepared["handle"].is_object(), "prepare returns an opaque handle");
-    let handle = prepared["handle"].clone();
+    assert!(prepared["token"].is_string(), "prepare returns an opaque handle");
+    let handle = prepared;
     let stopped: serde_json::Value = schedule
         .call("StopManualRun", (json!({"handle":handle}),))
         .await
