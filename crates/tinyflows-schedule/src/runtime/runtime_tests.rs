@@ -8,6 +8,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use tinyflows_bus::schedule::{OccurrenceClaim, RunJobRefusal};
+use tinyflows_bus::schedule::DeliveryProjection;
 
 struct Fixture {
     now: Mutex<DateTime<Utc>>,
@@ -16,6 +17,8 @@ struct Fixture {
     leases: Mutex<HashMap<String, (String, DateTime<Utc>)>>,
     records: Mutex<Vec<RunRecord>>,
     completions: Mutex<Vec<Completion>>,
+    projections: Mutex<Vec<DeliveryProjection>>,
+    raw_details: Mutex<Vec<Option<String>>>,
     calls: AtomicUsize,
     triggers: AtomicUsize,
     fail_count: usize,
@@ -34,6 +37,8 @@ impl Fixture {
             leases: Mutex::new(HashMap::new()),
             records: Mutex::new(vec![]),
             completions: Mutex::new(vec![]),
+            projections: Mutex::new(vec![]),
+            raw_details: Mutex::new(vec![]),
             calls: AtomicUsize::new(0),
             triggers: AtomicUsize::new(0),
             fail_count: 0,
@@ -232,11 +237,19 @@ impl JobStore for Fixture {
 impl JobExecutor for Fixture {
     async fn execute(&self, _: &CronJob, _: &str) -> Result<Attempt> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let raw_detail = {
+            let mut details = self.raw_details.lock().unwrap();
+            if details.is_empty() {
+                None
+            } else {
+                details.remove(0)
+            }
+        };
         Ok(Attempt {
             success: call >= self.fail_count,
             output: "result".into(),
             retryable: !self.permanent,
-            raw_detail: None,
+            raw_detail,
         })
     }
 }
@@ -252,7 +265,8 @@ impl RunDelivery for Fixture {
             DeliveryStatus::NotRequested
         })
     }
-    async fn deliver(&self, _: &tinyflows_bus::schedule::DeliveryProjection) -> Result<()> {
+    async fn deliver(&self, projection: &DeliveryProjection) -> Result<()> {
+        self.projections.lock().unwrap().push(projection.clone());
         Ok(())
     }
 }
@@ -293,6 +307,31 @@ async fn retries_use_clock_and_zero_override_is_one_attempt() {
             .success
     );
     assert_eq!(f.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
+    let fixture = Fixture::new();
+    fixture.raw_details.lock().unwrap().extend([
+        Some("opaque host classification".into()),
+        None,
+    ]);
+    let mut job = fixture.job();
+    job.policy.retries = Some(1);
+    Arc::get_mut(&mut Arc::clone(&fixture)).unwrap();
+    let result = execute_with_retry(
+        &fixture.ports(),
+        &SchedulerConfig::default(),
+        &job,
+        "raw-detail-run",
+    )
+    .await
+    .unwrap();
+    assert!(result.success);
+    assert_eq!(
+        result.raw_detail.as_deref(),
+        Some("opaque host classification")
+    );
 }
 
 #[tokio::test]

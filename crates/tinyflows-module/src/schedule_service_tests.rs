@@ -72,10 +72,6 @@ fn callback() -> CallbackAddress {
         object_path: "/test/ScheduleHost".into(),
     }
 }
-fn job(kind: &str) -> Value {
-    json!({"id":"one","expression":"","schedule":{"kind":"every","every_ms":60000},"command":"flow-a","prompt":null,"name":null,"job_type":kind,"session_target":"isolated","model":null,"agent_id":null,"enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,"created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z","last_run":null,"last_status":null,"last_output":null})
-}
-
 #[tokio::test]
 async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_delivery() {
     let (_server, host, _) = connections().await;
@@ -288,6 +284,14 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
         storage: None,
     };
     let handle: String = proxy.call("StartScheduler", &(request,)).await.unwrap();
+    let competing = StartScheduler {
+        scope: "manual-scope".into(),
+        callback: callback(),
+        config: json!({}),
+        manual_ticks: false,
+        storage: None,
+    };
+    assert!(proxy.call::<String>("StartScheduler", &(competing,)).await.is_err());
     let count: usize = proxy.call("TickScheduler", &(&handle,)).await.unwrap();
     assert_eq!(count, 0);
     proxy
@@ -304,6 +308,23 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
             .await
             .is_err()
     );
+    let restarted: String = proxy
+        .call(
+            "StartScheduler",
+            &(StartScheduler {
+                scope: "manual-scope".into(),
+                callback: callback(),
+                config: json!({}),
+                manual_ticks: true,
+                storage: None,
+            },),
+        )
+        .await
+        .unwrap();
+    proxy
+        .call::<()>("StopScheduler", &(&restarted,))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
