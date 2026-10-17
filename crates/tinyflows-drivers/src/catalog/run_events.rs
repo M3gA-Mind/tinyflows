@@ -162,9 +162,10 @@ impl FlowCatalogDocuments {
                         .and_then(|event| event["seq"].as_u64())
                         .unwrap_or(0);
                     if seq <= last {
-                        return match events.iter().find(|event| {
-                            event.get("seq").and_then(Value::as_u64) == Some(seq)
-                        }) {
+                        return match events
+                            .iter()
+                            .find(|event| event.get("seq").and_then(Value::as_u64) == Some(seq))
+                        {
                             Some(existing) if existing == &event => Ok(()),
                             _ => bail!("run event sequence {seq} conflicts with persisted event"),
                         };

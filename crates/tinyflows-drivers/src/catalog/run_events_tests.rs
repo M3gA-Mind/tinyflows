@@ -60,19 +60,18 @@ async fn run_event_retry_is_idempotent_and_sequence_gaps_are_rejected() {
         .append_flow_run_event("event-run", event)
         .await
         .unwrap();
-    assert!(catalog
-        .append_flow_run_event("event-run", json!({"seq":1,"kind":"conflict"}))
-        .await
-        .is_err());
+    assert!(
+        catalog
+            .append_flow_run_event("event-run", json!({"seq":1,"kind":"conflict"}))
+            .await
+            .is_err()
+    );
     catalog
         .append_flow_run_event("event-run", json!({"seq":2,"kind":"step","data":{}}))
         .await
         .unwrap();
     catalog
-        .append_flow_run_event(
-            "event-run",
-            json!({"seq":1,"kind":"step","data":{}}),
-        )
+        .append_flow_run_event("event-run", json!({"seq":1,"kind":"step","data":{}}))
         .await
         .unwrap();
     assert!(
@@ -158,5 +157,19 @@ async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
             .await
             .unwrap(),
         Some(2)
+    );
+    catalog
+        .append_flow_run_event(
+            "event-run",
+            json!({"seq":3,"kind":"finished","data":{"status":"failed"}}),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !catalog
+            .mark_flow_run_terminal_event("event-run", 3)
+            .await
+            .unwrap(),
+        "terminal event status must match the settled row"
     );
 }
