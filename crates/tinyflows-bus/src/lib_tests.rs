@@ -35,7 +35,7 @@ fn method_constants_match_advertised_members() {
 
 #[test]
 fn authoring_contract_version_and_methods_pin_the_new_requests() {
-    assert_eq!(CONTRACT_VERSION, 2);
+    assert_eq!(CONTRACT_VERSION, 3);
     assert_eq!(
         METHODS,
         [
@@ -45,6 +45,7 @@ fn authoring_contract_version_and_methods_pin_the_new_requests() {
             "UnresolvableToolArgs",
             "BuilderFailures",
             "ImportGraph",
+            "WiringWarnings",
         ]
     );
     assert_eq!(methods::VALIDATE_GRAPH, "ValidateGraph");
@@ -72,6 +73,53 @@ fn authoring_contract_version_and_methods_pin_the_new_requests() {
         serde_json::from_value(serde_json::to_value(import).unwrap()).unwrap();
     assert_eq!(imported.format.as_deref(), Some("auto"));
     wire_import_result_round_trip();
+}
+
+#[test]
+fn wiring_contract_wire_shapes_round_trip() {
+    let contract = ToolContract {
+        output_fields: vec!["issues".into()],
+        output_schema: Some(serde_json::json!({"type":"object"})),
+        primary_array_path: Some("data.issues".into()),
+        envelope_prefix: Some("payload".into()),
+        metadata_fields: vec!["request_id".into()],
+    };
+    let contract_value = serde_json::to_value(&contract).unwrap();
+    assert_eq!(
+        contract_value,
+        serde_json::json!({
+            "output_fields":["issues"],
+            "output_schema":{"type":"object"},
+            "primary_array_path":"data.issues",
+            "envelope_prefix":"payload",
+            "metadata_fields":["request_id"]
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<ToolContract>(contract_value).unwrap(),
+        contract
+    );
+    let request = WiringWarningsRequest {
+        graph: serde_json::json!({"nodes":[],"edges":[]}),
+        host: AuthoringHost {
+            bus_name: "test.Contracts".into(),
+            object_path: "/contracts".into(),
+        },
+    };
+    let encoded = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        encoded,
+        serde_json::json!({
+            "graph":{"nodes":[],"edges":[]},
+            "host":{"bus_name":"test.Contracts","object_path":"/contracts"}
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<WiringWarningsRequest>(encoded).unwrap(),
+        request
+    );
+    assert_eq!(methods::WIRING_WARNINGS, "WiringWarnings");
+    assert_eq!(host::LOOKUP_TOOL_CONTRACT, "LookupToolContract");
 }
 
 fn wire_import_result_round_trip() {

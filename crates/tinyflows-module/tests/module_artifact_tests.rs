@@ -6,6 +6,8 @@ mod callbacks;
 mod document_callbacks;
 #[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
+#[path = "support/wiring_warning_artifact.rs"]
+mod wiring_warning_artifact;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
@@ -32,12 +34,26 @@ impl HostCallback {
             vec![]
         })
     }
+    async fn lookup_tool_contract(
+        &self,
+        slug: String,
+    ) -> tinybus::Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(
+            (slug == "provider:issues").then(|| tinyflows_bus::ToolContract {
+                output_fields: vec!["issues".into()],
+                output_schema: Some(json!({"type":"object"})),
+                primary_array_path: Some("data.issues".into()),
+                envelope_prefix: Some("data".into()),
+                metadata_fields: vec!["request_id".into()],
+            }),
+        )
+    }
 }
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
-    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 3);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
@@ -444,42 +460,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("=nodes.fetch.item.json.title"));
 
-    let failures: Vec<String> = proxy
-        .call(
-            methods::AUTHORING_FAILURES,
-            (json!({
-                "nodes":[{"id":"code", "name":"Code", "kind":"code",
-                          "config":{"language":"shell"}}], "edges":[]
-            }),),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("language"));
+    wiring_warning_artifact::verify_surface(&proxy).await;
 
-    let graph = json!({"nodes":[
-        {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
-        {"id":"shape", "name":"Shape", "kind":"transform",
-         "config":{"set":{"subject":{}}}},
-        {"id":"send", "name":"Send", "kind":"tool_call",
-         "config":{"slug":"host:send", "args":{"subject":"=nodes.shape.item.subject.missing"}}}
-    ], "edges":[{"from_node":"t", "to_node":"shape"},
-                 {"from_node":"shape", "to_node":"send"}]});
-    let failures: Vec<String> = proxy
-        .call(
-            methods::UNRESOLVABLE_TOOL_ARGS,
-            (graph.clone(), Vec::<String>::new()),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("subject"));
-    let failures: Vec<String> = proxy
-        .call(
-            methods::UNRESOLVABLE_TOOL_ARGS,
-            (graph, vec!["host:".to_owned()]),
-        )
-        .await
-        .unwrap();
-    assert!(failures.is_empty(), "{failures:?}");
+    wiring_warning_artifact::verify_authoring_gates(&proxy).await;
 }

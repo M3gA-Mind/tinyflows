@@ -8,6 +8,9 @@ impl WorkflowCallback {
     async fn resolve_workflow(&self, _: String) -> Result<Option<serde_json::Value>> {
         Ok(self.0.clone())
     }
+    async fn lookup_tool_contract(&self, _: String) -> Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(None)
+    }
 }
 
 #[tokio::test]
@@ -324,6 +327,9 @@ impl GateCallback {
         } else {
             vec![]
         })
+    }
+    async fn lookup_tool_contract(&self, _: String) -> Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(None)
     }
 }
 
