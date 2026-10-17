@@ -71,6 +71,17 @@ async fn compiled_module_resumes_a_parked_approval_run() {
     assert_eq!(row.status, terminal.events.last().unwrap().data["status"]);
     assert!(row.pending_approvals.is_empty());
     assert_eq!(row.steps.len(), 3, "the resumed gate replaces its parked step");
+    let diagnostic_nodes: Vec<&str> = row
+        .steps
+        .iter()
+        .filter(|step| !step.diagnostics.is_empty())
+        .map(|step| step.node_id.as_str())
+        .collect();
+    if row.status == "completed_with_warnings" {
+        assert_eq!(diagnostic_nodes, ["dedup"]);
+    } else {
+        assert!(diagnostic_nodes.is_empty());
+    }
     let approval = row
         .steps
         .iter()
