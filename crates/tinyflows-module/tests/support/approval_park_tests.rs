@@ -183,15 +183,13 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         .await
         .unwrap();
     assert!(matches!(updated, catalog::PutWorkflowResponse::Ok(_)));
-    assert!(
-        runs_proxy
-            .call::<runs::ResumeRunResponse>(
-                "ResumeRun",
-                (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
-            )
-            .await
-            .is_err()
-    );
+    let stale_resume = runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
+        )
+        .await;
+    assert!(stale_resume.is_err());
 
     let cancelled: Option<catalog::FlowRun> = catalog_proxy
         .call(
@@ -203,7 +201,12 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         )
         .await
         .unwrap();
-    assert_eq!(cancelled.as_ref().unwrap().status, "cancelled");
+    assert_eq!(
+        cancelled.as_ref().unwrap().status,
+        "cancelled",
+        "stale refusal result: {stale_resume:?}; parked hash: {:?}",
+        cancelled.as_ref().unwrap().graph_hash
+    );
     let terminal: runs::PollRun = runs_proxy
         .call(
             "PollRun",
@@ -262,12 +265,14 @@ async fn compiled_module_keeps_resume_cancellable_and_rejects_a_second_claim() {
             {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
             {"id":"approval","name":"Approval","kind":"approval","config":{"request_id":"review"}},
             {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"test-agent","prompt":"work"}},
+            {"id":"agent-tail","name":"Tail agent","kind":"agent","config":{"agent_ref":"test-agent","prompt":"tail"}},
             {"id":"output","name":"Output","kind":"transform","config":{"set":{"declared":"=inputs.declared","payload":"=run.trigger.payload"}}}
         ],
         "edges":[
             {"from_node":"trigger","from_port":"main","to_node":"approval","to_port":"main"},
             {"from_node":"approval","from_port":"main","to_node":"agent","to_port":"main"},
-            {"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}
+            {"from_node":"agent","from_port":"main","to_node":"agent-tail","to_port":"main"},
+            {"from_node":"agent-tail","from_port":"main","to_node":"output","to_port":"main"}
         ]
     });
     let flow_id = create_flow_with_graph(
@@ -325,7 +330,7 @@ async fn compiled_module_keeps_resume_cancellable_and_rejects_a_second_claim() {
         .unwrap();
     let row = row.unwrap();
     assert_eq!(row.status, "cancelled");
-    assert!(!row.steps.iter().any(|step| step.node_id == "output"));
+    assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
 }
 
 fn resume_request(owner: &Owner, flow_id: &str, run_id: &str, gate: &str) -> runs::ResumeRun {
