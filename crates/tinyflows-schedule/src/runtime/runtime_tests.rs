@@ -385,7 +385,11 @@ async fn flow_schedule_dispatches_directly_to_trigger_sink() {
     scheduler.drain().await.unwrap();
     assert_eq!(f.triggers.load(Ordering::SeqCst), 1);
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
-    assert_eq!(f.trigger_jobs.lock().unwrap()[0], job);
+    assert_eq!(
+        serde_json::to_value(&f.trigger_jobs.lock().unwrap()[0]).unwrap(),
+        serde_json::to_value(&job).unwrap(),
+        "trigger callback receives the complete captured job"
+    );
 }
 
 #[tokio::test]
