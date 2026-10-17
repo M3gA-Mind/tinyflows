@@ -186,10 +186,11 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
     let stale_resume = runs_proxy
         .call::<runs::ResumeRunResponse>(
             "ResumeRun",
-            (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
+            (resume_request(&owner, &flow_id, "guarded-run", "approval"),),
         )
         .await;
-    assert!(stale_resume.is_err());
+    let stale_error = stale_resume.unwrap_err();
+    assert!(stale_error.to_string().contains("workflow graph changed"));
 
     let cancelled: Option<catalog::FlowRun> = catalog_proxy
         .call(
@@ -204,7 +205,7 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
     assert_eq!(
         cancelled.as_ref().unwrap().status,
         "cancelled",
-        "stale refusal result: {stale_resume:?}; parked hash: {:?}",
+        "stale refusal result: {stale_error:?}; parked hash: {:?}",
         cancelled.as_ref().unwrap().graph_hash
     );
     let terminal: runs::PollRun = runs_proxy
