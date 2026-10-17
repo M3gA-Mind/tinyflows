@@ -86,8 +86,7 @@ async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_termina
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("known worker handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
@@ -244,8 +243,7 @@ async fn release_reply_loss_reports_cleanup_pending_until_retry_confirms_fence()
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("known worker handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
@@ -339,8 +337,7 @@ async fn unsupported_claim_backend_fails_before_recording_claim_intent() {
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("known worker handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
@@ -459,8 +456,7 @@ async fn terminal_commit_error_releases_queued_claim_before_failed_terminal() {
             )
             .await
             .unwrap()
-            .expect("known live handle remains observable")
-            .expect("known worker handle remains observable");
+            .expect("known live handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
