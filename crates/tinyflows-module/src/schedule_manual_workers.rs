@@ -95,18 +95,18 @@ impl ManualWorkerEntry {
             ManualRunState::Starting => {
                 control.stop_requested = true;
                 control.state = ManualRunState::Stopping { run_id: None };
-                let _ = self.stop.send(true);
+                self.stop.send_replace(true);
             }
             ManualRunState::Running { run_id } => {
                 control.stop_requested = true;
                 control.state = ManualRunState::Stopping {
                     run_id: Some(run_id),
                 };
-                let _ = self.stop.send(true);
+                self.stop.send_replace(true);
             }
             ManualRunState::Stopping { .. } | ManualRunState::CleanupPending { .. } => {
                 control.stop_requested = true;
-                let _ = self.stop.send(true);
+                self.stop.send_replace(true);
             }
             ManualRunState::Terminal { .. } => {}
         }

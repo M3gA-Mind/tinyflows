@@ -53,3 +53,15 @@ fn active_worker_state_is_not_expired_by_the_inert_reservation_ttl() {
     }
     assert!(workers.get(&handle).is_some(), "a started worker has no TTL");
 }
+
+#[test]
+fn stop_before_worker_subscription_is_retained_for_the_worker() {
+    let mut workers = ManualWorkers::default();
+    let handle = workers.prepare(prepare("profile-a", "request-stop-before-subscribe"));
+    let entry = workers.get(&handle).unwrap().entry;
+    entry.begin_start(serde_json::json!({"job":"job-a"})).unwrap();
+
+    entry.request_stop();
+    let receiver = entry.stop.subscribe();
+    assert!(*receiver.borrow(), "a stop signal sent before subscribe must persist");
+}
