@@ -1,4 +1,3 @@
-use super::*;
 use crate::catalog::test_support::{catalog, trigger_graph};
 use serde_json::json;
 
