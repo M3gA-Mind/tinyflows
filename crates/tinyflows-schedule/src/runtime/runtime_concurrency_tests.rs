@@ -3,6 +3,8 @@ use super::*;
 struct ControlledLeaseClock {
     now: DateTime<Utc>,
     renewal_tick: Notify,
+    waiters: AtomicUsize,
+    waiting: Notify,
 }
 #[async_trait]
 impl Clock for ControlledLeaseClock {
@@ -13,7 +15,10 @@ impl Clock for ControlledLeaseClock {
         std::future::pending().await
     }
     async fn lease_wait(&self, _: Duration) {
+        self.waiters.fetch_add(1, Ordering::SeqCst);
+        self.waiting.notify_one();
         self.renewal_tick.notified().await;
+        self.waiters.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -29,6 +34,8 @@ async fn live_run_renews_its_durable_lease_on_a_controlled_tick() {
     let clock = Arc::new(ControlledLeaseClock {
         now: fixture.now(),
         renewal_tick: Notify::new(),
+        waiters: AtomicUsize::new(0),
+        waiting: Notify::new(),
     });
     let mut ports = fixture.ports();
     ports.executor = executor.clone();
@@ -43,6 +50,59 @@ async fn live_run_renews_its_durable_lease_on_a_controlled_tick() {
     executor.release.add_permits(1);
     scheduler.drain().await.unwrap();
     assert_eq!(fixture.completions.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn queued_occurrence_renews_and_never_executes_after_takeover() {
+    let fixture = Fixture::new();
+    let executor = Arc::new(BlockExecutor {
+        started: Semaphore::new(0),
+        release: Semaphore::new(0),
+        active: AtomicUsize::new(0),
+        peak: AtomicUsize::new(0),
+    });
+    let clock = Arc::new(ControlledLeaseClock {
+        now: fixture.now(),
+        renewal_tick: Notify::new(),
+        waiters: AtomicUsize::new(0),
+        waiting: Notify::new(),
+    });
+    let mut ports = fixture.ports();
+    ports.executor = executor.clone();
+    ports.clock = clock.clone();
+    let first = fixture.job();
+    let second = fixture.job();
+    *fixture.lease_takeover_job.lock().unwrap() = Some(second.id.clone());
+    let mut scheduler = Scheduler::new(
+        uuid::Uuid::new_v4().to_string(),
+        SchedulerConfig {
+            max_concurrent: 1,
+            ..Default::default()
+        },
+        ports,
+    );
+    assert_eq!(scheduler.dispatch(vec![first, second.clone()]).await.unwrap(), 2);
+    executor.started.acquire().await.unwrap().forget();
+    loop {
+        let waiting = clock.waiting.notified();
+        if clock.waiters.load(Ordering::SeqCst) >= 2 {
+            break;
+        }
+        waiting.await;
+    }
+    clock.renewal_tick.notify_waiters();
+    fixture.lease_taken_over.notified().await;
+    assert_eq!(executor.active.load(Ordering::SeqCst), 1);
+    executor.release.add_permits(1);
+    assert!(scheduler.drain().await.is_err());
+    assert_eq!(executor.peak.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.records.lock().unwrap().len(), 1);
+    assert_eq!(fixture.completions.lock().unwrap().len(), 1);
+    assert_eq!(
+        fixture.leases.lock().unwrap().get(&second.id).unwrap().0,
+        "successor-owner"
+    );
+    scheduler.shutdown().await;
 }
 
 struct DropSignal(Arc<Notify>);

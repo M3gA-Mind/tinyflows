@@ -32,6 +32,8 @@ struct Fixture {
     renewals: AtomicUsize,
     renewed: Notify,
     take_lease_on_renew: AtomicBool,
+    lease_takeover_job: Mutex<Option<String>>,
+    lease_taken_over: Notify,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -56,6 +58,8 @@ impl Fixture {
             renewals: AtomicUsize::new(0),
             renewed: Notify::new(),
             take_lease_on_renew: AtomicBool::new(false),
+            lease_takeover_job: Mutex::new(None),
+            lease_taken_over: Notify::new(),
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -179,12 +183,20 @@ impl JobStore for Fixture {
         lease: chrono::Duration,
     ) -> Result<bool> {
         let mut leases = self.leases.lock().unwrap();
-        if self.take_lease_on_renew.swap(false, Ordering::SeqCst) {
+        let takeover_job = self.lease_takeover_job.lock().unwrap().take();
+        if takeover_job.as_deref() == Some(claim.job.id.as_str())
+            || self.take_lease_on_renew.swap(false, Ordering::SeqCst)
+        {
             leases.insert(
                 claim.job.id.clone(),
                 ("successor-owner".into(), now + lease),
             );
+            drop(leases);
+            self.lease_taken_over.notify_one();
             return Ok(false);
+        }
+        if let Some(other_job) = takeover_job {
+            *self.lease_takeover_job.lock().unwrap() = Some(other_job);
         }
         let Some((token, expires)) = leases.get_mut(&claim.job.id) else {
             return Ok(false);
