@@ -56,6 +56,8 @@ struct SandboxToolInvoker {
 #[async_trait]
 impl ToolInvoker for SandboxToolInvoker {
     async fn invoke(&self, slug: &str, args: Value, conn: Option<&str>) -> EngineResult<Value> {
+        // The callback's successful payload is only a preflight acknowledgement;
+        // simulated tool output always comes from this module's MockTools.
         self.proxy
             .call(runs::caps::TOOL_INVOKE, &(slug, args.clone(), conn))
             .await

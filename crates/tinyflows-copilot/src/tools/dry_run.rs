@@ -22,15 +22,16 @@ use tinytools::{PermissionLevel, Tool, ToolResult};
 ///
 /// **No real side effects:** the compiled module uses deterministic mocks for
 /// LLM, agent, HTTP, code, shell, memory, state and approval capabilities. The
-/// only callback it accepts is the host-bound `ToolInvoke` preflight/echo; the
-/// host must never forward that callback to a real integration.
+/// only callback it accepts is the host-bound `ToolInvoke` preflight; its
+/// return value is ignored and the module supplies its own mock tool echo.
 ///
 /// **Not autonomy-tier gated (F7):** `permission_level()` returns
 /// [`PermissionLevel::None`], so a read-only agent may self-verify its proposal.
 ///
 /// **Wiring preflight:** the host callback validates required tool arguments
-/// before returning its deterministic echo. Missing or null arguments therefore
-/// fail simulation with the same actionable diagnostic as a real run.
+/// before the module produces its deterministic mock echo. Missing or null
+/// arguments therefore fail simulation with the same actionable diagnostic as
+/// a real run.
 ///
 /// **Null-resolution check (the "produces functionally-broken workflows" fix):**
 /// a required arg can be present *and non-Composio* (a native `oh:` tool, or a

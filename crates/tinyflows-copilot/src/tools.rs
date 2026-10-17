@@ -34,8 +34,8 @@
 //! own doc). `revise_workflow` / `edit_workflow` / `validate_workflow` only
 //! validate or mutate a draft and never persist. `dry_run_workflow` delegates
 //! to the `SandboxRunner` port; production hosts route it through
-//! `Runs.SandboxRun`, where only a preflight-only tool echo callback crosses
-//! the bus. It is deliberately not tier-gated (F7).
+//! `Runs.SandboxRun`, where only a ToolInvoke preflight callback crosses the
+//! bus and the module produces its own mock echo. It is not tier-gated (F7).
 //! [`ResumeFlowRunTool`] is the one place a non-persistence tool can cause a
 //! real effect: resuming a parked run lets its already-approved nodes fire,
 //! which is why it is `Execute`-gated rather than `None`/`Write`.
