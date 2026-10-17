@@ -331,6 +331,7 @@ impl CronDocuments {
                 return Ok(false);
             }
             let mut doc = stored.doc.clone();
+            let mut extra = vec![];
             match expires_at {
                 Some(expires_at) => {
                     let current_expiry = lease(&stored.doc)?
@@ -340,13 +341,20 @@ impl CronDocuments {
                         serde_json::to_value(expires_at.max(current_expiry))?;
                 }
                 None => {
+                    if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run) {
+                        extra.push(WriteOp::Delete {
+                            collection: RUNS.into(),
+                            id: run_id(queued_run),
+                            precondition: Precondition::None,
+                        });
+                    }
                     doc.as_object_mut()
                         .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
                         .remove(LEASE);
                 }
             }
             match self
-                .commit_job(&claim.job.id, Some(&stored), Some(doc), vec![])
+                .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
                 .await
             {
                 Ok(_) => return Ok(true),

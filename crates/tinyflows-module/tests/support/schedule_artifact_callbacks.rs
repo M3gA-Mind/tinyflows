@@ -42,9 +42,6 @@ impl Callbacks {
         jobs.truncate(1);
         Ok(jobs)
     }
-    async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
-        Ok(())
-    }
     async fn claim_due_occurrence(
         &self,
         value: Value,
@@ -148,14 +145,6 @@ impl Callbacks {
         self.0.records.lock().unwrap().push(record);
         self.0.completions.lock().unwrap().push(completion);
         Ok(true)
-    }
-    async fn record_run(&self, record: Value) -> Result<()> {
-        self.0.records.lock().unwrap().push(record);
-        Ok(())
-    }
-    async fn complete(&self, _job: Value, completion: Value) -> Result<()> {
-        self.0.completions.lock().unwrap().push(completion);
-        Ok(())
     }
     async fn execute(&self, _job: Value, _run_id: String) -> Result<Value> {
         Err(tinybus::Error::failed("a flow must use ScheduleTrigger"))

@@ -16,17 +16,6 @@ impl Callbacks {
     async fn due_jobs(&self, _now: String) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-    async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
-        Ok(())
-    }
-    async fn record_run(&self, record: Value) -> Result<()> {
-        self.0.records.lock().await.push(record);
-        Ok(())
-    }
-    async fn complete(&self, _job: Value, completion: Value) -> Result<()> {
-        self.0.completions.lock().await.push(completion);
-        Ok(())
-    }
     async fn execute(&self, _job: Value, run_id: String) -> Result<Value> {
         self.0.executions.lock().await.push(run_id);
         Ok(json!({"success":true,"output":"executed","retryable":false}))

@@ -125,10 +125,6 @@ impl JobStore for Fixture {
             .cloned()
             .collect())
     }
-    async fn claim_slot(&self, _: &CronJob, _: DateTime<Utc>) -> Result<()> {
-        anyhow::ensure!(!self.claim_fails, "durable claim rejected");
-        Ok(())
-    }
     async fn claim_due_occurrence(
         &self,
         job: &CronJob,
@@ -223,14 +219,6 @@ impl JobStore for Fixture {
         self.records.lock().unwrap().push(record);
         self.completions.lock().unwrap().push(completion);
         Ok(true)
-    }
-    async fn record_run(&self, record: RunRecord) -> Result<()> {
-        self.records.lock().unwrap().push(record);
-        Ok(())
-    }
-    async fn complete(&self, _: &CronJob, completion: Completion) -> Result<()> {
-        self.completions.lock().unwrap().push(completion);
-        Ok(())
     }
 }
 #[async_trait]

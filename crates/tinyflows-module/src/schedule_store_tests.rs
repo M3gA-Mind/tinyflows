@@ -125,15 +125,6 @@ impl JobStore for LegacyClaimSlotStore {
     ) -> Result<Vec<CronJob>> {
         self.0.due_jobs_excluding(now, excluded).await
     }
-    async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()> {
-        self.0.claim_slot(job, next_run).await
-    }
-    async fn record_run(&self, record: RunRecord) -> Result<()> {
-        self.0.record_run(record).await
-    }
-    async fn complete(&self, job: &CronJob, completion: Completion) -> Result<()> {
-        self.0.complete(job, completion).await
-    }
     async fn claim_due_occurrence(
         &self,
         job: &CronJob,
