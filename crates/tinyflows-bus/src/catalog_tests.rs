@@ -96,6 +96,12 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
         id: "flow-1".into(),
         version: 7,
         doc: json!({"name":"Example"}),
+        meta: CatalogDocumentMeta {
+            schema: 2,
+            created_ms: 1_600_000_000_000,
+            updated_ms: 1_700_000_000_000,
+            expires_ms: None,
+        },
     });
     wire_round_trip(CatalogDocumentCursor("cursor-token".into()));
     for filter in [
@@ -146,6 +152,7 @@ fn every_catalog_contract_type_round_trips_on_the_wire() {
             id: "flow-1".into(),
             version: 1,
             doc: json!({}),
+            meta: CatalogDocumentMeta::default(),
         }],
         next: None,
     });

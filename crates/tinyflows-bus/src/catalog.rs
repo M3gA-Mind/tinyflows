@@ -11,7 +11,8 @@ mod storage_types;
 mod types;
 
 pub use storage_types::{
-    CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentPage, CatalogDocumentPrecondition,
+    CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentMeta, CatalogDocumentPage,
+    CatalogDocumentPrecondition,
     CatalogFilter, CatalogIndexSpec, CatalogQuery, CatalogSearchSpec, CatalogSort,
     CatalogSortDirection, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply,
     CatalogVersionedDocument, DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest,
