@@ -55,10 +55,14 @@ impl Callbacks {
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
         Ok(())
     }
-    async fn deliver(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
+    async fn send(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
         Ok("not_requested".into())
     }
-    async fn schedule_trigger(&self, flow_id: String, _run_id: String) -> Result<Value> {
+    async fn deliver(&self, _projection: Value) -> Result<()> {
+        Ok(())
+    }
+    async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
+        let flow_id = job["command"].as_str().unwrap_or_default().to_owned();
         self.0.triggers.lock().unwrap().push(flow_id.clone());
         if flow_id == "artifact-flow"
             && self.0.defer_first.load(std::sync::atomic::Ordering::SeqCst)

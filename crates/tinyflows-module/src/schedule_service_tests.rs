@@ -34,11 +34,14 @@ impl Callbacks {
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
         Ok(())
     }
-    async fn deliver(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
+    async fn send(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
         Ok("not_requested".into())
     }
-    async fn schedule_trigger(&self, flow_id: String, _run_id: String) -> Result<Value> {
-        self.0.triggers.lock().await.push(flow_id);
+    async fn deliver(&self, _projection: Value) -> Result<()> {
+        Ok(())
+    }
+    async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
+        self.0.triggers.lock().await.push(job["command"].as_str().unwrap_or_default().into());
         Ok(json!({"success":true,"output":"triggered","retryable":false}))
     }
 }
