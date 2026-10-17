@@ -101,7 +101,11 @@ async fn opening_flow_state_ensures_storage_before_returning_a_handle() {
 #[tokio::test(flavor = "current_thread")]
 async fn denied_storage_fails_open_and_every_state_and_dedup_operation_closed() {
     let catalog = FlowCatalogDocuments::new(Arc::new(DeniedStore));
-    assert!(FlowStateDocuments::open(catalog.clone(), "denied").await.is_err());
+    assert!(
+        FlowStateDocuments::open(catalog.clone(), "denied")
+            .await
+            .is_err()
+    );
 
     let state = FlowStateDocuments::new(catalog, "denied");
     assert!(state.load("key").await.is_err());

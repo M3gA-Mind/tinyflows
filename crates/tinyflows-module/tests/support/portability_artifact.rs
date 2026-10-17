@@ -26,6 +26,22 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
     );
     assert!(prepared["headers"].get("authorization").is_none());
 
+    for request in [json!(null), json!({"headers":"not-an-object"})] {
+        let error = proxy
+            .call::<Value>(
+                "PrepareHttpRequest",
+                (portability::PrepareHttpRequest {
+                    request,
+                    credential: portability::HttpCredentialTemplate::Bearer {
+                        secret: "module-secret".into(),
+                    },
+                },),
+            )
+            .await
+            .expect_err("malformed HTTP input must be rejected by the module");
+        assert!(!error.to_string().contains("module-secret"));
+    }
+
     let graph = json!({"name":"event","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
         "trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED",
         "inputs":{"literal":"=value"}
