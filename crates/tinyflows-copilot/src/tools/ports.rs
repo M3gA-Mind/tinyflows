@@ -114,7 +114,9 @@ pub trait FlowStore: Send + Sync {
     async fn cancel_run(&self, run_id: &str) -> PortResult<Value>;
 }
 
-/// The validation, gate and sandbox policy a host enforces on a graph.
+/// The host's validation and authoring gates, paired with its sandbox runner.
+/// The sandbox remains a distinct async port so production hosts can route it
+/// through the compiled module without exposing engine capabilities here.
 #[async_trait]
 pub trait BuilderGates: SandboxRunner {
     /// Structural validation of a candidate graph, every problem at once.
