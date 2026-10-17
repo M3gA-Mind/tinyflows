@@ -104,6 +104,7 @@ pub(super) async fn execute_and_persist(
         .complete(
             job,
             Completion {
+                advance_schedule: true,
                 remove,
                 disable: one_shot && !remove,
                 next_run,

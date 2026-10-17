@@ -45,6 +45,10 @@ pub struct RunRecord {
 /// Final mutation computed by the runtime. Stores apply it mechanically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Completion {
+    /// Whether a scheduled run advances or disables its saved occurrence.
+    /// Manual Run Now keeps the schedule untouched.
+    #[serde(default = "advance_schedule_default")]
+    pub advance_schedule: bool,
     /// Remove a successful auto-delete one-shot, including its stored history,
     /// unless a concurrent edit re-enabled or otherwise retained it.
     pub remove: bool,
@@ -59,4 +63,8 @@ pub struct Completion {
     pub success: bool,
     /// Result text passed unchanged to delivery and run-history persistence.
     pub output: String,
+}
+
+fn advance_schedule_default() -> bool {
+    true
 }
