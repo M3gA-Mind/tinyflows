@@ -28,6 +28,8 @@ struct Fixture {
     delivery_fails: bool,
     delivery_status_failed: bool,
     claim_fails: bool,
+    claim_attempts: AtomicUsize,
+    claim_fails_after: Mutex<Option<usize>>,
     max_tasks: usize,
     renewals: AtomicUsize,
     renewed: Notify,
@@ -54,6 +56,8 @@ impl Fixture {
             delivery_fails: false,
             delivery_status_failed: false,
             claim_fails: false,
+            claim_attempts: AtomicUsize::new(0),
+            claim_fails_after: Mutex::new(None),
             max_tasks: usize::MAX,
             renewals: AtomicUsize::new(0),
             renewed: Notify::new(),
@@ -145,7 +149,12 @@ impl JobStore for Fixture {
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Option<OccurrenceClaim>> {
-        anyhow::ensure!(!self.claim_fails, "durable claim rejected");
+        let attempt = self.claim_attempts.fetch_add(1, Ordering::SeqCst);
+        anyhow::ensure!(
+            !self.claim_fails
+                && *self.claim_fails_after.lock().unwrap() != Some(attempt),
+            "durable claim rejected"
+        );
         let mut leases = self.leases.lock().unwrap();
         if leases.get(&job.id).is_some_and(|(_, expires)| *expires > now) {
             return Ok(None);

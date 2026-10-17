@@ -105,6 +105,64 @@ async fn queued_occurrence_renews_and_never_executes_after_takeover() {
     scheduler.shutdown().await;
 }
 
+#[tokio::test]
+async fn refill_stops_at_the_batch_cap_after_skipping_a_held_head() {
+    let mut fixture = Fixture::new();
+    Arc::get_mut(&mut fixture).unwrap().max_tasks = 2;
+    let first = fixture.job();
+    let second = fixture.job();
+    let third = fixture.job();
+    let fourth = fixture.job();
+    *fixture.jobs.lock().unwrap() = vec![
+        first.clone(),
+        second.clone(),
+        third.clone(),
+        fourth.clone(),
+    ];
+    let held = fixture
+        .claim_due_occurrence(&first, "already-running", fixture.now(), chrono::Duration::hours(1))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut scheduler = Scheduler::new(
+        uuid::Uuid::new_v4().to_string(),
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
+    assert_eq!(scheduler.tick().await.unwrap(), 2);
+    scheduler.drain().await.unwrap();
+    let recorded: Vec<_> = fixture
+        .records
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|record| record.job_id.as_str())
+        .collect();
+    assert_eq!(recorded.len(), 2);
+    assert!(recorded.contains(&second.id.as_str()));
+    assert!(recorded.contains(&third.id.as_str()));
+    assert!(!recorded.contains(&fourth.id.as_str()));
+    assert!(fixture.release_occurrence(&held, fixture.now()).await.unwrap());
+}
+
+#[tokio::test]
+async fn a_later_claim_error_releases_every_earlier_undispatched_receipt() {
+    let mut fixture = Fixture::new();
+    let first = fixture.job();
+    let second = fixture.job();
+    *fixture.jobs.lock().unwrap() = vec![first.clone(), second];
+    *fixture.claim_fails_after.lock().unwrap() = Some(1);
+    let mut scheduler = Scheduler::new(
+        uuid::Uuid::new_v4().to_string(),
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
+    assert!(scheduler.tick().await.is_err());
+    assert!(fixture.leases.lock().unwrap().is_empty());
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    assert!(fixture.records.lock().unwrap().is_empty());
+}
+
 struct DropSignal(Arc<Notify>);
 impl Drop for DropSignal {
     fn drop(&mut self) {

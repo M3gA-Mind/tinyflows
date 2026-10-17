@@ -56,6 +56,27 @@ fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
 }
 
+async fn persist_manual_queue(
+    store: &dyn JobStore,
+    claim: &tinyflows_bus::schedule::OccurrenceClaim,
+    record: RunRecord,
+    now: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<bool> {
+    match store.queue_occurrence(claim, record).await {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            let _ = store.release_occurrence(claim, now).await;
+            Ok(false)
+        }
+        Err(error) => {
+            if let Err(release_error) = store.release_occurrence(claim, now).await {
+                tracing::warn!(%release_error, "manual admission failed to release its queue claim");
+            }
+            Err(error)
+        }
+    }
+}
+
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Schedule")]
 impl ScheduleService {
     async fn schedule_store(
@@ -188,13 +209,10 @@ impl ScheduleService {
             output: String::new(),
             delivery_status: None,
         };
-        if !ports
-            .store
-            .queue_occurrence(&claim, queued)
+        if !persist_manual_queue(ports.store.as_ref(), &claim, queued, queued_at)
             .await
             .map_err(failure)?
         {
-            let _ = ports.store.release_occurrence(&claim, queued_at).await;
             return Ok(RunJobReply::Refused {
                 reason: tinyflows_bus::schedule::RunJobRefusal::DefinitionChanged,
             });

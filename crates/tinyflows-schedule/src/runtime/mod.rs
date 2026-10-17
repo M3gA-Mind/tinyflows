@@ -110,7 +110,7 @@ impl Scheduler {
                     break;
                 }
                 examined.push(job.id.clone());
-                if let Some(claim) = self
+                let claim = self
                     .ports
                     .store
                     .claim_due_occurrence(
@@ -119,26 +119,40 @@ impl Scheduler {
                         now,
                         OCCURRENCE_LEASE,
                     )
-                    .await?
-                {
+                    .await;
+                let claim = match claim {
+                    Ok(claim) => claim,
+                    Err(error) => {
+                        self.release_claims(&selected).await;
+                        return Err(error);
+                    }
+                };
+                if let Some(claim) = claim {
                     selected.push(claim);
                 }
             }
             if selected.len() >= limit {
                 break;
             }
-            batch = self
+            batch = match self
                 .ports
                 .store
                 .due_jobs_excluding(now, &examined)
-                .await?;
+                .await
+            {
+                Ok(batch) => batch,
+                Err(error) => {
+                    self.release_claims(&selected).await;
+                    return Err(error);
+                }
+            };
             if batch.is_empty() {
                 break;
             }
-            anyhow::ensure!(
-                batch.iter().all(|job| !examined.contains(&job.id)),
-                "job store returned an excluded due job"
-            );
+            if batch.iter().any(|job| examined.contains(&job.id)) {
+                self.release_claims(&selected).await;
+                anyhow::bail!("job store returned an excluded due job");
+            }
         }
         self.dispatch_claims(selected, ManualDelivery::Requested).await
     }
@@ -150,7 +164,7 @@ impl Scheduler {
         anyhow::ensure!(!self.stopped, "scheduler is stopped");
         let mut claims = Vec::new();
         for job in jobs {
-            if let Some(claim) = self
+            let claimed = self
                 .ports
                 .store
                 .claim_due_occurrence(
@@ -159,12 +173,28 @@ impl Scheduler {
                     self.ports.clock.now(),
                     OCCURRENCE_LEASE,
                 )
-                .await?
-            {
+                .await;
+            let claimed = match claimed {
+                Ok(claimed) => claimed,
+                Err(error) => {
+                    self.release_claims(&claims).await;
+                    return Err(error);
+                }
+            };
+            if let Some(claim) = claimed {
                 claims.push(claim);
             }
         }
         self.dispatch_claims(claims, ManualDelivery::Requested).await
+    }
+
+    async fn release_claims(&self, claims: &[OccurrenceClaim]) {
+        let now = self.ports.clock.now();
+        for claim in claims {
+            if let Err(error) = self.ports.store.release_occurrence(claim, now).await {
+                tracing::warn!(%error, "failed to release an undispatched occurrence claim");
+            }
+        }
     }
 
     async fn dispatch_claims(
