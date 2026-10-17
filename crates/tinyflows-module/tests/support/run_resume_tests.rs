@@ -1,10 +1,10 @@
-use super::run_lifecycle_tests::module_proxies;
 use super::*;
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_resumes_a_rejected_approval_over_the_runs_bus() {
-    let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
     let owner = owner(&connection, "rejection-resume", None, None, None, None).await;
     let graph = json!({
         "inputs":[{"name":"declared","type":"string","required":true}],
@@ -80,7 +80,8 @@ async fn compiled_module_resumes_a_rejected_approval_over_the_runs_bus() {
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_resumes_an_ordinary_nested_workflow_approval() {
-    let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
     let owner = owner(&connection, "nested-resume", None, None, None, None).await;
     let child_graph = json!({
         "nodes":[
