@@ -49,7 +49,6 @@ pub(super) async fn drive_resume(
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
 ) {
-    eprintln!("tf7 drive_resume entered");
     drive_inner(
         connection,
         request,
@@ -83,9 +82,6 @@ async fn drive_inner(
     continuation: Continuation,
 ) {
     let _ = admitted.await;
-    if matches!(&continuation, Continuation::Resume { .. }) {
-        eprintln!("tf7 resume actor admitted");
-    }
     let initial_seq = prepared
         .catalog
         .flow_run_event_last_seq(&request.run_id)
@@ -105,9 +101,9 @@ async fn drive_inner(
         json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
     );
     if matches!(&continuation, Continuation::Resume { .. }) {
-        eprintln!("tf7 resume event queued at seq {initial_seq}");
-        let _ = writer.flush().await;
-        eprintln!("tf7 resume event flushed");
+        if let Some(error) = writer.flush().await {
+            tracing::error!(%error, run_id = %request.run_id, "resume event did not persist");
+        }
     }
     let observer = Arc::new(Observer::new(writer.clone(), previous_steps));
     let capabilities = CapsHostPorts::capabilities_with_progress(
