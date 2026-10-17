@@ -38,6 +38,14 @@ const ALLOWED: [&str; 16] = [
 const SHARED: [&str; 4] = ["tsd.kv", "tsd.leases", "tsd.counters", "tsd.migrations"];
 /// Every `flows` record in a shared collection is keyed `Key::of(["flows", ..])`.
 const FLOWS_KEY_PREFIX: &str = "flows/";
+const FLOWS_MIGRATION_KEYS: [&str; 6] = [
+    "flows/flows.definitions/definitions_v2",
+    "flows/flows.revisions/revisions_v2",
+    "flows/flows.runs/runs_v2",
+    "flows/flows.suggestions/suggestions_v2",
+    "flows/flows.drafts/drafts_v2",
+    "flows/kv_import",
+];
 
 pub(super) struct Documents {
     connection: Connection,
@@ -125,6 +133,11 @@ impl Documents {
     /// `flows/` keys.
     fn validate_record(collection: &str, id: &str) -> Result<()> {
         Self::validate_collection(collection)?;
+        if collection == "tsd.migrations" && !FLOWS_MIGRATION_KEYS.contains(&id) {
+            return Err(StorageError::invalid_input(
+                "record is outside the catalog migration progress keys",
+            ));
+        }
         if SHARED.contains(&collection) && !id.starts_with(FLOWS_KEY_PREFIX) {
             return Err(StorageError::invalid_input(
                 "record is outside the workflow catalog owner's keys",

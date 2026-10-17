@@ -13,6 +13,12 @@ use tinystoragedrivers_core::{
 const SHARED: [&str; 3] = ["tsd.counters", "tsd.leases", "tsd.migrations"];
 /// Every `cron` record in a shared collection is keyed `Key::of(["cron", ..])`.
 const CRON_KEY_PREFIX: &str = "cron/";
+const CRON_MIGRATION_KEYS: [&str; 4] = [
+    "cron/cron.jobs/jobs_v2",
+    "cron/cron.runs/runs_v2",
+    "cron/cron.admission/admission_v2",
+    "cron/counters_import",
+];
 
 pub(super) struct Documents {
     connection: Connection,
@@ -122,6 +128,11 @@ impl Documents {
         if collection == "tsd.kv" {
             return Err(StorageError::invalid_input(
                 "the schedule port may only ensure tsd.kv for primitive preparation",
+            ));
+        }
+        if collection == "tsd.migrations" && !CRON_MIGRATION_KEYS.contains(&id) {
+            return Err(StorageError::invalid_input(
+                "record is outside the schedule migration progress keys",
             ));
         }
         if SHARED.contains(&collection) && !id.starts_with(CRON_KEY_PREFIX) {
