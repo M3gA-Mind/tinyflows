@@ -4,6 +4,69 @@ use tinyflows_schedule::{CronJobPatch, DeliveryStatus, Schedule};
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]
+async fn reconciles_manual_claim_receipt_after_an_ambiguous_claim_reply() {
+    let backend = MemoryStorage::new();
+    let store = CronDocuments::new(docs_in(&backend, "manual-claim-reconcile"));
+    let now = Utc::now();
+    let job = store
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: now + Duration::hours(1),
+            },
+            "echo reconcile",
+        )
+        .await
+        .unwrap();
+
+    // Model a durable claim whose response was lost: only the preselected
+    // owner survives at the call site, so it must be enough to recover receipt.
+    let committed = store
+        .claim_job_now(&job, "ambiguous-owner", now, Duration::minutes(2))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&job, "other-owner", now + Duration::seconds(1))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.get_job(&job.id).await.unwrap().claim_generation,
+        job.claim_generation,
+        "a live lease owned by someone else is left untouched"
+    );
+    assert!(
+        store
+            .renew_claim(&committed, now + Duration::seconds(1), Duration::minutes(1))
+            .await
+            .unwrap()
+    );
+    let reconciled = store
+        .reconcile_manual_claim_admission(&job, "ambiguous-owner", now + Duration::seconds(1))
+        .await
+        .unwrap()
+        .expect("a live claim for the unique owner is discoverable");
+    assert_eq!(reconciled.owner(), committed.owner());
+    assert_eq!(reconciled.token(), committed.token());
+    assert!(
+        store
+            .release_claim(&reconciled, now + Duration::seconds(1))
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&job, "ambiguous-owner", now + Duration::seconds(2))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn forced_manual_claim_queues_before_ack_and_replaces_queue_atomically() {
     let backend = MemoryStorage::new();
     let store = CronDocuments::new(docs_in(&backend, "manual-claim"));

@@ -234,6 +234,40 @@ impl Scheduler {
         .await
     }
 
+    /// Execute an admitted manual run with cooperative stop at callback
+    /// boundaries. `None` means stop was observed after the current callback;
+    /// the caller still owns releasing the occurrence claim.
+    pub async fn run_manual_claim_cooperative(
+        &self,
+        claim: OccurrenceClaim,
+        delivery: ManualDelivery,
+        mut stop: watch::Receiver<bool>,
+    ) -> Result<Option<ManualRunOutcome>> {
+        let work = execution::execute_and_persist_cooperative(
+            &self.ports,
+            &self.config,
+            &claim,
+            delivery,
+            &mut stop,
+        );
+        tokio::pin!(work);
+        loop {
+            tokio::select! {
+                _ = self.ports.clock.lease_wait(Duration::from_secs(30)) => {
+                    anyhow::ensure!(
+                        self.ports.store.renew_occurrence(
+                            &claim,
+                            self.ports.clock.now(),
+                            OCCURRENCE_LEASE,
+                        ).await?,
+                        "scheduler lost the occurrence lease"
+                    );
+                }
+                result = &mut work => return result,
+            }
+        }
+    }
+
     /// Wait for every dispatched job, returning persistence or task failures.
     pub async fn drain(&mut self) -> Result<()> {
         let mut first_error = None;
@@ -346,3 +380,7 @@ async fn run_claim_with_renewal(
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../runtime_cooperative_stop_tests.rs"]
+mod cooperative_stop_tests;

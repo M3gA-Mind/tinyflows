@@ -1,5 +1,7 @@
 //! Atomic occurrence leases and fenced run completion.
 mod completion;
+#[path = "claims/manual_claim_reconciliation.rs"]
+mod manual_claim_reconciliation;
 
 use super::codec::{INCARNATION, doc_to_job, incarnation, run_id, run_to_doc};
 use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, storage_error};

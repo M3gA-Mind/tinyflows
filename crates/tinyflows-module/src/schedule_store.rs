@@ -102,6 +102,10 @@ impl Store {
 
 #[async_trait::async_trait]
 impl tinyflows_schedule::runtime::JobStore for Store {
+    async fn validate_manual_claim_support(&self) -> Result<()> {
+        self.0.require_manual_claim_support()
+    }
+
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
         self.0.due_jobs(now).await
     }
@@ -147,6 +151,18 @@ impl tinyflows_schedule::runtime::JobStore for Store {
             }));
         };
         Ok(Ok(occurrence_claim(claim)?))
+    }
+    async fn find_owned_manual_claim(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<OccurrenceClaim>> {
+        self.0
+            .reconcile_manual_claim_admission(job, owner, now)
+            .await?
+            .map(occurrence_claim)
+            .transpose()
     }
     async fn renew_occurrence(
         &self,

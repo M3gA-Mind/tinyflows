@@ -225,3 +225,7 @@ mod claim_removal_tests;
 #[cfg(test)]
 #[path = "manual_claim_tests.rs"]
 mod manual_claim_tests;
+
+#[cfg(test)]
+#[path = "manual_claim_fence_tests.rs"]
+mod manual_claim_fence_tests;
