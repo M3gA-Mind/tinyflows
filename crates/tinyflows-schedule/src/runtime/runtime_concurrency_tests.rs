@@ -98,6 +98,7 @@ async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
     );
     scheduler.shutdown().await;
 }
+#[tokio::test]
 async fn dispatch_returns_before_execution_and_limits_concurrent_jobs() {
     let f = Fixture::new();
     let executor = Arc::new(BlockExecutor {
