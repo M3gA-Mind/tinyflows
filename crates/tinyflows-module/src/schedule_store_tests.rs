@@ -48,10 +48,21 @@ async fn old_run_history_does_not_attach_to_a_recreated_flow_job() {
         .for_scope(&Scope::new("history-fence").unwrap())
         .unwrap();
     let documents = CronDocuments::new(scoped.documents().clone());
-    let job = documents
+    let mut job = documents
         .add_flow_schedule_job("history-fence", Schedule::Every { every_ms: 60_000 })
         .await
         .unwrap();
+    let due_at = Utc::now() - chrono::Duration::seconds(1);
+    let docs = scoped.documents().clone();
+    let stored = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
+    let mut body = stored.doc.clone();
+    body["next_run"] = serde_json::json!(due_at.to_rfc3339());
+    body["next_run_ms"] = serde_json::json!(due_at.timestamp_millis());
+    body["next_run_ns"] = serde_json::json!(due_at.timestamp_nanos_opt().unwrap());
+    docs.put("cron_jobs", &job.id, body, stored.unchanged())
+        .await
+        .unwrap();
+    job = documents.get_job(&job.id).await.unwrap();
     let io = Arc::new(Replacement(documents.clone()));
     let ports = RuntimePorts {
         store: Arc::new(Store(documents.clone())),
