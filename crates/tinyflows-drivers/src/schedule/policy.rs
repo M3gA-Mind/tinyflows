@@ -18,7 +18,8 @@ impl CronDocuments {
             // Missing job is an orphan; the old table also permitted such rows.
             // A pre-existing policy means an interrupted migration already wrote
             // it, or a new writer has edited it. Never replace that newer value.
-            compare_job(self, JOBS, &policy.id, |doc| {
+            compare_job(self, JOBS, &policy.id, |stored| {
+                let doc = &stored.doc;
                 if doc.get("policy").is_some() {
                     return Ok(None);
                 }

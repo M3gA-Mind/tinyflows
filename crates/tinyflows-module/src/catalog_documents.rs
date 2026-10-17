@@ -10,9 +10,26 @@ use tinyflows_bus::catalog::{
     STORAGE_INTERFACE, storage,
 };
 use tinystoragedrivers_core::{
-    Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query, Result, Sort,
-    StorageError, Version, Versioned, WriteOp, WriteResult,
+    Capabilities, Capability, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
+    Result, Sort, StorageError, Version, Versioned, WriteOp, WriteOptions, WriteResult,
 };
+
+/// The catalog's own collections (storage schema v2, owner `flows`) and the
+/// graph checkpointer's (owner `graph`).
+const ALLOWED: [&str; 8] = [
+    "flows.definitions",
+    "flows.revisions",
+    "flows.runs",
+    "flows.suggestions",
+    "flows.drafts",
+    "graph.checkpoints",
+    "graph.threads",
+    "graph.writes",
+];
+/// Collections owned by `tsd`, shared by every owner's primitives.
+const SHARED: [&str; 3] = ["tsd.kv", "tsd.leases", "tsd.counters"];
+/// Every `flows` record in a shared collection is keyed `Key::of(["flows", ..])`.
+const FLOWS_KEY_PREFIX: &str = "flows/";
 
 pub(super) struct Documents {
     connection: Connection,
@@ -59,21 +76,34 @@ impl Documents {
     }
 
     fn validate_collection(collection: &str) -> Result<()> {
-        if ![
-            "flows_definitions",
-            "flows_revisions",
-            "flows_runs",
-            "flows_kv",
-            "flows_suggestions",
-            "flows_drafts",
-            "flows_graph_checkpoints",
-            "flows_graph_threads",
-            "flows_graph_writes",
-        ]
-        .contains(&collection)
-        {
+        if !ALLOWED.contains(&collection) && !SHARED.contains(&collection) {
             return Err(StorageError::invalid_input(
                 "collection is outside the workflow catalog port",
+            ));
+        }
+        Ok(())
+    }
+
+    /// `tsd.kv`, `tsd.leases` and `tsd.counters` are shared with other
+    /// owners, so a catalog request may only touch records under its own
+    /// `flows/` keys.
+    fn validate_record(collection: &str, id: &str) -> Result<()> {
+        Self::validate_collection(collection)?;
+        if SHARED.contains(&collection) && !id.starts_with(FLOWS_KEY_PREFIX) {
+            return Err(StorageError::invalid_input(
+                "record is outside the workflow catalog owner's keys",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Set operations (queries, scans, deletes by filter) are never allowed
+    /// over a shared collection.
+    fn validate_set(collection: &str) -> Result<()> {
+        Self::validate_collection(collection)?;
+        if SHARED.contains(&collection) {
+            return Err(StorageError::invalid_input(
+                "set operations are outside the workflow catalog port for shared collections",
             ));
         }
         Ok(())
@@ -88,6 +118,27 @@ impl Documents {
         if let Some(collection) = request.get("collection").and_then(Value::as_str) {
             Self::validate_collection(collection)?;
         }
+        self.request(member, request).await
+    }
+
+    async fn call_record<R: DeserializeOwned, A: serde::Serialize>(
+        &self,
+        member: &str,
+        collection: &str,
+        id: &str,
+        request: A,
+    ) -> Result<R> {
+        Self::validate_record(collection, id)?;
+        self.request(member, request).await
+    }
+
+    async fn call_set<R: DeserializeOwned, A: serde::Serialize>(
+        &self,
+        member: &str,
+        collection: &str,
+        request: A,
+    ) -> Result<R> {
+        Self::validate_set(collection)?;
         self.request(member, request).await
     }
 
@@ -140,8 +191,10 @@ impl DocumentStore for Documents {
     }
 
     async fn get(&self, collection: &str, id: &str) -> Result<Option<Versioned<Value>>> {
-        self.call(
+        self.call_record(
             storage::GET,
+            collection,
+            id,
             DocGetRequest {
                 collection: collection.into(),
                 id: id.into(),
@@ -157,21 +210,47 @@ impl DocumentStore for Documents {
         doc: Value,
         precondition: Precondition,
     ) -> Result<Version> {
-        self.call(
+        self.put_with(collection, id, doc, precondition, WriteOptions::default())
+            .await
+    }
+
+    async fn put_with(
+        &self,
+        collection: &str,
+        id: &str,
+        doc: Value,
+        precondition: Precondition,
+        options: WriteOptions,
+    ) -> Result<Version> {
+        if options.created_ms.is_some() {
+            // A creation time is a host-only migration option; the callback
+            // seam cannot carry it.
+            return Err(StorageError::unsupported(
+                Capability::RecordMetadata,
+                "a module cannot set a document's creation time",
+            ));
+        }
+        self.call_record(
             storage::PUT,
+            collection,
+            id,
             DocPutRequest {
                 collection: collection.into(),
                 id: id.into(),
                 doc,
                 precondition: serde_json::from_value(serde_json::to_value(precondition)?)?,
+                schema: options.schema,
+                expires_ms: options.expires_ms,
             },
         )
         .await
     }
 
     async fn delete(&self, collection: &str, id: &str, precondition: Precondition) -> Result<bool> {
-        self.call(
+        self.call_record(
             storage::DELETE,
+            collection,
+            id,
             DocDeleteRequest {
                 collection: collection.into(),
                 id: id.into(),
@@ -182,8 +261,9 @@ impl DocumentStore for Documents {
     }
 
     async fn query(&self, collection: &str, query: &Query) -> Result<Page<Versioned<Value>>> {
-        self.call(
+        self.call_set(
             storage::QUERY,
+            collection,
             DocQueryRequest {
                 collection: collection.into(),
                 query: serde_json::from_value(serde_json::to_value(query)?)?,
@@ -200,8 +280,9 @@ impl DocumentStore for Documents {
     }
 
     async fn delete_where(&self, collection: &str, filter: &Filter) -> Result<u64> {
-        self.call(
+        self.call_set(
             storage::DELETE_WHERE,
+            collection,
             DocDeleteWhereRequest {
                 collection: collection.into(),
                 filter: serde_json::from_value(serde_json::to_value(filter)?)?,

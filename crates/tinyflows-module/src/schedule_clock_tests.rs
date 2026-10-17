@@ -27,7 +27,11 @@ async fn a_manual_pass_uses_the_supplied_time_for_due_jobs_and_run_records() {
             schedule::INTERFACE,
         )
         .unwrap();
-    let now = Utc::now() + Duration::days(1);
+    // Stored instants have millisecond precision.
+    let now = chrono::DateTime::from_timestamp_millis(
+        (Utc::now() + Duration::days(1)).timestamp_millis(),
+    )
+    .unwrap();
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new("fixed-clock").unwrap())
         .unwrap();

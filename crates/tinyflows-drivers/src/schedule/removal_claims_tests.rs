@@ -14,6 +14,7 @@ async fn nontransactional_deduplication_and_clear_keep_legacy_behavior() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let keep = a
         .add_shell_job(Some("same".into()), daily(), "a")
@@ -75,6 +76,7 @@ async fn legacy_rows_are_imported_before_admission_policy_is_installed() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
     let stored = a.docs.get(JOBS, &job.id).await.unwrap().unwrap();
@@ -118,6 +120,7 @@ async fn a_legacy_row_without_enabled_is_imported_as_disabled() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
     let mut doc = a.docs.get(JOBS, &job.id).await.unwrap().unwrap().doc;

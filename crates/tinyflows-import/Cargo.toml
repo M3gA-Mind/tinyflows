@@ -42,10 +42,10 @@ tinyflows-catalog = { version = "0.1.0", path = "../tinyflows-catalog", optional
 tinyflows-bus = { path = "../tinyflows-bus", optional = true }
 tinyflows-schedule = { version = "0.1.0", path = "../tinyflows-schedule", optional = true }
 tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false }
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.11.0" }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0" }
 # The SQLite driver's native handle: how the legacy `.db` files are opened. It
 # re-exports the `rusqlite` its handle hands out, which is all this crate uses.
-tinystoragedrivers-sqlite = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.11.0" }
+tinystoragedrivers-sqlite = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0" }
 anyhow = "1.0"
 chrono = { workspace = true }
 serde = { workspace = true }

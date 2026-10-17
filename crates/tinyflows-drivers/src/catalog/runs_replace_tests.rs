@@ -103,6 +103,7 @@ fn continuity_follows_the_incarnation_or_the_pre_fence_version() {
         id: "f".to_string(),
         version: Version(version),
         doc,
+        meta: tinystoragedrivers_core::Meta::unknown(),
     };
     let fenced = def(json!({ "incarnation": "a" }), 1);
     assert!(still_the_flow(

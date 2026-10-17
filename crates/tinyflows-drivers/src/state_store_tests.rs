@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 fn docs(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentStore> {
@@ -29,40 +30,34 @@ async fn scopes_and_collections_keep_state_apart() {
     let storage = MemoryStorage::new();
     let alice = DriverStateStore::new(docs(&storage, "alice"));
     let bob = DriverStateStore::new(docs(&storage, "bob"));
-    let other = DriverStateStore::with_collection(docs(&storage, "alice"), "other_state");
+    let other = DriverStateStore::with_namespace(docs(&storage, "alice"), "other_state");
     alice.store("run/1", json!("alice")).await.unwrap();
     assert_eq!(bob.load("run/1").await.unwrap(), None);
     assert_eq!(other.load("run/1").await.unwrap(), None);
 }
 
 #[tokio::test]
-async fn an_unstorable_key_is_a_capability_error() {
-    let store = DriverStateStore::new(docs(&MemoryStorage::new(), "local"));
-    let error = store.store("", json!(1)).await.unwrap_err();
-    assert!(matches!(error, EngineError::Capability(_)), "{error:?}");
-    let error = DriverStateStore::with_collection(docs(&MemoryStorage::new(), "local"), "bad name")
+async fn an_unstorable_namespace_is_a_capability_error() {
+    let error = DriverStateStore::with_namespace(docs(&MemoryStorage::new(), "local"), "")
         .load("k")
         .await
         .unwrap_err();
+    assert!(matches!(error, EngineError::Capability(_)), "{error:?}");
     assert!(error.to_string().contains("state store"), "{error}");
 }
 
 #[tokio::test]
-async fn a_document_without_a_value_is_a_capability_error_not_missing_state() {
+async fn state_is_a_tsd_kv_entry_of_owner_flows() {
     let backing = docs(&MemoryStorage::new(), "local");
     let store = DriverStateStore::new(Arc::clone(&backing));
-    // Declares the collection, then plant a document some other writer shaped.
-    store.store("seed", json!(1)).await.unwrap();
-    backing
-        .put(
-            &store.collection,
-            "bad",
-            json!({ "key": "bad" }),
-            Precondition::None,
-        )
+    store.store("a/b", json!({ "n": 1 })).await.unwrap();
+    let row = backing
+        .get("tsd.kv", "flows/state/a%2Fb")
         .await
+        .unwrap()
         .unwrap();
-    let error = store.load("bad").await.unwrap_err();
-    assert!(matches!(error, EngineError::Capability(_)), "{error:?}");
-    assert!(error.to_string().contains("no `value` field"), "{error}");
+    assert_eq!(row.doc["owner"], "flows");
+    assert_eq!(row.doc["ns"], "state");
+    assert_eq!(row.doc["key"], "a/b");
+    assert_eq!(row.doc["value"], json!({ "n": 1 }));
 }

@@ -1,6 +1,6 @@
 //! Shared admission state, transacted with job writes to fence policy races.
 use super::codec::{doc_to_job, incarnation};
-use super::{CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, storage_error};
+use super::{ADMISSION, CAS_ATTEMPTS, CronDocuments, JOBS, storage_error};
 use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,16 +8,17 @@ use tinystoragedrivers_core::{
     Capability, DocumentStoreExt, ErrorKind, Precondition, Query, Versioned, WriteOp, WriteResult,
 };
 
-const ADMISSION: &str = "admission";
+/// The id of the ledger document in `cron.admission`.
+pub(super) const LEDGER: &str = "ledger";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Member {
+    job_id: String,
     incarnation: Option<String>,
     enabled: bool,
 }
-#[derive(Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Default)]
 struct Admission {
     limit: Option<usize>,
     jobs: std::collections::BTreeMap<String, Member>,
@@ -27,21 +28,25 @@ struct Admission {
 struct AdmissionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
-    // Job ids can contain Mongo-sensitive key characters. Keep the map in a
-    // JSON string, matching the cron store's existing nested-value convention.
-    members_json: String,
+    // Job ids can contain Mongo-sensitive key characters, so the members are
+    // a list carrying their id, not an object keyed by it.
+    members: Vec<Member>,
 }
 fn decode(doc: Value) -> Result<Admission> {
     let record: AdmissionRecord = serde_json::from_value(doc)?;
     Ok(Admission {
         limit: record.limit,
-        jobs: serde_json::from_str(&record.members_json)?,
+        jobs: record
+            .members
+            .into_iter()
+            .map(|member| (member.job_id.clone(), member))
+            .collect(),
     })
 }
 fn encode(state: Admission) -> Result<Value> {
     Ok(serde_json::to_value(AdmissionRecord {
         limit: state.limit,
-        members_json: serde_json::to_string(&state.jobs)?,
+        members: state.jobs.into_values().collect(),
     })?)
 }
 impl Admission {
@@ -54,8 +59,9 @@ impl Admission {
         Ok(())
     }
 }
-fn member(doc: &Value) -> Result<Member> {
+fn member(id: &str, doc: &Value) -> Result<Member> {
     Ok(Member {
+        job_id: id.to_owned(),
         incarnation: incarnation(doc).map(str::to_owned),
         enabled: match doc.get("enabled") {
             None => false,
@@ -99,7 +105,9 @@ impl CronDocuments {
             let mut ops = Vec::new();
             for row in rows {
                 doc_to_job(&row)?;
-                state.jobs.insert(row.id.clone(), member(&row.doc)?);
+                state
+                    .jobs
+                    .insert(row.id.clone(), member(&row.id, &row.doc)?);
                 ops.push(WriteOp::Put {
                     collection: JOBS.into(),
                     id: row.id.clone(),
@@ -109,8 +117,8 @@ impl CronDocuments {
             }
             state.check()?;
             ops.push(WriteOp::Put {
-                collection: COUNTERS.into(),
-                id: ADMISSION.into(),
+                collection: ADMISSION.into(),
+                id: LEDGER.into(),
                 doc: encode(state)?,
                 precondition: stored.unchanged(),
             });
@@ -130,7 +138,7 @@ impl CronDocuments {
         for _ in 0..CAS_ATTEMPTS {
             if let Some(stored) = self
                 .docs
-                .get(COUNTERS, ADMISSION)
+                .get(ADMISSION, LEDGER)
                 .await
                 .map_err(storage_error)?
             {
@@ -147,7 +155,9 @@ impl CronDocuments {
             let mut ops = Vec::new();
             for row in rows {
                 doc_to_job(&row)?;
-                state.jobs.insert(row.id.clone(), member(&row.doc)?);
+                state
+                    .jobs
+                    .insert(row.id.clone(), member(&row.id, &row.doc)?);
                 ops.push(WriteOp::Put {
                     collection: JOBS.into(),
                     id: row.id.clone(),
@@ -156,8 +166,8 @@ impl CronDocuments {
                 });
             }
             ops.push(WriteOp::Put {
-                collection: COUNTERS.into(),
-                id: ADMISSION.into(),
+                collection: ADMISSION.into(),
+                id: LEDGER.into(),
                 doc: encode(state)?,
                 precondition: Precondition::Absent,
             });
@@ -170,11 +180,82 @@ impl CronDocuments {
         bail!("cron store: admission initialization kept changing")
     }
 
+    /// Writes a new job with an explicit creation time (an importer keeps the
+    /// original) and enrols it in the admission ledger. The job is written
+    /// first and enrolled second, so a job over the cap is taken back.
+    ///
+    /// # Errors
+    /// The cap would be exceeded, or the backend fails.
+    pub(super) async fn insert_with_created(
+        &self,
+        id: &str,
+        doc: Value,
+        created_ms: i64,
+    ) -> Result<()> {
+        let mut options =
+            tinystoragedrivers_core::WriteOptions::new().schema(super::SCHEMA_VERSION);
+        if created_ms > 0 {
+            options = options.created_ms(created_ms);
+        }
+        let member = member(id, &doc)?;
+        // A nontransactional backend cannot enrol, so check the persisted
+        // policy before the job exists rather than after it is written.
+        let transactional = self.docs.capabilities().contains(Capability::Transactions);
+        if !transactional {
+            self.require_unlimited_backend().await?;
+        }
+        match self
+            .docs
+            .put_with(JOBS, id, doc.clone(), Precondition::Absent, options)
+            .await
+        {
+            Ok(_) => {}
+            // A store that cannot set a creation time (a module's document
+            // callback) files the job under the time of the import instead.
+            Err(error) if matches!(error.kind(), ErrorKind::Unsupported(_)) => {
+                return self
+                    .commit_job(id, None, Some(doc), vec![])
+                    .await
+                    .map(|_| ());
+            }
+            Err(error) => return Err(storage_error(error)),
+        }
+        if !transactional {
+            return Ok(());
+        }
+        let enrolled = self.enrol(member).await;
+        if enrolled.is_err() {
+            let _ = self.docs.delete(JOBS, id, Precondition::None).await;
+        }
+        enrolled
+    }
+
+    async fn enrol(&self, member: Member) -> Result<()> {
+        for _ in 0..CAS_ATTEMPTS {
+            let ledger = self.admission().await?;
+            let mut state: Admission = decode(ledger.doc.clone())?;
+            state.jobs.insert(member.job_id.clone(), member.clone());
+            state.check()?;
+            let op = WriteOp::Put {
+                collection: ADMISSION.into(),
+                id: LEDGER.into(),
+                doc: encode(state)?,
+                precondition: ledger.unchanged(),
+            };
+            match self.docs.atomic_batch(vec![op]).await {
+                Ok(_) => return Ok(()),
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
+                Err(error) => return Err(storage_error(error)),
+            }
+        }
+        bail!("cron store: admission enrolment kept changing")
+    }
+
     /// A nontransactional backend must never bypass persisted policy.
     pub(super) async fn require_unlimited_backend(&self) -> Result<()> {
         if self
             .docs
-            .get(COUNTERS, ADMISSION)
+            .get(ADMISSION, LEDGER)
             .await
             .map_err(storage_error)?
             .is_some()
@@ -240,7 +321,7 @@ impl CronDocuments {
         };
         let op = match next {
             Some(doc) => {
-                state.jobs.insert(id.into(), member(&doc)?);
+                state.jobs.insert(id.into(), member(id, &doc)?);
                 WriteOp::Put {
                     collection: JOBS.into(),
                     id: id.into(),
@@ -261,8 +342,8 @@ impl CronDocuments {
         let mut ops = vec![op];
         ops.append(&mut extra);
         ops.push(WriteOp::Put {
-            collection: COUNTERS.into(),
-            id: ADMISSION.into(),
+            collection: ADMISSION.into(),
+            id: LEDGER.into(),
             doc: encode(state)?,
             precondition: ledger.unchanged(),
         });

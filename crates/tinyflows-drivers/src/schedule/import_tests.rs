@@ -226,3 +226,27 @@ async fn an_import_over_the_active_job_cap_is_refused() {
     assert!(format!("{error:#}").contains("active job limit exceeded"));
     assert_eq!(target.list_jobs().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn a_refused_import_on_a_non_transactional_backend_writes_no_job() {
+    use crate::schedule::test_support::FaultDocuments;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let backend = MemoryStorage::new();
+    CronDocuments::new(docs_in(&backend, "policy"))
+        .set_max_active_jobs(Some(5))
+        .await
+        .unwrap();
+    let target = CronDocuments::new(Arc::new(FaultDocuments {
+        inner: docs_in(&backend, "policy"),
+        transactions: false,
+        fail_batch: AtomicBool::new(false),
+        batch_barrier: Default::default(),
+        faults: Default::default(),
+    }));
+    let job = legacy_job().await;
+    assert!(target.import_job(&job).await.is_err());
+    assert!(
+        target.docs.get(JOBS, &job.id).await.unwrap().is_none(),
+        "the refused job must not stay in cron.jobs"
+    );
+}

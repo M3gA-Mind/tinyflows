@@ -204,13 +204,7 @@ fn a_definition_saved_by_an_older_build_is_migrated_on_read() {
         .as_object_mut()
         .unwrap()
         .remove("schema_version");
-    block_on(docs.put(
-        super::DEFINITIONS,
-        "old",
-        json!({ "id": "old", "name": "Greet", "record_json": as_json.to_string() }),
-        Precondition::None,
-    ))
-    .unwrap();
+    block_on(docs.put(super::DEFINITIONS, "old", as_json, Precondition::None)).unwrap();
 
     let loaded = store.get("old").unwrap().expect("migrates and loads");
     assert_eq!(loaded.graph.nodes.len(), 2);
@@ -225,7 +219,10 @@ fn an_unreadable_definition_costs_only_itself() {
     for (id, doc) in [
         ("junk", json!({ "id": "junk", "record_json": "{not json" })),
         ("missing", json!({ "id": "missing" })),
-        ("not-an-object", json!({ "id": "x", "record_json": "[1]" })),
+        (
+            "not-a-graph",
+            json!({ "id": "x", "name": "x", "graph": [1] }),
+        ),
     ] {
         block_on(docs.put(super::DEFINITIONS, id, doc, Precondition::None)).unwrap();
     }
@@ -243,13 +240,7 @@ fn a_document_that_decodes_but_will_not_compile_is_not_listed() {
     let store = DriverWorkflowStore::new(docs.clone());
     let mut hollow = serde_json::to_value(record("hollow", "x")).unwrap();
     hollow["graph"] = json!({ "nodes": [], "edges": [] });
-    block_on(docs.put(
-        super::DEFINITIONS,
-        "hollow",
-        json!({ "id": "hollow", "record_json": hollow.to_string() }),
-        Precondition::None,
-    ))
-    .unwrap();
+    block_on(docs.put(super::DEFINITIONS, "hollow", hollow, Precondition::None)).unwrap();
     assert!(store.list().unwrap().is_empty());
 }
 
@@ -293,7 +284,6 @@ fn collections_are_declared_once_and_cover_every_document_kind() {
             super::RUNS,
             super::NOTES,
             super::PROPOSALS,
-            super::LOCKS,
             super::QUARANTINE
         ]
     );

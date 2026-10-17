@@ -45,12 +45,10 @@ pub async fn verify(
         .await
         .unwrap();
     let due_at = Utc::now() - Duration::minutes(1);
-    let stored = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run"] = json!(due_at.to_rfc3339());
     body["next_run_ms"] = json!(due_at.timestamp_millis());
-    body["next_run_ns"] = json!(due_at.timestamp_nanos_opt().unwrap());
-    docs.put("cron_jobs", &job.id, body, stored.unchanged())
+    docs.put("cron.jobs", &job.id, body, stored.unchanged())
         .await
         .unwrap();
 

@@ -1,5 +1,5 @@
-//! A run's steps, kept in the run document itself as one JSON string
-//! (`steps_json`) — the same shape as SQLite's `flow_runs.steps_json` column.
+//! A run's steps, kept in the run document itself as one JSON array
+//! (`steps`), alongside the SQLite store's `flow_runs.steps_json` column.
 //!
 //! Keeping them on the run is what makes a step write and a run transition
 //! one compare-and-swap: `finish_flow_run` settles the status and the step
@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tinyflows_catalog::FlowRunStep;
 
-use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict, text};
+use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict};
 
 /// Attempts for a step upsert. Parallel branches of one run contend on the
 /// run document, so this is higher than the default.
@@ -19,14 +19,13 @@ const STEP_ATTEMPTS: usize = 128;
 
 /// The steps stored on run document `doc`.
 pub(crate) fn steps_in(doc: &Value) -> serde_json::Result<Vec<FlowRunStep>> {
-    serde_json::from_str(text(doc, "steps_json").unwrap_or("[]"))
+    serde_json::from_value(doc.get("steps").cloned().unwrap_or_else(|| json!([])))
 }
 
 /// `doc` with its step list replaced by `steps`.
 pub(crate) fn with_steps(doc: &Value, steps: &[FlowRunStep]) -> Result<Value> {
     let mut next = doc.clone();
-    next["steps_json"] =
-        json!(serde_json::to_string(steps).context("Failed to serialize flow run steps")?);
+    next["steps"] = serde_json::to_value(steps).context("Failed to serialize flow run steps")?;
     Ok(next)
 }
 

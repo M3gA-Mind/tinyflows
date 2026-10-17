@@ -7,13 +7,14 @@
 //! store's process-local lock could not promise.
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
 use serde_json::{Value, json};
 use tinyflows_catalog::{DraftOrigin, FlowDraft};
 use tinystoragedrivers_core::{DocumentStoreExt, Precondition, Query, Sort, Versioned};
-use uuid::Uuid;
 
-use super::{DRAFTS, FlowCatalogDocuments, compare_and_swap, instant_ns, next_stamp, required};
+use super::{
+    DRAFTS, FlowCatalogDocuments, compare_and_swap, instant_ms, monotonic_ms, new_id, next_stamp,
+    put_doc, rfc3339, set_optional, text,
+};
 
 /// The same id rule as the file store, so an id valid on one backend is
 /// valid on the other.
@@ -30,15 +31,41 @@ pub(super) fn check_id(id: &str) -> Result<()> {
 }
 
 pub(super) fn to_doc(draft: &FlowDraft) -> Result<Value> {
-    Ok(json!({
-        "draft_json": serde_json::to_string(draft).context("serializing draft")?,
-        "updated_ns": instant_ns(&draft.updated_at),
-    }))
+    let mut doc = json!({
+        "name": draft.name,
+        "graph": draft.graph,
+        "origin": draft.origin.as_str(),
+        "created_ms": instant_ms(&draft.created_at),
+        "updated_ms": instant_ms(&draft.updated_at),
+    });
+    set_optional(&mut doc, "flow_id", draft.flow_id.as_deref());
+    Ok(doc)
 }
 
 fn to_draft(stored: &Versioned<Value>) -> Result<FlowDraft> {
-    serde_json::from_str(required(stored, "draft_json")?)
-        .with_context(|| format!("draft {} is corrupt", stored.id))
+    from_doc(&stored.id, &stored.doc)
+}
+
+fn from_doc(id: &str, doc: &Value) -> Result<FlowDraft> {
+    let corrupt = || format!("draft {id} is corrupt");
+    Ok(FlowDraft {
+        id: id.to_string(),
+        flow_id: text(doc, "flow_id").map(str::to_string),
+        name: text(doc, "name").with_context(corrupt)?.to_string(),
+        graph: doc.get("graph").cloned().with_context(corrupt)?,
+        origin: serde_json::from_value(doc.get("origin").cloned().unwrap_or_default())
+            .with_context(corrupt)?,
+        created_at: rfc3339(
+            doc.get("created_ms")
+                .and_then(Value::as_i64)
+                .with_context(corrupt)?,
+        ),
+        updated_at: rfc3339(
+            doc.get("updated_ms")
+                .and_then(Value::as_i64)
+                .with_context(corrupt)?,
+        ),
+    })
 }
 
 impl FlowCatalogDocuments {
@@ -50,9 +77,9 @@ impl FlowCatalogDocuments {
         graph: Value,
         origin: DraftOrigin,
     ) -> Result<FlowDraft> {
-        let now = Utc::now().to_rfc3339();
+        let now = rfc3339(monotonic_ms());
         let draft = FlowDraft {
-            id: Uuid::new_v4().to_string(),
+            id: new_id(),
             flow_id,
             name,
             graph,
@@ -61,9 +88,15 @@ impl FlowCatalogDocuments {
             updated_at: now,
         };
         let docs = self.docs().await?;
-        docs.put(DRAFTS, &draft.id, to_doc(&draft)?, Precondition::Absent)
-            .await
-            .context("writing draft")?;
+        put_doc(
+            docs,
+            DRAFTS,
+            &draft.id,
+            to_doc(&draft)?,
+            Precondition::Absent,
+        )
+        .await
+        .context("writing draft")?;
         tracing::debug!(target: "flows", draft_id = %draft.id, origin = draft.origin.as_str(), "[flows] draft_store: created draft");
         Ok(draft)
     }
@@ -98,8 +131,7 @@ impl FlowCatalogDocuments {
             to_draft(&stored)?;
         }
         let stored = compare_and_swap(docs, DRAFTS, id, |doc| {
-            let mut draft: FlowDraft =
-                serde_json::from_str(doc.get("draft_json")?.as_str()?).ok()?;
+            let mut draft = from_doc(id, doc).ok()?;
             if let Some(name) = &name {
                 draft.name = name.clone();
             }
@@ -111,7 +143,7 @@ impl FlowCatalogDocuments {
             }
             // Stamped per attempt, strictly after the version being replaced,
             // so a retried update never lands with an older time.
-            draft.updated_at = next_stamp(Some(&draft.updated_at));
+            draft.updated_at = rfc3339(next_stamp(Some(instant_ms(&draft.updated_at))));
             to_doc(&draft).ok()
         })
         .await?
@@ -125,7 +157,7 @@ impl FlowCatalogDocuments {
     pub async fn list_drafts(&self) -> Result<Vec<FlowDraft>> {
         let docs = self.docs().await?;
         let query = Query::all()
-            .sort(Sort::desc("updated_ns"))
+            .sort(Sort::desc("updated_ms"))
             .sort(Sort::desc("_id"));
         Ok(docs
             .query_all(DRAFTS, &query)

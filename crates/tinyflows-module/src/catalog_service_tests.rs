@@ -47,7 +47,7 @@ impl HostDocuments {
     }
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
-        let result = if self.fail_draft_deletes && text(&request, "collection") == "flows_drafts" {
+        let result = if self.fail_draft_deletes && text(&request, "collection") == "flows.drafts" {
             Err(tinystoragedrivers_core::StorageError::unavailable(
                 "injected draft delete failure",
             ))
@@ -374,13 +374,13 @@ async fn catalog_create_reports_disabled_and_forced_approval_safety_rules() {
 async fn catalog_list_reports_corrupt_rows_it_skips() {
     let (_server, host) = connections().await;
     let (storage, docs) = scope_with_documents(&host, "corrupt").await;
-    docs.ensure_collection(&CollectionSpec::new("flows_definitions"))
+    docs.ensure_collection(&CollectionSpec::new("flows.definitions"))
         .await
         .unwrap();
     docs.put(
-        "flows_definitions",
+        "flows.definitions",
         "broken-flow",
-        json!({"name":"Broken","graph_json":"not-json","created_at":"2026-01-01T00:00:00Z"}),
+        json!({"name":"Broken","graph":"not-a-graph","created_ms":1_767_225_600_000_i64}),
         Precondition::Absent,
     )
     .await

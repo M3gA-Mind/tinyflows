@@ -1,65 +1,68 @@
 //! [`StateStore`] over a `tinystoragedrivers` [`DocumentStore`].
 //!
 //! A host that has opened a storage backend hands the engine a scoped
-//! document handle and wraps it here; every key is one document
-//! `{ "key": <key>, "value": <value> }` in one collection (default
-//! [`DriverStateStore::DEFAULT_COLLECTION`]). The handle is already bound to a
+//! document handle and wraps it here; every key is one `tsd.kv` entry of owner
+//! [`KV_OWNER`] (`flows`) in one namespace (default
+//! [`DriverStateStore::DEFAULT_NAMESPACE`]). The handle is already bound to a
 //! tenant scope, so two tenants' runs never read each other's state.
+//!
+//! The retired `flows_state` collection moves here with
+//! [`import_legacy_kv`](crate::import_legacy_kv).
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
-use tinystoragedrivers_core::{CollectionSpec, DocumentStore, Precondition, StorageError};
+use serde_json::Value;
+use tinystoragedrivers_core::{DocumentStore, Kv, StorageError, primitives};
 use tokio::sync::OnceCell;
 
 use tinyflows::caps::StateStore;
 use tinyflows::error::{EngineError, Result};
 
+use crate::storage::{KV_OWNER, STATE_NAMESPACE};
+
 /// A [`StateStore`] keeping each key in a driver [`DocumentStore`].
 #[derive(Debug, Clone)]
 pub struct DriverStateStore {
     docs: Arc<dyn DocumentStore>,
-    collection: String,
+    namespace: String,
     declared: Arc<OnceCell<()>>,
 }
 
 impl DriverStateStore {
-    /// The collection [`Self::new`] uses.
-    pub const DEFAULT_COLLECTION: &'static str = "flows_state";
+    /// The `tsd.kv` namespace [`Self::new`] uses.
+    pub const DEFAULT_NAMESPACE: &'static str = STATE_NAMESPACE;
 
-    /// State in [`Self::DEFAULT_COLLECTION`] of `docs`.
+    /// State in namespace [`Self::DEFAULT_NAMESPACE`] of `docs`.
     pub fn new(docs: Arc<dyn DocumentStore>) -> Self {
-        Self::with_collection(docs, Self::DEFAULT_COLLECTION)
+        Self::with_namespace(docs, Self::DEFAULT_NAMESPACE)
     }
 
-    /// State in `collection` of `docs`, so independent stores can share one
+    /// State in `namespace` of `docs`, so independent stores can share one
     /// backend.
-    pub fn with_collection(docs: Arc<dyn DocumentStore>, collection: impl Into<String>) -> Self {
+    pub fn with_namespace(docs: Arc<dyn DocumentStore>, namespace: impl Into<String>) -> Self {
         Self {
             docs,
-            collection: collection.into(),
+            namespace: namespace.into(),
             declared: Arc::new(OnceCell::new()),
         }
     }
 
-    async fn declared(&self) -> Result<()> {
+    async fn kv(&self) -> Result<Kv> {
         self.declared
             .get_or_try_init(|| async {
-                self.docs
-                    .ensure_collection(&CollectionSpec::new(&self.collection))
-                    .await
-                    .map_err(map_error)
+                for spec in primitives::collection_specs() {
+                    self.docs.ensure_collection(&spec).await?;
+                }
+                Ok::<(), StorageError>(())
             })
             .await
-            .map(|_| ())
+            .map_err(map_error)?;
+        Kv::ns(&self.docs, KV_OWNER, self.namespace.as_str()).map_err(map_error)
     }
 }
 
-/// A storage failure as the engine's capability error. A key the driver
-/// cannot store as an id (empty, over its length limit, holding NUL) is
-/// refused here rather than truncated or hashed, so two keys never share a
-/// slot.
+/// A storage failure as the engine's capability error.
 fn map_error(error: StorageError) -> EngineError {
     EngineError::Capability(format!("state store: {error}"))
 }
@@ -67,36 +70,13 @@ fn map_error(error: StorageError) -> EngineError {
 #[async_trait]
 impl StateStore for DriverStateStore {
     async fn load(&self, key: &str) -> Result<Option<Value>> {
-        self.declared().await?;
-        let found = self
-            .docs
-            .get(&self.collection, key)
-            .await
-            .map_err(map_error)?;
-        match found {
-            None => Ok(None),
-            Some(mut stored) => stored
-                .doc
-                .get_mut("value")
-                .map(Value::take)
-                .map(Some)
-                .ok_or_else(|| {
-                    EngineError::Capability(format!(
-                        "state store: document `{key}` has no `value` field"
-                    ))
-                }),
-        }
+        self.kv().await?.get(key).await.map_err(map_error)
     }
 
     async fn store(&self, key: &str, value: Value) -> Result<()> {
-        self.declared().await?;
-        self.docs
-            .put(
-                &self.collection,
-                key,
-                json!({ "key": key, "value": value }),
-                Precondition::None,
-            )
+        self.kv()
+            .await?
+            .put(key, &value)
             .await
             .map(|_| ())
             .map_err(map_error)

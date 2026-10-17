@@ -68,6 +68,9 @@ impl CronDocuments {
         if !removed {
             return Ok(false);
         }
+        // Claims taken on the removed job die with it, so a job re-created
+        // under the same id can claim the same occurrence.
+        self.fence_claims(&stored.id, &stored.doc).await;
         self.delete_runs_of(stored).await?;
         Ok(true)
     }

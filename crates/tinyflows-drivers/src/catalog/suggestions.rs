@@ -6,12 +6,12 @@ use tinyflows_catalog::{FlowSuggestion, SuggestionStatus};
 use tinystoragedrivers_core::{Filter, Query, Sort, Versioned};
 
 use super::{
-    FlowCatalogDocuments, SUGGESTIONS, compare_and_swap, instant_ns, required, set_optional, text,
-    upsert,
+    FlowCatalogDocuments, SUGGESTIONS, compare_and_swap, instant_ms, int, required, rfc3339,
+    set_optional, text, upsert,
 };
 
 fn strings(stored: &Versioned<Value>, field: &str) -> Result<Vec<String>> {
-    serde_json::from_str(text(&stored.doc, field).unwrap_or("[]"))
+    serde_json::from_value(stored.doc.get(field).cloned().unwrap_or_else(|| json!([])))
         .with_context(|| format!("suggestion {} `{field}` is corrupt", stored.id))
 }
 
@@ -23,37 +23,30 @@ fn to_suggestion(stored: &Versioned<Value>) -> Result<FlowSuggestion> {
         one_liner: required(stored, "one_liner")?.to_string(),
         rationale: required(stored, "rationale")?.to_string(),
         trigger_hint: text(doc, "trigger_hint").map(str::to_string),
-        steps_outline: strings(stored, "steps_json")?,
-        suggested_connections: strings(stored, "connections_json")?,
-        suggested_slugs: strings(stored, "slugs_json")?,
+        steps_outline: strings(stored, "steps_outline")?,
+        suggested_connections: strings(stored, "suggested_connections")?,
+        suggested_slugs: strings(stored, "suggested_slugs")?,
         build_prompt: required(stored, "build_prompt")?.to_string(),
         confidence: doc.get("confidence").and_then(Value::as_f64).unwrap_or(0.0),
         status: SuggestionStatus::from_str_lossy(text(doc, "status").unwrap_or("new")),
-        created_at: required(stored, "created_at")?.to_string(),
+        created_at: rfc3339(int(doc, "created_ms")),
         source_run_id: text(doc, "source_run_id").map(str::to_string),
     })
 }
 
-/// The stored document for `s` with the given `status` and `created_at`.
-pub(crate) fn suggestion_doc(s: &FlowSuggestion, status: &str, created_at: &str) -> Result<Value> {
-    let steps =
-        serde_json::to_string(&s.steps_outline).context("Failed to serialize suggestion steps")?;
-    let connections = serde_json::to_string(&s.suggested_connections)
-        .context("Failed to serialize suggestion connections")?;
-    let slugs = serde_json::to_string(&s.suggested_slugs)
-        .context("Failed to serialize suggestion slugs")?;
+/// The stored document for `s` with the given `status` and `created_ms`.
+pub(crate) fn suggestion_doc(s: &FlowSuggestion, status: &str, created_ms: i64) -> Result<Value> {
     let mut doc = json!({
         "title": s.title,
         "one_liner": s.one_liner,
         "rationale": s.rationale,
-        "steps_json": steps,
-        "connections_json": connections,
-        "slugs_json": slugs,
+        "steps_outline": s.steps_outline,
+        "suggested_connections": s.suggested_connections,
+        "suggested_slugs": s.suggested_slugs,
         "build_prompt": s.build_prompt,
         "confidence": s.confidence,
         "status": status,
-        "created_at": created_at,
-        "created_ns": instant_ns(created_at),
+        "created_ms": created_ms,
     });
     set_optional(&mut doc, "trigger_hint", s.trigger_hint.as_deref());
     set_optional(&mut doc, "source_run_id", s.source_run_id.as_deref());
@@ -75,10 +68,10 @@ impl FlowCatalogDocuments {
                 let status = existing
                     .and_then(|doc| text(doc, "status"))
                     .unwrap_or(s.status.as_str());
-                let created_at = existing
-                    .and_then(|doc| text(doc, "created_at"))
-                    .unwrap_or(&s.created_at);
-                suggestion_doc(s, status, created_at)
+                let created_ms = existing
+                    .and_then(|doc| doc.get("created_ms").and_then(Value::as_i64))
+                    .unwrap_or_else(|| instant_ms(&s.created_at));
+                suggestion_doc(s, status, created_ms)
             })
             .await
             .context("Failed to upsert flow suggestion")?;
@@ -100,7 +93,7 @@ impl FlowCatalogDocuments {
         let docs = self.docs().await?;
         let filter = status.map_or(Filter::All, |status| Filter::eq("status", status.as_str()));
         let query = Query::filter(filter)
-            .sort(Sort::desc("created_ns"))
+            .sort(Sort::desc("created_ms"))
             .sort(Sort::desc("confidence"))
             .sort(Sort::asc("_id"))
             .limit(limit.max(1));
