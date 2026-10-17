@@ -120,7 +120,7 @@ pub mod members {
     pub const APPLY_GRAPH_OPS: &str = "ApplyGraphOps";
     /// `(ApprovalManifestRequest) -> Vec<Value>`.
     pub const APPROVAL_MANIFEST: &str = "ApprovalManifest";
-    /// `(CatalogStorage) -> MigrationReport`; migrates this callback scope's v1 catalog data.
+    /// `(CatalogStorage) -> ()`; migrates this callback scope's v1 catalog data.
     pub const MIGRATE_STORAGE: &str = "MigrateStorage";
 }
 

@@ -84,7 +84,22 @@ impl Documents {
     }
 
     pub(super) async fn require_record_metadata(&mut self) -> Result<()> {
-        let report: CatalogStorageCapabilities = self.request(storage::CAPABILITIES, ()).await?;
+        let proxy = self
+            .connection
+            .proxy(
+                &self.address.destination,
+                &self.address.object_path,
+                STORAGE_INTERFACE,
+            )
+            .map_err(|error| StorageError::backend(error.to_string()))?;
+        let reply: CatalogStorageReply = proxy
+            .call(storage::CAPABILITIES, &())
+            .await
+            .map_err(|error| StorageError::unavailable(error.to_string()))?;
+        let report: CatalogStorageCapabilities = match reply {
+            CatalogStorageReply::Error { error } => return Err(storage_error(error)),
+            CatalogStorageReply::Value { value } => serde_json::from_value(value)?,
+        };
         if report.record_metadata {
             self.capabilities = self.capabilities.with(Capability::RecordMetadata);
             Ok(())
