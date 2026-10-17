@@ -18,9 +18,9 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Runs";
 /// Run-control object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Runs";
 /// Version of the run-control contract.
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 2;
 /// Run-control members, served by the later run-management slice.
-pub const METHODS: &[&str] = &["StartRun", "ResumeRun", "CancelRun", "PollRun"];
+pub const METHODS: &[&str] = &["StartRun", "CancelRun", "PollRun"];
 
 /// Stable member names.
 pub mod methods {
@@ -70,12 +70,63 @@ pub const CAPS_METHODS: &[&str] = &[
 /// in this graph-shaped request and is added by the trusted run manager.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct StartRun {
+    /// Host-chosen stable id. The exact opaque value is used for the row and
+    /// graph checkpoint thread; empty or whitespace-only ids are rejected.
+    pub run_id: String,
+    /// Trusted flow identity and trace origin. Never derived from graph JSON.
+    pub context: RunContext,
+    /// Host callback already bound to this run's flow, owner and approval rule.
+    pub caps_host: CapsHost,
+    /// Host callback already bound to the acting owner's storage scope. Its
+    /// exact canonical address is the owner key used for live Poll/Cancel.
+    pub storage: CatalogStorage,
     /// Migrated graph JSON.
     pub graph: Value,
-    /// Trigger payload.
-    pub trigger: Value,
-    /// Optional host-supplied id for an idempotent restart.
-    pub run_id: Option<String>,
+    /// Trigger payload and kind are separate from declared inputs.
+    pub trigger: FlowRunTrigger,
+    /// Values for declared workflow inputs.
+    pub inputs: serde_json::Map<String, Value>,
+    /// Required host-selected execution budget. Zero is invalid; the module
+    /// enforces the deadline and cooperatively stops scheduling work at expiry.
+    pub timeout_ms: u64,
+}
+
+/// Trusted run identity and host tracing metadata, kept out of graph/trigger data.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RunContext {
+    /// Saved workflow identity used by scoped state and run history.
+    pub flow_id: String,
+    /// Host origin metadata, if present (for example a schedule or app event id).
+    pub origin: Option<Value>,
+}
+
+/// Kind of host event that initiated this execution.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FlowRunTrigger {
+    /// Explicit RPC/manual invocation.
+    Rpc,
+    /// Scheduler dispatch.
+    Schedule,
+    /// Application event dispatch.
+    AppEvent,
+}
+
+/// Owner-scoped operation on an existing live run.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RunControlRequest {
+    /// Stable owner-scoped document callback. It must match the binding used by
+    /// StartRun; the module does not accept an owner id from model data.
+    pub storage: CatalogStorage,
+    /// Exact opaque run id supplied to StartRun.
+    pub run_id: String,
+}
+
+/// Acknowledgement of a cooperative cancellation request.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CancelRunResponse {
+    /// True only when this request signalled a currently live run.
+    pub signalled: bool,
 }
 
 /// `ResumeRun` request.
@@ -96,6 +147,9 @@ pub struct RunEvent {
     pub kind: String,
     /// Event payload.
     pub data: Value,
+    /// Graph runtime id, distinct from the durable flow run id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_run_id: Option<String>,
 }
 
 /// `PollRun` response.
@@ -103,6 +157,8 @@ pub struct RunEvent {
 pub struct PollRun {
     /// Events after the requested cursor.
     pub events: Vec<RunEvent>,
+    /// Highest event sequence returned (or the input cursor when empty).
+    pub next_cursor: u64,
     /// Whether the run reached a terminal status.
     pub done: bool,
 }
