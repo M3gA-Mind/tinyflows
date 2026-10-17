@@ -358,6 +358,59 @@ async fn catalog_bus_serves_create_update_conflict_history_and_agent_scopes() {
 }
 
 #[tokio::test]
+async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state() {
+    let (_server, host) = connections().await;
+    let (storage, docs) = scope_with_documents(&host, "migration").await;
+    let created_ms = 1_772_600_767_250_i64;
+    for collection in ["flows_definitions", "flows_kv", "flows_state"] {
+        docs.ensure_collection(&CollectionSpec::new(collection))
+            .await
+            .unwrap();
+    }
+    docs.put(
+        "flows_definitions",
+        "legacy-flow",
+        json!({"name":"Legacy","graph_json":graph("manual", false).to_string(),
+            "enabled":true,"created_at":"2026-03-04T05:06:07.250+00:00",
+            "updated_at":"2026-03-04T05:06:07.250+00:00","require_approval":false,
+            "incarnation":"legacy-inc"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    docs.put(
+        "flows_kv",
+        "legacy-kv",
+        json!({"namespace":"legacy-flow","key":"k","value_json":"{\"n\":7}"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    docs.put(
+        "flows_state",
+        "legacy-state",
+        json!({"key":"state-key","value":"state-value"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+
+    let proxy = put_proxy(&host).unwrap();
+    for _ in 0..2 {
+        let _: Value = proxy.call("MigrateStorage", &(storage.clone(),)).await.unwrap();
+    }
+    let migrated = docs.get("flows.definitions", "legacy-flow").await.unwrap().unwrap();
+    assert_eq!(migrated.doc["name"], "Legacy");
+    assert_eq!(migrated.doc["created_ms"], created_ms);
+    assert_eq!(migrated.meta.created_ms, created_ms);
+    assert!(docs.get("flows_definitions", "legacy-flow").await.unwrap().is_none());
+    let catalog_state = Key::of(["flows", "kv:legacy-flow", "k"]).unwrap();
+    let state = Key::of(["flows", "state", "state-key"]).unwrap();
+    assert_eq!(docs.get("tsd.kv", catalog_state.as_str()).await.unwrap().unwrap().doc["value"], json!({"n":7}));
+    assert_eq!(docs.get("tsd.kv", state.as_str()).await.unwrap().unwrap().doc["value"], "state-value");
+}
+
+#[tokio::test]
 async fn catalog_create_reports_disabled_and_forced_approval_safety_rules() {
     let (_server, host) = connections().await;
     let storage = scope(&host, "policy").await;
