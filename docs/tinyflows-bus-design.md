@@ -16,7 +16,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | --- | --- | --- |
 | Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | served, v3 | `StartRun`, `CancelRun`, `PollRun`, `SandboxRun` (`ResumeRun` is a later slice) |
+| Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
@@ -64,8 +64,30 @@ queued out of synchronous observer callbacks and drained before terminal
 settlement; graph observations and live agent progress join the same event
 sequence. The final event follows the terminal row write, and `done` remains
 false for `pending_approval`. Checkpoints and the exact executed graph snapshot
-live in the owner-scoped document port. Persisted-row rebinding after module
-restart and `ResumeRun` are left to the next slice.
+live in the owner-scoped document port. `ResumeRun` carries the expected flow
+id, owner storage callback, a fresh flow-bound `CapsHost`, approval and
+rejection ids, and a host-selected timeout. It requires a pending row for that
+flow and at least one decision matching a pending gate; a gate cannot be both
+approved and rejected. The module compares the current saved workflow hash
+with the hash pinned when the run parked, then rebuilds execution from the
+pinned graph and input snapshot. The parked-to-running transition and resumed
+actor lease are one compare-and-swap, so a concurrent resume, expiry, or boot
+sweep cannot replace the winner.
+
+The resumed observer starts with the persisted step prefix, replaces a node's
+parked observation with its resumed result, and seeds the event writer from
+the last persisted sequence. Resumed execution uses a cancellable engine entry
+point; `CancelRun` and the host-selected timeout reach the same cooperative
+token as a fresh run.
+
+`ExpireParked` changes only rows still in `pending_approval` whose parking time
+is older than the 600-second TTL. `BootSweep` reconciles old `running` rows
+only on a local backend. It is a no-op for shared backends and skips rows with
+an active owner-scoped actor lease, including when the host callback is an
+alias for the same document scope. Expiry and boot recovery emit a terminal
+event only after their status compare-and-swap wins, settle tentative dedup
+state from the stored execution snapshot, and remove the corresponding
+checkpoint best-effort.
 
 The host's CatalogStorage callback allowlist must also admit
 `flows_graph_checkpoints`, `flows_graph_threads` and `flows_graph_writes` for
@@ -238,8 +260,7 @@ not need implementation-library dependencies.
 3. `ApplyGraphOps` and `ApprovalManifest` served (host classifies).
 4. `CapsHost` callbacks and `StartRun`/`PollRun`/`CancelRun`; core run
    manager shrinks to the host adapter and event-bus projection.
-5. `ResumeRun`, parked-run expiry, boot sweep (`run_management` pure parts
-   already in `tinyflows-catalog`).
+5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v4).
 6. `SandboxRun` and the module artifact's mock-only preflight boundary.
 7. Retire remaining direct `tinyflows` links from core; update
    `module-boundaries.json` and the boundary inventory.
