@@ -94,3 +94,78 @@ fn stop_before_worker_subscription_is_retained_for_the_worker() {
         "a stop signal sent before subscribe must persist"
     );
 }
+
+#[tokio::test]
+async fn supervisor_releases_a_known_claim_after_worker_panic_before_terminal() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tinyflows_bus::schedule::{CronJob, OccurrenceClaim};
+
+    struct Store(AtomicUsize);
+    #[async_trait::async_trait]
+    impl JobStore for Store {
+        async fn due_jobs(&self, _: chrono::DateTime<chrono::Utc>) -> anyhow::Result<Vec<CronJob>> {
+            Ok(vec![])
+        }
+        async fn release_occurrence(
+            &self,
+            _: &OccurrenceClaim,
+            _: chrono::DateTime<chrono::Utc>,
+        ) -> anyhow::Result<bool> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(true)
+        }
+    }
+    struct TestClock;
+    #[async_trait::async_trait]
+    impl Clock for TestClock {
+        fn now(&self) -> chrono::DateTime<chrono::Utc> {
+            "2026-01-01T00:00:00Z".parse().unwrap()
+        }
+        async fn sleep(&self, _: Duration) {
+            std::future::pending().await
+        }
+    }
+
+    let job: CronJob = serde_json::from_value(serde_json::json!({
+        "id":"panic-job","expression":"","schedule":{"kind":"every","every_ms":60000},
+        "command":"echo panic","prompt":null,"name":null,"job_type":"shell",
+        "session_target":"isolated","model":null,"agent_id":null,"enabled":true,
+        "delivery":{"mode":"none"},"delete_after_run":false,
+        "created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z"
+    }))
+    .unwrap();
+    let now = "2026-01-01T00:00:00Z".parse().unwrap();
+    let claim = OccurrenceClaim {
+        receipt: "panic-claim".into(),
+        job,
+        occurrence: now,
+        started_at: now,
+        owner: "panic-owner".into(),
+        run_id: Some("panic-run".into()),
+    };
+    let store = std::sync::Arc::new(Store(AtomicUsize::new(0)));
+    let clock = std::sync::Arc::new(TestClock);
+    let held = HeldClaim::Claimed {
+        claim,
+        store: store.clone(),
+        clock,
+    };
+    let claim_slot = std::sync::Arc::new(tokio::sync::Mutex::new(Some(held)));
+    let entry = std::sync::Arc::new(ManualWorkerEntry::prepared());
+    entry.begin_start(serde_json::json!({"request":"panic"})).unwrap();
+    let worker = async {
+        panic!("injected module worker panic");
+        #[allow(unreachable_code)]
+        Ok(ManualRunOutcome::Stopped { run_id: None })
+    };
+
+    supervise_manual_worker(entry.clone(), claim_slot, worker).await;
+
+    assert_eq!(store.0.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        entry.state(),
+        ManualRunState::Terminal {
+            outcome: ManualRunOutcome::Failed { .. }
+        }
+    ));
+}

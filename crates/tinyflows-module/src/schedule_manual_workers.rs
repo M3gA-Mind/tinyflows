@@ -1,6 +1,7 @@
 //! Module-owned reservations and retained lifecycle state for detached manual runs.
 use super::super::{schedule_callbacks::HostCallbacks, schedule_store::Store};
 use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::future::Future;
 use tinybus::Connection;
 use tinyflows_bus::schedule::{
     ManualRunHandle, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
@@ -222,9 +223,21 @@ pub(super) async fn run_manual_worker(
     let claim = std::sync::Arc::new(AsyncMutex::new(None));
     let worker_claim = claim.clone();
     let worker_entry = entry.clone();
-    let worker = tokio::spawn(async move {
+    let worker = async move {
         run_manual_worker_body(connection, scope, request, worker_entry, worker_claim).await
-    });
+    };
+    supervise_manual_worker(entry, claim, worker).await;
+}
+
+async fn supervise_manual_worker<F>(
+    entry: std::sync::Arc<ManualWorkerEntry>,
+    claim: std::sync::Arc<AsyncMutex<Option<HeldClaim>>>,
+    worker: F,
+)
+where
+    F: Future<Output = anyhow::Result<ManualRunOutcome>> + Send + 'static,
+{
+    let worker = tokio::spawn(worker);
     let outcome = match worker.await {
         Ok(Ok(outcome)) => outcome,
         Ok(Err(error)) => ManualRunOutcome::Failed {
