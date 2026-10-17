@@ -427,10 +427,9 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
     assert!(late_start.is_err(), "late start cannot recreate acknowledged state");
 
-    assert_eq!(
-        documents.list_runs(&job.id, 10).await.unwrap()[0].status,
-        "queued",
-        "stopped execution leaves the queued row for storage's lease recovery"
+    assert!(
+        documents.list_runs(&job.id, 10).await.unwrap().is_empty(),
+        "confirmed claim release removes the queued placeholder"
     );
     let released = documents
         .claim_job_now(
