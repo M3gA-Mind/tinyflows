@@ -382,5 +382,5 @@ async fn run_claim_with_renewal(
 mod tests;
 
 #[cfg(test)]
-#[path = "runtime_cooperative_stop_tests.rs"]
+#[path = "../runtime_cooperative_stop_tests.rs"]
 mod cooperative_stop_tests;
