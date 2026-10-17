@@ -7,7 +7,9 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = tinybus::broker::Broker::new();
     let module_host = ModuleHost::new(broker.clone());
-    module_host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
     let (client, transport) = MemoryTransport::pair();
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
@@ -29,10 +31,7 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
     let agent = serve_agent(&connection, "dedup-snapshot").await;
     let mut start = request(&owner, flow_id.clone(), "dedup-run", original, 20_000);
     start.trigger_data = json!({"id":"item-1","payload":"source"});
-    let admitted: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (start,))
-        .await
-        .unwrap();
+    let admitted: runs::StartRunResponse = runs_proxy.call("StartRun", (start,)).await.unwrap();
     assert!(!admitted.already_running);
     wait_notify(&agent.started, "dedup test agent start").await;
     let steps = poll_until_kind(&runs_proxy, &owner.storage, "dedup-run", "step").await;

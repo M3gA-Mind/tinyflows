@@ -1,9 +1,9 @@
 use super::*;
 
-#[path = "dedup_snapshot_test.rs"]
-mod dedup_snapshot_test;
 #[path = "approval_park_test.rs"]
 mod approval_park_test;
+#[path = "dedup_snapshot_test.rs"]
+mod dedup_snapshot_test;
 #[path = "failed_run_test.rs"]
 mod failed_run_test;
 use std::sync::{
@@ -101,10 +101,12 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         graph(true),
         0,
     );
-    assert!(runs_proxy
-        .call::<runs::StartRunResponse>("StartRun", (zero_budget,))
-        .await
-        .is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::StartRunResponse>("StartRun", (zero_budget,))
+            .await
+            .is_err()
+    );
     let zero_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -115,7 +117,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )
         .await
         .unwrap();
-    assert_eq!(zero_row, None, "zero timeout is a synchronous preflight error");
+    assert_eq!(
+        zero_row, None,
+        "zero timeout is a synchronous preflight error"
+    );
 
     let started: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -160,17 +165,19 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
     assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
     let alias = alias_owner(&connection, "alice-alias", alice.docs.clone()).await;
-    assert!(runs_proxy
-        .call::<runs::PollRun>(
-            "PollRun",
-            (RunControlRequest {
-                storage: alias.storage.clone(),
-                run_id: run_id.into(),
-                cursor: 0,
-            },),
-        )
-        .await
-        .is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::PollRun>(
+                "PollRun",
+                (RunControlRequest {
+                    storage: alias.storage.clone(),
+                    run_id: run_id.into(),
+                    cursor: 0,
+                },),
+            )
+            .await
+            .is_err()
+    );
     let alias_cancel: runs::CancelRunResponse = runs_proxy
         .call(
             "CancelRun",
@@ -182,7 +189,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )
         .await
         .unwrap();
-    assert!(!alias_cancel.signalled, "an alias cannot cancel another live binding");
+    assert!(
+        !alias_cancel.signalled,
+        "an alias cannot cancel another live binding"
+    );
 
     let duplicate: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
@@ -414,10 +424,8 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         graph(true),
         1_000,
     );
-    let timed_out: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (timeout_start,))
-        .await
-        .unwrap();
+    let timed_out: runs::StartRunResponse =
+        runs_proxy.call("StartRun", (timeout_start,)).await.unwrap();
     assert!(!timed_out.already_running);
     wait_notify(&timeout_agent.started, "timeout agent start").await;
     // The node is known to be blocked in the host callback; cross the explicit
@@ -425,7 +433,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     tokio::time::sleep(std::time::Duration::from_millis(1_250)).await;
     timeout_agent.release.notify_one();
     let timeout_events = poll_until_done(&runs_proxy, &timeout_owner.storage, "timeout-id").await;
-    assert_eq!(timeout_events.events.last().unwrap().data["status"], "cancelled");
+    assert_eq!(
+        timeout_events.events.last().unwrap().data["status"],
+        "cancelled"
+    );
     let timeout_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -439,4 +450,3 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     let timeout_row = timeout_row.expect("timed out run row persists");
     assert!(timeout_row.error.unwrap().contains("1000 ms timeout"));
 }
-

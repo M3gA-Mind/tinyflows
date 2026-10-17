@@ -8,7 +8,9 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = tinybus::broker::Broker::new();
     let module_host = ModuleHost::new(broker.clone());
-    module_host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
     let (client, transport) = MemoryTransport::pair();
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
@@ -20,27 +22,21 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
         .unwrap();
     let owner = owner(&connection, "failed-run", None, None, None).await;
     let graph = dedup_graph("failure-dedup");
-    let flow_id = create_flow_with_graph(
-        &catalog_proxy,
-        &owner.storage,
-        "Failed flow",
-        graph.clone(),
-    )
-    .await;
+    let flow_id =
+        create_flow_with_graph(&catalog_proxy, &owner.storage, "Failed flow", graph.clone()).await;
     let _agent = serve_failing_agent(&connection, "failed-run").await;
     let mut request = request(&owner, flow_id.clone(), "failed-run-id", graph, 20_000);
     request.trigger_data = json!({"id":"retry-item"});
-    let started: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (request,))
-        .await
-        .unwrap();
+    let started: runs::StartRunResponse = runs_proxy.call("StartRun", (request,)).await.unwrap();
     assert!(!started.already_running);
 
     let events = poll_until_done(&runs_proxy, &owner.storage, "failed-run-id").await;
-    assert!(events
-        .events
-        .iter()
-        .any(|event| event.kind == "graph_observation" && event.graph_run_id.is_some()));
+    assert!(
+        events
+            .events
+            .iter()
+            .any(|event| event.kind == "graph_observation" && event.graph_run_id.is_some())
+    );
     assert_eq!(events.events.last().unwrap().data["status"], "failed");
     let row: Option<catalog::FlowRun> = catalog_proxy
         .call(
@@ -53,7 +49,11 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
         .await
         .unwrap();
     let row = row.expect("failed run row persists");
-    assert!(row.error.unwrap().contains("injected agent callback failure"));
+    assert!(
+        row.error
+            .unwrap()
+            .contains("injected agent callback failure")
+    );
 
     let catalog_docs = FlowCatalogDocuments::new(owner.docs.clone());
     let namespace = format!("flow:{flow_id}");

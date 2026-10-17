@@ -189,10 +189,7 @@ impl AgentCallback {
         Ok(runs::ApprovalOutcome::Pending)
     }
 
-    async fn approval_cancel(
-        &self,
-        _request: runs::ApprovalCancelRequest,
-    ) -> tinybus::Result<()> {
+    async fn approval_cancel(&self, _request: runs::ApprovalCancelRequest) -> tinybus::Result<()> {
         Ok(())
     }
 
@@ -331,10 +328,7 @@ pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<Agen
     serve_agent_with_failure(connection, name, false).await
 }
 
-pub(super) async fn serve_failing_agent(
-    connection: &Connection,
-    name: &str,
-) -> Arc<AgentCallback> {
+pub(super) async fn serve_failing_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
     serve_agent_with_failure(connection, name, true).await
 }
 
@@ -346,7 +340,7 @@ async fn serve_agent_with_failure(
     let callback = Arc::new(AgentCallback {
         started: Notify::new(),
         release: Notify::new(),
-                approval_started: Notify::new(),
+        approval_started: Notify::new(),
         calls: Arc::new(AtomicUsize::new(0)),
         fail_start,
     });

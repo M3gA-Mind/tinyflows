@@ -10,7 +10,9 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = tinybus::broker::Broker::new();
     let module_host = ModuleHost::new(broker.clone());
-    module_host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
     let (client, transport) = MemoryTransport::pair();
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
@@ -22,20 +24,12 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
         .unwrap();
     let owner = owner(&connection, "approval-park", None, None, None).await;
     let graph = parked_graph();
-    let flow_id = create_flow_with_graph(
-        &catalog_proxy,
-        &owner.storage,
-        "Parked flow",
-        graph.clone(),
-    )
-    .await;
+    let flow_id =
+        create_flow_with_graph(&catalog_proxy, &owner.storage, "Parked flow", graph.clone()).await;
     let callback = serve_agent(&connection, "approval-park").await;
     let mut request = request(&owner, flow_id.clone(), "parked-run", graph, 20_000);
     request.trigger_data = json!({"id":"parked-item","payload":"review"});
-    let started: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (request,))
-        .await
-        .unwrap();
+    let started: runs::StartRunResponse = runs_proxy.call("StartRun", (request,)).await.unwrap();
     assert!(!started.already_running);
     wait_notify(&callback.approval_started, "approval callback").await;
 
@@ -84,7 +78,13 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
         None
     );
     let checkpointer = DriverCheckpointer::<Value>::new(owner.docs.clone());
-    assert!(checkpointer.get("parked-run", None).await.unwrap().is_some());
+    assert!(
+        checkpointer
+            .get("parked-run", None)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     let cancelled: runs::CancelRunResponse = runs_proxy
         .call(
@@ -107,5 +107,11 @@ async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement()
             .unwrap(),
         None
     );
-    assert!(checkpointer.get("parked-run", None).await.unwrap().is_none());
+    assert!(
+        checkpointer
+            .get("parked-run", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }

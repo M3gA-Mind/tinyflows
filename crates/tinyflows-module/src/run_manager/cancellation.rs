@@ -36,7 +36,12 @@ pub(super) async fn cancel_parked_or_stale(
     if let Some(lease) = catalog
         .flow_run_snapshot(&request.run_id)
         .await?
-        .and_then(|snapshot| snapshot.get("lease").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|snapshot| {
+            snapshot
+                .get("lease")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         && let Some(live) = super::active_lease(&lease)
         && !active
             .as_ref()
