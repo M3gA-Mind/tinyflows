@@ -461,7 +461,7 @@ pub async fn resume_cancellable_with_checkpointer_journaled_observed(
         },
         Some(journal),
         observer,
-        None,
+        Some(token),
     )
     .await?;
     Ok(JournaledRunOutcome {
