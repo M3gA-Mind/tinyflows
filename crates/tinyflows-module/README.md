@@ -15,6 +15,14 @@ limit when a running job defers its occurrence. Stores without this operation
 fail that poll rather than silently starve later due jobs. The runtime retains
 the original batch size and leaves deferred occurrences unchanged.
 
+A host-driven pass can set `StartScheduler.config.now` to an RFC3339 instant
+with `manual_ticks: true`. Due selection, run timestamps, and the next recurring
+occurrence all use that fixed instant, so a test can advance calendar time
+without waiting or changing the machine clock. Start a new manual scheduler
+for another instant. Retry sleeps still use Tokio timers. Omitting `now` keeps
+the system clock; a fixed instant is refused for an automatic poll loop.
+This option requires Schedule contract version 4.
+
 RecordRun callbacks receive job_created_at, captured from the dispatched job.
 Match that creation before appending history; an ID alone can refer to a
 replacement flow job. The module-owned backends perform this check. Completion

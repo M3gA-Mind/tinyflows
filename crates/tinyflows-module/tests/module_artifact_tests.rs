@@ -110,7 +110,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             destination: "test.ScheduleCallbacks".into(),
             object_path: "/test/ScheduleCallbacks".into(),
         },
-        config: json!({}),
+        config: json!({"now": "2027-01-01T00:00:00Z"}),
         manual_ticks: true,
         storage: None,
     };
@@ -133,6 +133,12 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(*state.triggers.lock().unwrap(), ["artifact-flow"]);
     assert_eq!(state.records.lock().unwrap()[0]["status"], "ok");
+    for field in ["started_at", "finished_at"] {
+        assert_eq!(
+            state.records.lock().unwrap()[0][field],
+            "2027-01-01T00:00:00Z"
+        );
+    }
     assert_eq!(state.completions.lock().unwrap()[0]["disable"], true);
 
     assert_eq!(
