@@ -179,3 +179,133 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
     assert_eq!(jobs.len(), 1, "the legacy job is visible after migration");
     assert_eq!(jobs[0].id, "legacy-job");
 }
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to a compiled cdylib");
+    let broker = Broker::new();
+    let host = ModuleHost::new(broker.clone());
+    host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let docs = scoped.documents().clone();
+    for collection in ["flows_definitions", "flows_revisions", "flows_kv", "flows_state"] {
+        docs.ensure_collection(&CollectionSpec::new(collection))
+            .await
+            .unwrap();
+    }
+    docs.put(
+        "flows_definitions",
+        "legacy-flow",
+        json!({"name":"Legacy flow","graph_json":"{\"schema_version\":1,\"nodes\":[],\"edges\":[]}",
+            "enabled":true,"created_at":"2023-11-14T22:15:23.456+00:00",
+            "updated_at":"2023-11-14T22:15:23.456+00:00","require_approval":false,
+            "incarnation":"legacy-inc"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    let revision_created_ms = 1_700_000_123_456_i64;
+    docs.put_with(
+        "flows_revisions",
+        "legacy-revision",
+        json!({"flow_id":"legacy-flow","name":"Legacy flow","graph_json":"{\"schema_version\":1,\"nodes\":[],\"edges\":[]}",
+            "require_approval":false,"flow_incarnation":"legacy-inc"}),
+        Precondition::None,
+        WriteOptions::new().created_ms(revision_created_ms),
+    )
+    .await
+    .unwrap();
+    docs.put(
+        "flows_kv",
+        "legacy-kv",
+        json!({"namespace":"legacy-flow","key":"k","value_json":"{\"n\":7}"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+    docs.put(
+        "flows_state",
+        "legacy-state",
+        json!({"key":"state-key","value":"state-value"}),
+        Precondition::None,
+    )
+    .await
+    .unwrap();
+
+    let path = "/test/CatalogStorage";
+    connection
+        .serve_at(path.try_into().unwrap(), CatalogCallback(docs.clone()))
+        .await
+        .unwrap();
+    connection.request_name("test.CatalogStorage").await.unwrap();
+    let catalog = connection
+        .proxy(
+            tinyflows_bus::BUS_NAME,
+            tinyflows_bus::catalog::OBJECT_PATH,
+            tinyflows_bus::catalog::INTERFACE,
+        )
+        .unwrap();
+    let storage = CatalogStorage {
+        callback: CallbackAddress {
+            destination: "test.CatalogStorage".into(),
+            object_path: path.into(),
+        },
+    };
+    for _ in 0..2 {
+        catalog.call::<()>("MigrateStorage", &(storage.clone(),)).await.unwrap();
+    }
+
+    let workflow: Option<Workflow> = catalog
+        .call("GetWorkflow", &(storage.clone(), "legacy-flow".to_owned()))
+        .await
+        .unwrap();
+    assert_eq!(workflow.unwrap().name, "Legacy flow");
+    let workflows: ListWorkflowsResult = catalog
+        .call("ListWorkflows", &(storage.clone(),))
+        .await
+        .unwrap();
+    assert_eq!(workflows.workflows.len(), 1);
+    let revisions: Vec<WorkflowRevision> = catalog
+        .call(
+            "ListRevisions",
+            &(ListRevisionsRequest {
+                storage: storage.clone(),
+                flow_id: "legacy-flow".into(),
+                limit: 10,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revisions.len(), 1);
+    let migrated_revision = docs
+        .get("flows.revisions", "legacy-revision")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(migrated_revision.doc["created_ms"], revision_created_ms);
+    assert_eq!(migrated_revision.meta.created_ms, revision_created_ms);
+    let catalog_state = tinystoragedrivers_core::Key::of(["flows", "kv:legacy-flow", "k"])
+        .unwrap();
+    let state = tinystoragedrivers_core::Key::of(["flows", "state", "state-key"]).unwrap();
+    assert_eq!(
+        docs.get("tsd.kv", catalog_state.as_str())
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["value"],
+        json!({"n":7})
+    );
+    assert_eq!(
+        docs.get("tsd.kv", state.as_str())
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["value"],
+        "state-value"
+    );
+}
