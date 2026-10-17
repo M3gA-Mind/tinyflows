@@ -403,7 +403,7 @@ async fn release_claim_after_work_error(
         if let Err(error) = ports
             .store
             .release_occurrence(claim, ports.clock.now())
-            .await;
+            .await
         {
             tracing::warn!(%error, "failed to release an occurrence claim after work failed");
         }
