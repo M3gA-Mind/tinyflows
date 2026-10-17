@@ -97,7 +97,8 @@ async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_deliver
                 Some(vec!["bob"]),
             ),
         )
-        .await;
+        .await
+        .unwrap();
     assert!(error.is_err());
     assert_ne!(CALLBACK_INTERFACE, schedule::INTERFACE);
 }
