@@ -147,6 +147,8 @@ async fn checkpointed_observed_resume_honors_a_cancelled_token() {
 
     let token = CancellationToken::new();
     token.cancel();
+    let capture = Arc::new(ResumeStepCapture::default());
+    let observer: Arc<dyn RunObserver> = capture.clone();
     let outcome = resume_cancellable_with_checkpointer_journaled_observed(
         &compiled,
         &mock_capabilities(),
@@ -155,13 +157,24 @@ async fn checkpointed_observed_resume_honors_a_cancelled_token() {
         vec!["gate".into()],
         Vec::new(),
         Arc::new(InMemoryGraphEventJournal::new()),
-        &(Arc::new(crate::observability::NoopObserver) as Arc<dyn RunObserver>),
+        &observer,
         token,
     )
     .await
     .expect("cancellable checkpoint resume");
     assert!(outcome.outcome.cancelled);
-    assert!(outcome.outcome.output["nodes"]["downstream"].is_null());
+    assert!(!capture.nodes.lock().unwrap().contains(&"downstream".to_string()));
+}
+
+#[derive(Default)]
+struct ResumeStepCapture {
+    nodes: Mutex<Vec<String>>,
+}
+
+impl RunObserver for ResumeStepCapture {
+    fn on_step_finish(&self, step: &crate::observability::ExecutionStep) {
+        self.nodes.lock().unwrap().push(step.node_id.clone());
+    }
 }
 
 #[tokio::test]
