@@ -1,5 +1,5 @@
 //! Background work a run starts but does not wait for: the [`TaskRunner`]
-//! capability and the tokio-backed implementation the crate ships by default.
+//! capability and the tokio-backed ticket store this crate provides.
 //!
 //! # Why this is a capability at all
 //!
@@ -10,9 +10,11 @@
 //!
 //! Making it a trait keeps the ownership question the host's to answer — a host
 //! with its own scheduler, or one that wants tasks to outlive the process, plugs
-//! in there. [`TokioTaskRunner`] is the answer for everyone else, and is wired
-//! in by default so `spawn`/`gate` genuinely overlap out of the box rather than
-//! quietly degrading to inline execution.
+//! in there. [`TokioTaskRunner::with_executor`] supplies in-process overlap
+//! while using the current run's capabilities. [`TokioTaskRunner::new`] keeps
+//! its historical record-the-spec behavior for callers that need ticket
+//! mechanics without providing task semantics. A host that injects no runner
+//! gets the engine's real inline execution path instead.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -119,10 +121,12 @@ pub trait TaskExecutor: Send + Sync {
 
 /// A [`TaskRunner`] backed by `tokio::spawn`.
 ///
-/// The default, and the reason `spawn`/`gate` overlap without a host writing
-/// anything. Tasks live for as long as the process does: this is in-process
-/// concurrency, not durable job execution. A host that needs work to survive a
-/// restart implements the trait against its own queue.
+/// An in-process task runner. Without an executor it records the closed task
+/// spec as its result; supply an executor with [`Self::with_executor`] to run
+/// actual tool, HTTP or child-workflow behavior. Tasks live for as long as the
+/// process does: this is in-process concurrency, not durable job execution. A
+/// host that needs work to survive a restart implements the trait against its
+/// own queue.
 ///
 /// # Requires a tokio runtime
 ///
@@ -149,7 +153,7 @@ impl std::fmt::Debug for TokioTaskRunner {
 }
 
 impl TokioTaskRunner {
-    /// Creates a runner with no tasks.
+    /// Creates a runner that records each task spec as its result.
     #[must_use]
     pub fn new() -> Self {
         Self::default()

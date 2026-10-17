@@ -253,12 +253,12 @@ pub struct Capabilities {
     /// Runner for background work a `spawn` node starts and a `gate` node
     /// collects.
     ///
-    /// Defaults to [`TokioTaskRunner`], so spawn/gate genuinely overlap without
-    /// a host wiring anything. `None` makes `spawn` run its work **inline** and
-    /// hand back a ticket that is already settled: such a graph still produces
-    /// the right answer, it just loses the overlap. That is a performance cliff
-    /// rather than a correctness one, which is exactly why it is worth saying
-    /// out loud here and in the node catalog.
+    /// A supplied runner owns both the ticket lifecycle and task semantics. Use
+    /// [`TokioTaskRunner::with_executor`] when spawned tool, HTTP and child
+    /// workflow work should execute asynchronously. [`TokioTaskRunner::new`]
+    /// preserves its record-the-spec behavior for compatibility; it is not an
+    /// execution fallback. `None` makes `spawn` execute its work inline through
+    /// these capabilities and hand `gate` an already-settled ticket.
     pub tasks: Option<Arc<dyn TaskRunner>>,
     /// Optional human-review surface for `approval` nodes. `None` on hosts
     /// without one, in which case an `approval` node falls back to pausing the
