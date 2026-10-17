@@ -7,6 +7,9 @@ use tokio::sync::Mutex;
 pub(super) struct State {
     executions: Mutex<Vec<String>>,
     triggers: Mutex<Vec<String>>,
+    defer_execute: std::sync::atomic::AtomicBool,
+    execute_started: tokio::sync::Notify,
+    execute_release: tokio::sync::Notify,
 }
 struct Callbacks(Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
@@ -25,6 +28,14 @@ impl Callbacks {
     }
     async fn execute(&self, _job: Value, run_id: String) -> Result<Value> {
         self.0.executions.lock().await.push(run_id);
+        if self
+            .0
+            .defer_execute
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            self.0.execute_started.notify_one();
+            self.0.execute_release.notified().await;
+        }
         Ok(json!({"success":true,"output":"executed","retryable":false}))
     }
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
@@ -275,6 +286,169 @@ async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
+    use tinyflows_bus::schedule::{
+        ManualDelivery, ManualRunOutcome, ManualRunRequest, ManualRunState,
+        PrepareManualRun, StartManualRun, StopManualRun, StoreConfig,
+        WaitManualRun,
+    };
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+    let (_server, host, state) = connections().await;
+    state
+        .defer_execute
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let backend = MemoryStorage::new();
+    let scoped = backend
+        .for_scope(&Scope::new("manual-worker-lifecycle").unwrap())
+        .unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            Some("manual-worker-job".into()),
+            Schedule::At {
+                at: now + chrono::Duration::hours(1),
+            },
+            "echo lifecycle",
+        )
+        .await
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend": {"kind":"documents", "callback": {
+            "destination":"test.ScheduleHost", "object_path":"/test/Documents"
+        }}
+    }))
+    .unwrap();
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    let prepare = PrepareManualRun {
+        scope: "manual-worker-lifecycle".into(),
+        request_id: "request-1".into(),
+    };
+    let handle: tinyflows_bus::schedule::ManualRunHandle =
+        proxy.call("PrepareManualRun", &prepare).await.unwrap();
+    let repeated: tinyflows_bus::schedule::ManualRunHandle =
+        proxy.call("PrepareManualRun", &prepare).await.unwrap();
+    assert_eq!(handle, repeated);
+
+    let start = StartManualRun {
+        handle: handle.clone(),
+        request: ManualRunRequest {
+            callback: callback(),
+            config: json!({"retries":3,"backoff_ms":1}),
+            storage,
+            job: job.clone(),
+            run_id: "manual-worker-run".into(),
+            delivery: ManualDelivery::NotRequested,
+        },
+    };
+    let first_state: ManualRunState = proxy.call("StartManualRun", &start).await.unwrap();
+    assert!(matches!(first_state, ManualRunState::Starting | ManualRunState::Running { .. }));
+    let waiter = tokio::spawn({
+        let proxy = proxy.clone();
+        let request = WaitManualRun {
+            handle: handle.clone(),
+        };
+        async move { proxy.call::<ManualRunState>("WaitManualRun", &request).await }
+    });
+    waiter.abort();
+    state.execute_started.notified().await;
+
+    let repeated_start: ManualRunState = proxy.call("StartManualRun", &start).await.unwrap();
+    assert!(matches!(
+        repeated_start,
+        ManualRunState::Running { .. } | ManualRunState::Stopping { .. }
+    ));
+    assert_eq!(*state.executions.lock().await, ["manual-worker-run"]);
+    let stopping: ManualRunState = proxy
+        .call(
+            "StopManualRun",
+            &(StopManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(stopping, ManualRunState::Stopping { .. }));
+    state.execute_release.notify_one();
+
+    let mut terminal = None;
+    for _ in 0..10_000 {
+        let current: ManualRunState = proxy
+            .call(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: handle.clone(),
+                },),
+            )
+            .await
+            .unwrap();
+        if matches!(current, ManualRunState::Terminal { .. }) {
+            terminal = Some(current);
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(
+        terminal,
+        Some(ManualRunState::Terminal {
+            outcome: ManualRunOutcome::Stopped { .. }
+        })
+    ));
+    let acknowledged: bool = proxy
+        .call(
+            "AcknowledgeManualRun",
+            &(tinyflows_bus::schedule::AcknowledgeManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(acknowledged);
+    let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
+    assert!(late_start.is_err(), "late start cannot recreate acknowledged state");
+
+    let released = documents
+        .claim_job_now(
+            &job,
+            "verify-release",
+            chrono::Utc::now(),
+            chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    let Some(released) = released else {
+        panic!("terminal Stopped must follow confirmed claim release")
+    };
+    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert_eq!(
+        documents.list_runs(&job.id, 10).await.unwrap()[0].status,
+        "queued",
+        "stopped execution leaves the queued row for storage's lease recovery"
+    );
+
+    let after_ack: tinyflows_bus::schedule::ManualRunHandle =
+        proxy.call("PrepareManualRun", &prepare).await.unwrap();
+    assert_ne!(handle, after_ack);
 }
 
 #[tokio::test]
