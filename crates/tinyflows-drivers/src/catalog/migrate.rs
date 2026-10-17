@@ -253,10 +253,16 @@ fn draft(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
                 .map(|n| n / 1_000_000)
         })
         .unwrap_or(source.meta.created_ms);
-    let created = whole
-        .get("created_at")
-        .and_then(Value::as_str)
-        .map_or_else(|| if updated > 0 { updated } else { source.meta.created_ms }, instant_ms);
+    let created = whole.get("created_at").and_then(Value::as_str).map_or_else(
+        || {
+            if updated > 0 {
+                updated
+            } else {
+                source.meta.created_ms
+            }
+        },
+        instant_ms,
+    );
     out.insert("created_ms".into(), created.into());
     out.insert("updated_ms".into(), updated.into());
     Some((Value::Object(out), Some(created)))

@@ -12,11 +12,10 @@ mod types;
 
 pub use storage_types::{
     CatalogCollectionSpec, CatalogDocumentCursor, CatalogDocumentMeta, CatalogDocumentPage,
-    CatalogDocumentPrecondition,
-    CatalogFilter, CatalogIndexSpec, CatalogQuery, CatalogSearchSpec, CatalogSort,
-    CatalogSortDirection, CatalogStorageCapabilities, CatalogStorageFailure, CatalogStorageReply,
-    CatalogVersionedDocument, DocDeleteRequest, DocDeleteWhereRequest, DocEnsureRequest,
-    DocGetRequest, DocPutRequest, DocQueryRequest,
+    CatalogDocumentPrecondition, CatalogFilter, CatalogIndexSpec, CatalogQuery, CatalogSearchSpec,
+    CatalogSort, CatalogSortDirection, CatalogStorageCapabilities, CatalogStorageFailure,
+    CatalogStorageReply, CatalogVersionedDocument, DocDeleteRequest, DocDeleteWhereRequest,
+    DocEnsureRequest, DocGetRequest, DocPutRequest, DocQueryRequest,
 };
 
 pub use extended_types::*;

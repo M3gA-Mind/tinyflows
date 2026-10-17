@@ -15,7 +15,9 @@ struct CatalogCallback(Arc<dyn DocumentStore>);
 fn catalog_reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
     match result {
         Ok(value) => json!({"value":serde_json::to_value(value).unwrap()}),
-        Err(error) => json!({"error":{"kind":error.kind().to_string().replace(' ', "_"),"message":error.to_string()}}),
+        Err(error) => {
+            json!({"error":{"kind":error.kind().to_string().replace(' ', "_"),"message":error.to_string()}})
+        }
     }
 }
 
@@ -36,7 +38,10 @@ impl CatalogCallback {
     async fn doc_get(&self, request: Value) -> tinybus::Result<Value> {
         Ok(catalog_reply(
             self.0
-                .get(request["collection"].as_str().unwrap(), request["id"].as_str().unwrap())
+                .get(
+                    request["collection"].as_str().unwrap(),
+                    request["id"].as_str().unwrap(),
+                )
                 .await,
         ))
     }
@@ -166,12 +171,13 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
         },
         "operation": {"op":"migrate"}
     });
-    for _ in 0..2 {
-        let _: Value = schedule
-            .call("ScheduleStore", &(request.clone(),))
-            .await
-            .unwrap();
-    }
+    let (first, concurrent) = tokio::join!(
+        schedule.call::<Value>("ScheduleStore", &(request.clone(),)),
+        schedule.call::<Value>("ScheduleStore", &(request.clone(),)),
+    );
+    first.unwrap();
+    concurrent.unwrap();
+    let _: Value = schedule.call("ScheduleStore", &(request,)).await.unwrap();
 
     let migrated = docs.get("cron.jobs", "legacy-job").await.unwrap().unwrap();
     assert_eq!(migrated.meta.created_ms, 1_772_600_767_000_i64);
@@ -193,7 +199,12 @@ async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call
     let connection = Connection::connect(Box::new(client)).await.unwrap();
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = scoped.documents().clone();
-    for collection in ["flows_definitions", "flows_revisions", "flows_kv", "flows_state"] {
+    for collection in [
+        "flows_definitions",
+        "flows_revisions",
+        "flows_kv",
+        "flows_state",
+    ] {
         docs.ensure_collection(&CollectionSpec::new(collection))
             .await
             .unwrap();
@@ -242,7 +253,10 @@ async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call
         .serve_at(path.try_into().unwrap(), CatalogCallback(docs.clone()))
         .await
         .unwrap();
-    connection.request_name("test.CatalogStorage").await.unwrap();
+    connection
+        .request_name("test.CatalogStorage")
+        .await
+        .unwrap();
     let catalog = connection
         .proxy(
             tinyflows_bus::BUS_NAME,
@@ -296,8 +310,7 @@ async fn published_module_migrates_legacy_catalog_records_through_owned_bus_call
         .unwrap();
     assert_eq!(migrated_revision.doc["created_ms"], revision_created_ms);
     assert_eq!(migrated_revision.meta.created_ms, revision_created_ms);
-    let catalog_state = tinystoragedrivers_core::Key::of(["flows", "kv:legacy-flow", "k"])
-        .unwrap();
+    let catalog_state = tinystoragedrivers_core::Key::of(["flows", "kv:legacy-flow", "k"]).unwrap();
     let state = tinystoragedrivers_core::Key::of(["flows", "state", "state-key"]).unwrap();
     assert_eq!(
         docs.get("tsd.kv", catalog_state.as_str())
