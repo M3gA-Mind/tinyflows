@@ -110,7 +110,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         };
         async move {
             schedule
-                .call::<ManualRunState>("WaitManualRun", &request)
+                .call::<Option<ManualRunState>>("WaitManualRun", &request)
                 .await
         }
     });
@@ -128,7 +128,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         retry_after_lost_reply,
         ManualRunState::Running { .. } | ManualRunState::Stopping { .. }
     ));
-    let stopping: ManualRunState = schedule
+    let stopping: Option<ManualRunState> = schedule
         .call(
             "StopManualRun",
             &(StopManualRun {
@@ -137,7 +137,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         )
         .await
         .unwrap();
-    assert!(matches!(stopping, ManualRunState::Stopping { .. }));
+    assert!(matches!(stopping, Some(ManualRunState::Stopping { .. })));
     callback_state.execute_release.notify_one();
     let stopped = wait_terminal(&schedule, &handle).await;
     assert!(matches!(
@@ -178,6 +178,26 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
             .await
             .unwrap()
     );
+    assert!(schedule
+        .call::<Option<ManualRunState>>(
+            "WaitManualRun",
+            &(WaitManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap()
+        .is_none());
+    assert!(schedule
+        .call::<Option<ManualRunState>>(
+            "StopManualRun",
+            &(StopManualRun {
+                handle: handle.clone(),
+            },),
+        )
+        .await
+        .unwrap()
+        .is_none());
     assert!(
         schedule
             .call::<ManualRunState>("StartManualRun", &start)
