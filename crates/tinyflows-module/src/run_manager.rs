@@ -101,47 +101,42 @@ fn unregister(run: &Arc<ActiveRun>) {
 pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<StartRunResponse> {
     let prepared = preparation::prepare(connection, &request).await?;
     let run_key = key(&request.storage, &request.run_id);
-    if let Some(existing) = active(&run_key) {
-        if existing.phase.load(Ordering::Acquire) == RESERVING {
-            let admitted = existing.admitted.notified();
-            if existing.phase.load(Ordering::Acquire) == RESERVING {
-                admitted.await;
-            }
-        }
-        if active(&run_key).is_some_and(|current| Arc::ptr_eq(&current, &existing)) {
-        if existing.phase.load(Ordering::Acquire) == RUNNING
-            || existing.phase.load(Ordering::Acquire) == PARKED
-        {
-            if prepared
-                .catalog
-                .get_flow_run(&request.run_id)
-                .await?
-                .is_some_and(|row| is_terminal(&row.status))
+    let active = loop {
+        if let Some(existing) = active(&run_key) {
+            if let Some(response) = wait_for_admission(
+                &prepared.catalog,
+                &request.run_id,
+                &run_key,
+                existing,
+            )
+            .await?
             {
-                bail!("run id already exists in this owner scope")
+                return Ok(response);
             }
-            return Ok(StartRunResponse {
-                run_id: request.run_id,
-                already_running: true,
-            });
+            continue;
         }
+        if prepared
+            .catalog
+            .get_flow_run(&request.run_id)
+            .await?
+            .is_some()
+        {
+            bail!("run id already exists in this owner scope")
         }
-    }
-    if prepared
-        .catalog
-        .get_flow_run(&request.run_id)
-        .await?
-        .is_some()
-    {
-        bail!("run id already exists in this owner scope")
-    }
-    let active = match register(run_key) {
-        Ok(active) => active,
-        Err(_) => {
-            return Ok(StartRunResponse {
-                run_id: request.run_id,
-                already_running: true,
-            });
+        match register(run_key.clone()) {
+            Ok(active) => break active,
+            Err(existing) => {
+                if let Some(response) = wait_for_admission(
+                    &prepared.catalog,
+                    &request.run_id,
+                    &run_key,
+                    existing,
+                )
+                .await?
+                {
+                    return Ok(response);
+                }
+            }
         }
     };
     let started_at = chrono::Utc::now().to_rfc3339();
@@ -187,6 +182,41 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         run_id: active.key.run_id.clone(),
         already_running: false,
     })
+}
+
+async fn wait_for_admission(
+    catalog: &tinyflows_drivers::catalog::FlowCatalogDocuments,
+    run_id: &str,
+    key: &ScopedRunId,
+    existing: Arc<ActiveRun>,
+) -> Result<Option<StartRunResponse>> {
+    if existing.phase.load(Ordering::Acquire) == RESERVING {
+        let admitted = existing.admitted.notified();
+        if existing.phase.load(Ordering::Acquire) == RESERVING {
+            admitted.await;
+        }
+    }
+    let is_current = active(key).is_some_and(|current| Arc::ptr_eq(&current, &existing));
+    if is_current {
+        if catalog
+            .get_flow_run(run_id)
+            .await?
+            .is_some_and(|row| is_terminal(&row.status))
+        {
+            bail!("run id already exists in this owner scope")
+        }
+        if existing.phase.load(Ordering::Acquire) == RUNNING
+            || existing.phase.load(Ordering::Acquire) == PARKED
+        {
+            return Ok(Some(StartRunResponse {
+                run_id: run_id.to_owned(),
+                already_running: true,
+            }));
+        }
+    } else if catalog.get_flow_run(run_id).await?.is_some() {
+        bail!("run id already exists in this owner scope")
+    }
+    Ok(None)
 }
 
 fn is_terminal(status: &str) -> bool {
