@@ -1,3 +1,4 @@
+use super::events::EventWriter;
 use super::*;
 use tinyflows_bus::catalog::CallbackAddress;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -10,6 +11,41 @@ fn storage(owner: &str) -> tinyflows_bus::catalog::CatalogStorage {
             object_path: format!("/owner/{owner}"),
         },
     }
+}
+
+#[tokio::test]
+async fn terminal_event_seals_cloned_progress_sinks() {
+    let backend = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let catalog = FlowCatalogDocuments::new(backend.documents().clone());
+    let run_id = format!("sealed-{}", uuid::Uuid::new_v4());
+    let flow = catalog
+        .create_flow(
+            "Sealed".into(),
+            serde_json::json!({"nodes":[],"edges":[]}),
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+    catalog
+        .insert_flow_run(&run_id, &flow.id, &run_id, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    let writer = EventWriter::new(catalog.clone(), run_id.clone());
+    let late_progress = writer.progress_sink();
+    let terminal_seq = writer
+        .emit_terminal("finished", serde_json::json!({"status":"completed"}))
+        .await
+        .unwrap();
+    late_progress("agent_progress".into(), serde_json::json!({"text":"late"}));
+    assert_eq!(writer.flush().await, None);
+    assert_eq!(
+        catalog.flow_run_event_last_seq(&run_id).await.unwrap(),
+        terminal_seq
+    );
+    let events = catalog.flow_run_events_after(&run_id, 0, 10).await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["kind"], "finished");
 }
 
 #[test]

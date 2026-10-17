@@ -97,10 +97,12 @@ impl EventWriter {
                     } => {
                         if terminal {
                             if let Some(ack) = ack {
-                                let _ = ack.send(Err(anyhow::anyhow!("run event stream is terminal")));
+                                let _ =
+                                    ack.send(Err(anyhow::anyhow!("run event stream is terminal")));
                             }
                             continue;
                         }
+                        let seals_stream = kind == "finished";
                         let ack_result = persist_event(
                             &catalog,
                             &run_id,
@@ -111,7 +113,7 @@ impl EventWriter {
                             &mut last_error,
                         )
                         .await;
-                        if kind == "finished" && ack_result.is_ok() {
+                        if seals_stream && ack_result.is_ok() {
                             terminal = true;
                         }
                         if let Some(ack) = ack {
