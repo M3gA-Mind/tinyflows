@@ -160,6 +160,14 @@ impl JobStore for LegacyClaimSlotStore {
             run_id: None,
         }))
     }
+    async fn renew_occurrence(
+        &self,
+        _: &tinyflows_bus::schedule::OccurrenceClaim,
+        _: DateTime<Utc>,
+        _: chrono::Duration,
+    ) -> Result<bool> {
+        Ok(true)
+    }
 }
 
 async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool) -> usize {

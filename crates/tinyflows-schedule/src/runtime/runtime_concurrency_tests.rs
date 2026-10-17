@@ -275,6 +275,7 @@ async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
     assert!(ids.iter().all(|id| f.leases.lock().unwrap().contains_key(id)));
     scheduler.shutdown().await;
     assert!(ids.iter().all(|id| !f.leases.lock().unwrap().contains_key(id)));
+    assert_eq!(executor.started.available_permits(), 0, "queued work never entered Execute after stop");
     assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
 }
 
