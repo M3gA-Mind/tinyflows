@@ -18,6 +18,7 @@ mod preparation;
 
 const RUNNING: u8 = 1;
 const PARKED: u8 = 2;
+const TERMINAL: u8 = 3;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct OwnerKey {
@@ -99,6 +100,14 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         if existing.phase.load(Ordering::Acquire) == RUNNING
             || existing.phase.load(Ordering::Acquire) == PARKED
         {
+            if prepared
+                .catalog
+                .get_flow_run(&request.run_id)
+                .await?
+                .is_some_and(|row| is_terminal(&row.status))
+            {
+                bail!("run id already exists in this owner scope")
+            }
             return Ok(StartRunResponse {
                 run_id: request.run_id,
                 already_running: true,
@@ -164,6 +173,13 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
     })
 }
 
+fn is_terminal(status: &str) -> bool {
+    matches!(
+        status,
+        "completed" | "completed_with_warnings" | "failed" | "cancelled" | "interrupted"
+    )
+}
+
 /// Returns a bounded event page; the durable row gates `done` and parked runs
 /// remain nonterminal until a later ResumeRun slice settles them.
 pub(super) async fn poll(connection: &Connection, request: RunControlRequest) -> Result<PollRun> {
@@ -185,14 +201,10 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
         .context("decoding flow run events")?;
     let next_cursor = events.last().map_or(request.cursor, |event| event.seq);
     let last_seq = catalog.flow_run_event_last_seq(&request.run_id).await?;
-    let terminal = matches!(
-        run.status.as_str(),
-        "completed" | "completed_with_warnings" | "failed" | "cancelled" | "interrupted"
-    );
     Ok(PollRun {
         events,
         next_cursor,
-        done: terminal && next_cursor >= last_seq,
+        done: is_terminal(&run.status) && next_cursor >= last_seq,
     })
 }
 
