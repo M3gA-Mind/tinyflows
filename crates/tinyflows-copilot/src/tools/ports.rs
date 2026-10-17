@@ -14,6 +14,7 @@
 //! type once, at the seam.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
@@ -24,7 +25,7 @@ use tinyflows_catalog::{DraftOrigin, Flow, FlowDraft, FlowRevision, FlowRun, Flo
 pub type PortResult<T> = Result<T, String>;
 
 /// An unsaved candidate graph prepared for the module's isolated sandbox.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SandboxRunRequest {
     /// Graph JSON selected by the dry-run tool.
     pub graph: Value,
@@ -44,7 +45,7 @@ pub trait SandboxRunner: Send + Sync {
 
 /// A written value plus the explanatory log lines the host produced alongside it
 /// (for example the manual-to-automatic auto-disarm message of a save).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Written<T> {
     /// The persisted value.
     pub value: T,
@@ -112,6 +113,15 @@ pub trait FlowStore: Send + Sync {
     ) -> PortResult<Value>;
     /// Stops an in-flight or parked run.
     async fn cancel_run(&self, run_id: &str) -> PortResult<Value>;
+    /// Starts a real saved-flow run in the background and returns its run id.
+    async fn run_detached(
+        &self,
+        _flow_id: &str,
+        _input: Value,
+        _inputs: serde_json::Map<String, Value>,
+    ) -> PortResult<Value> {
+        Err("detached flow runs are not supported by this FlowStore".into())
+    }
 }
 
 /// The host's validation and authoring gates, paired with its sandbox runner.
@@ -150,7 +160,7 @@ pub trait BuilderGates: SandboxRunner {
 }
 
 /// One selectable agent definition, already rendered the way the tool returns it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct AgentDefinition {
     /// Registry id, the value of an `agent` node's `agent_ref`.
     pub id: String,

@@ -272,6 +272,17 @@ impl FlowStore for MemHost {
         self.calls.lock().unwrap().push(format!("cancel {run_id}"));
         Ok(json!({ "cancelled": run_id }))
     }
+
+    async fn run_detached(
+        &self,
+        flow_id: &str,
+        input: Value,
+        inputs: serde_json::Map<String, Value>,
+    ) -> PortResult<Value> {
+        self.calls.lock().unwrap().push(format!("run {flow_id}"));
+        let run_id = self.next("run");
+        Ok(json!({"flow_id": flow_id, "run_id": run_id, "input": input, "inputs": inputs}))
+    }
 }
 
 #[async_trait]

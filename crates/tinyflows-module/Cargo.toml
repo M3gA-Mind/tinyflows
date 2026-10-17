@@ -25,6 +25,8 @@ uuid.workspace = true
 tracing.workspace = true
 tinyflows = { workspace = true, features = ["mock"] }
 tinyflows-bus = { path = "../tinyflows-bus" }
+tinyflows-copilot = { path = "../tinyflows-copilot" }
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "643df90ba25f93187249fa99f6789f9aa7f8bbc8" }
 tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = ["macros", "modules"] }
 tinybus-module = ">=0.1.3, <0.2"
 serde_json.workspace = true
@@ -39,4 +41,3 @@ static-link = []
 tempfile = "3"
 tokio.workspace = true
 tinyflows-copilot = { path = "../tinyflows-copilot" }
-tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "643df90ba25f93187249fa99f6789f9aa7f8bbc8" }

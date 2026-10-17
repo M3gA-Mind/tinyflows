@@ -25,6 +25,279 @@ pub const METHODS: &[&str] = &[
     "WiringWarnings",
 ];
 
+/// Copilot service interface for the tool belt implemented by `tinyflows-copilot`.
+pub mod copilot {
+    use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+
+    pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Copilot";
+    pub const CONTRACT_VERSION: u32 = 1;
+    pub const METHODS: &[&str] = &[
+        "ToolCatalog",
+        "InvokeTool",
+        "RenderBuilderPrompt",
+        "GetPrompt",
+        "ListResources",
+        "GetResource",
+        "BuildTrailOffFallback",
+        "CombineTrailOffFallback",
+        "IsBackendOrInfrastructureFailure",
+        "BackendRepairMessage",
+        "TextLooksLikeQuestion",
+    ];
+
+    /// A per-invocation callback destination bound by the host to one trusted
+    /// dispatch context. It is carried outside model-supplied tool arguments.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub struct CopilotHost {
+        pub bus_name: String,
+        pub object_path: String,
+    }
+
+    /// Invoke one owning-library tool with its request-scoped host callbacks.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct InvokeToolRequest {
+        pub name: String,
+        pub arguments: Value,
+        pub host: CopilotHost,
+        #[serde(default)]
+        pub node_kinds: Vec<Value>,
+    }
+
+    pub const HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.CopilotHost";
+    pub const HOST_METHODS: &[&str] = &["BuildProposal", "RunFlow", "CallPort"];
+
+    pub mod host {
+        pub const BUILD_PROPOSAL: &str = "BuildProposal";
+        pub const RUN_FLOW: &str = "RunFlow";
+        pub const CALL_PORT: &str = "CallPort";
+    }
+
+    pub mod port_operations {
+        use super::PortOperation;
+        pub const DRAFT_GET: PortOperation = PortOperation::DraftGet;
+        pub const DRAFT_CREATE: PortOperation = PortOperation::DraftCreate;
+        pub const DRAFT_UPDATE: PortOperation = PortOperation::DraftUpdate;
+        pub const FLOWS_GET: PortOperation = PortOperation::FlowsGet;
+        pub const FLOWS_LIST: PortOperation = PortOperation::FlowsList;
+        pub const FLOWS_LOAD_GRAPH: PortOperation = PortOperation::FlowsLoadGraph;
+        pub const FLOWS_CREATE: PortOperation = PortOperation::FlowsCreate;
+        pub const FLOWS_UPDATE: PortOperation = PortOperation::FlowsUpdate;
+        pub const FLOWS_SET_ENABLED: PortOperation = PortOperation::FlowsSetEnabled;
+        pub const FLOWS_DUPLICATE: PortOperation = PortOperation::FlowsDuplicate;
+        pub const FLOWS_HISTORY: PortOperation = PortOperation::FlowsHistory;
+        pub const FLOWS_LIST_RUNS: PortOperation = PortOperation::FlowsListRuns;
+        pub const FLOWS_GET_RUN: PortOperation = PortOperation::FlowsGetRun;
+        pub const FLOWS_RESUME: PortOperation = PortOperation::FlowsResume;
+        pub const FLOWS_CANCEL_RUN: PortOperation = PortOperation::FlowsCancelRun;
+        pub const AGENTS_LIST: PortOperation = PortOperation::AgentsList;
+        pub const SUGGESTIONS_UPSERT: PortOperation = PortOperation::SuggestionsUpsert;
+        pub const GATES_VALIDATE: PortOperation = PortOperation::GatesValidate;
+        pub const GATES_RUN: PortOperation = PortOperation::GatesRun;
+        pub const GATES_STRICT: PortOperation = PortOperation::GatesStrict;
+        pub const GATES_ENGINE_COMPATIBILITY: PortOperation =
+            PortOperation::GatesEngineCompatibility;
+        pub const GATES_WIRING_WARNINGS: PortOperation = PortOperation::GatesWiringWarnings;
+        pub const GATES_APPROVAL_MANIFEST: PortOperation = PortOperation::GatesApprovalManifest;
+
+        pub const ALL: &[PortOperation] = &[
+            DRAFT_GET,
+            DRAFT_CREATE,
+            DRAFT_UPDATE,
+            FLOWS_GET,
+            FLOWS_LIST,
+            FLOWS_LOAD_GRAPH,
+            FLOWS_CREATE,
+            FLOWS_UPDATE,
+            FLOWS_SET_ENABLED,
+            FLOWS_DUPLICATE,
+            FLOWS_HISTORY,
+            FLOWS_LIST_RUNS,
+            FLOWS_GET_RUN,
+            FLOWS_RESUME,
+            FLOWS_CANCEL_RUN,
+            AGENTS_LIST,
+            SUGGESTIONS_UPSERT,
+            GATES_VALIDATE,
+            GATES_RUN,
+            GATES_STRICT,
+            GATES_ENGINE_COMPATIBILITY,
+            GATES_WIRING_WARNINGS,
+            GATES_APPROVAL_MANIFEST,
+        ];
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct PortCallRequest {
+        pub operation: PortOperation,
+        pub payload: Value,
+    }
+
+    #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub enum PortOperation {
+        #[serde(rename = "draft.get")]
+        DraftGet,
+        #[serde(rename = "draft.create")]
+        DraftCreate,
+        #[serde(rename = "draft.update")]
+        DraftUpdate,
+        #[serde(rename = "flows.get")]
+        FlowsGet,
+        #[serde(rename = "flows.list")]
+        FlowsList,
+        #[serde(rename = "flows.load_graph")]
+        FlowsLoadGraph,
+        #[serde(rename = "flows.create")]
+        FlowsCreate,
+        #[serde(rename = "flows.update")]
+        FlowsUpdate,
+        #[serde(rename = "flows.set_enabled")]
+        FlowsSetEnabled,
+        #[serde(rename = "flows.duplicate")]
+        FlowsDuplicate,
+        #[serde(rename = "flows.history")]
+        FlowsHistory,
+        #[serde(rename = "flows.list_runs")]
+        FlowsListRuns,
+        #[serde(rename = "flows.get_run")]
+        FlowsGetRun,
+        #[serde(rename = "flows.resume")]
+        FlowsResume,
+        #[serde(rename = "flows.cancel_run")]
+        FlowsCancelRun,
+        #[serde(rename = "agents.list")]
+        AgentsList,
+        #[serde(rename = "suggestions.upsert")]
+        SuggestionsUpsert,
+        #[serde(rename = "gates.validate")]
+        GatesValidate,
+        #[serde(rename = "gates.run")]
+        GatesRun,
+        #[serde(rename = "gates.strict")]
+        GatesStrict,
+        #[serde(rename = "gates.engine_compatibility")]
+        GatesEngineCompatibility,
+        #[serde(rename = "gates.wiring_warnings")]
+        GatesWiringWarnings,
+        #[serde(rename = "gates.approval_manifest")]
+        GatesApprovalManifest,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct BuildProposalRequest {
+        pub retry_tool: String,
+        pub name: String,
+        pub graph: Value,
+        pub require_approval: bool,
+        pub revision: bool,
+        pub instruction: Option<String>,
+        pub draft_id: Option<String>,
+        pub flow_id: Option<String>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct RunFlowRequest {
+        pub flow_id: String,
+        pub input: Value,
+        pub inputs: serde_json::Map<String, Value>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct BuilderPromptRequest {
+        pub mode: String,
+        #[serde(default)]
+        pub instruction: String,
+        pub graph: Option<Value>,
+        pub flow_id: Option<String>,
+        pub run_id: Option<String>,
+        pub error: Option<String>,
+        #[serde(default)]
+        pub failing_node_ids: Vec<String>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub struct ToolResultSummary {
+        pub tool_name: Option<String>,
+        pub content: String,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub struct TrailOffRequest {
+        pub history: Vec<ToolResultSummary>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub struct TextResponse {
+        pub text: String,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    pub struct ResourceFile {
+        pub path: String,
+        pub contents: String,
+    }
+
+    /// Flow validation result accepted from a scope-bound host callback.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+    pub struct FlowValidation {
+        pub valid: bool,
+        pub errors: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub error_details: Vec<FlowValidationError>,
+        pub warnings: Vec<String>,
+    }
+
+    /// Structured validation diagnostic, matching the host catalog shape.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+    pub struct FlowValidationError {
+        pub code: String,
+        pub message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub node_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub field: Option<String>,
+    }
+
+    /// Scope-resolved selectable agent contract used by `agents.list`.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct AgentDefinition {
+        pub id: String,
+        pub name: String,
+        pub description: String,
+        pub model: Value,
+        pub tools: Value,
+        pub tags: Value,
+    }
+
+    /// Result of a flow update, including host-authored explanatory logs.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct WrittenWorkflow {
+        pub value: super::catalog::Workflow,
+        pub logs: Vec<String>,
+    }
+
+    /// Stable tool metadata suitable for host registry construction.
+    #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+    pub struct ToolDescriptor {
+        pub name: String,
+        pub description: String,
+        pub parameters_schema: Value,
+        pub permission: String,
+        pub external_effect: bool,
+    }
+
+    #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+    pub struct ToolCatalogRequest {
+        /// Host-rendered node-kind contracts used in propose tool descriptions.
+        #[serde(default)]
+        pub node_kinds: Vec<Value>,
+    }
+
+    #[cfg(test)]
+    #[path = "copilot_tests.rs"]
+    mod tests;
+}
+
 /// Context-bound host callback interface. It serves a saved-workflow lookup
 /// and ordered product gates; the module never interprets host credentials.
 pub const HOST_INTERFACE: &str = "ai.tinyhumans.tinyflows.AuthoringHost";

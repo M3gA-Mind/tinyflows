@@ -8,6 +8,128 @@ struct Authoring {
     connection: Connection,
 }
 
+struct Copilot {
+    connection: Connection,
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.Copilot")]
+impl Copilot {
+    async fn invoke_tool(
+        &self,
+        request: tinyflows_bus::copilot::InvokeToolRequest,
+    ) -> Result<Value> {
+        super::copilot_tool_belt::invoke_tool(self.connection.clone(), request).await
+    }
+
+    async fn tool_catalog(
+        &self,
+        request: tinyflows_bus::copilot::ToolCatalogRequest,
+    ) -> Result<Vec<tinyflows_bus::copilot::ToolDescriptor>> {
+        let host = std::sync::Arc::new(super::copilot_tools::ScopedCopilotHost {
+            connection: self.connection.clone(),
+            host: tinyflows_bus::copilot::CopilotHost {
+                bus_name: String::new(),
+                object_path: String::new(),
+            },
+        });
+        let kinds = std::sync::Arc::new(super::copilot_tool_belt::ScopedNodeKinds::from_wire(
+            request.node_kinds,
+        )?);
+        let tools = super::copilot_tool_belt::tool_belt(host, kinds);
+        Ok(tools
+            .into_iter()
+            .map(|tool| tinyflows_bus::copilot::ToolDescriptor {
+                name: tool.name().into(),
+                description: tool.description().into(),
+                parameters_schema: tool.parameters_schema(),
+                permission: format!("{:?}", tool.permission_level()),
+                external_effect: tool.external_effect(),
+            })
+            .collect())
+    }
+
+    async fn render_builder_prompt(
+        &self,
+        request: tinyflows_bus::copilot::BuilderPromptRequest,
+    ) -> Result<tinyflows_bus::copilot::TextResponse> {
+        let request: tinyflows_copilot::BuilderRequest =
+            serde_json::from_value(serde_json::to_value(request).map_err(Error::failed)?)
+                .map_err(Error::failed)?;
+        request.validate().map_err(Error::failed)?;
+        Ok(tinyflows_bus::copilot::TextResponse {
+            text: tinyflows_copilot::render_prompt(&request),
+        })
+    }
+
+    async fn get_prompt(&self, name: String) -> Result<tinyflows_bus::copilot::TextResponse> {
+        let text = match name.as_str() {
+            "workflow_builder" => tinyflows_copilot::prompts::WORKFLOW_BUILDER,
+            "flow_discovery" => tinyflows_copilot::prompts::FLOW_DISCOVERY,
+            _ => return Err(Error::failed(format!("unknown copilot prompt '{name}'"))),
+        };
+        Ok(tinyflows_bus::copilot::TextResponse { text: text.into() })
+    }
+
+    async fn get_resource(&self, path: String) -> Result<tinyflows_bus::copilot::TextResponse> {
+        let file = tinyflows_copilot::resources::FLOW_AUTHORING_FILES
+            .iter()
+            .find(|file| file.path == path)
+            .ok_or_else(|| Error::failed(format!("unknown copilot resource '{path}'")))?;
+        Ok(tinyflows_bus::copilot::TextResponse {
+            text: file.contents.into(),
+        })
+    }
+
+    async fn list_resources(&self) -> Result<Vec<tinyflows_bus::copilot::ResourceFile>> {
+        Ok(tinyflows_copilot::resources::FLOW_AUTHORING_FILES
+            .iter()
+            .map(|file| tinyflows_bus::copilot::ResourceFile {
+                path: file.path.into(),
+                contents: file.contents.into(),
+            })
+            .collect())
+    }
+
+    async fn build_trail_off_fallback(
+        &self,
+        request: tinyflows_bus::copilot::TrailOffRequest,
+    ) -> Result<tinyflows_bus::copilot::TextResponse> {
+        let history = request
+            .history
+            .into_iter()
+            .map(|result| tinyflows_copilot::fallback::ToolResult {
+                tool_name: result.tool_name,
+                content: result.content,
+            })
+            .collect::<Vec<_>>();
+        Ok(tinyflows_bus::copilot::TextResponse {
+            text: tinyflows_copilot::fallback::build_trail_off_fallback(&history),
+        })
+    }
+
+    async fn combine_trail_off_fallback(
+        &self,
+        fallback: String,
+        original: String,
+    ) -> Result<tinyflows_bus::copilot::TextResponse> {
+        Ok(tinyflows_bus::copilot::TextResponse {
+            text: tinyflows_copilot::fallback::combine_trail_off_fallback(&fallback, &original),
+        })
+    }
+
+    async fn is_backend_or_infrastructure_failure(&self, error: String) -> Result<bool> {
+        Ok(tinyflows_copilot::fallback::is_backend_or_infrastructure_failure(&error))
+    }
+
+    async fn backend_repair_message(&self, error: String) -> Result<Option<String>> {
+        Ok(tinyflows_copilot::fallback::backend_repair_message(&error))
+    }
+
+    async fn text_looks_like_question(&self, text: String) -> Result<bool> {
+        Ok(tinyflows_copilot::text_looks_like_question(&text))
+    }
+}
+
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Authoring")]
 impl Authoring {
     /// Migrate a candidate and report its structural and engine validation errors.
@@ -126,6 +248,14 @@ pub(super) async fn setup(connection: Connection) -> Result<()> {
         .serve_at(
             OBJECT_PATH.try_into()?,
             Authoring {
+                connection: connection.clone(),
+            },
+        )
+        .await?;
+    connection
+        .serve_at(
+            OBJECT_PATH.try_into()?,
+            Copilot {
                 connection: connection.clone(),
             },
         )
