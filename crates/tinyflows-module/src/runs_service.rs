@@ -11,9 +11,7 @@ use tinyflows::caps::{self, ToolInvoker};
 use tinyflows::error::{EngineError, Result as EngineResult};
 use tinyflows::model::WorkflowGraph;
 use tinyflows_bus::runs::{
-    self, BootSweep, BootSweepResponse, CancelRunResponse, ExpireParked, ExpireParkedResponse,
-    PollRun, ResumeRun, ResumeRunResponse, RunControlRequest, SandboxRun, SandboxRunResponse,
-    StartRun,
+    self, CancelRunResponse, PollRun, RunControlRequest, SandboxRun, SandboxRunResponse, StartRun,
 };
 
 struct Runs {
@@ -25,27 +23,6 @@ impl Runs {
     /// Validate and reserve a run before acknowledging it to the host.
     async fn start_run(&self, request: StartRun) -> Result<runs::StartRunResponse> {
         super::run_manager::start(&self.connection, request)
-            .await
-            .map_err(|error| Error::failed(error.to_string()))
-    }
-
-    /// Claim a parked run and continue its pinned checkpoint with host decisions.
-    async fn resume_run(&self, request: ResumeRun) -> Result<ResumeRunResponse> {
-        super::run_manager::resume(&self.connection, request)
-            .await
-            .map_err(|error| Error::failed(error.to_string()))
-    }
-
-    /// Cancel parked runs whose approval window has expired.
-    async fn expire_parked(&self, request: ExpireParked) -> Result<ExpireParkedResponse> {
-        super::run_manager::expire_parked(&self.connection, request)
-            .await
-            .map_err(|error| Error::failed(error.to_string()))
-    }
-
-    /// Reconcile orphaned local runs after module startup.
-    async fn boot_sweep(&self, request: BootSweep) -> Result<BootSweepResponse> {
-        super::run_manager::boot_sweep(&self.connection, request)
             .await
             .map_err(|error| Error::failed(error.to_string()))
     }
