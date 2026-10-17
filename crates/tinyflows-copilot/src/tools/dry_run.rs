@@ -11,8 +11,7 @@ use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
 
-use tinyflows::authoring_report::{self, AuthoringReport};
-use tinyflows::observability::CapturingObserver;
+use tinyflows::authoring_report::AuthoringReport;
 
 /// Wall-clock bound on a single `dry_run_workflow` mock execution. A malformed
 /// or pathological draft graph must never hang the agent tool-loop; the mock
@@ -239,40 +238,30 @@ impl Tool for DryRunWorkflowTool {
             }
         };
 
-        // The host supplies the sandbox capability set: mock capabilities
-        // only (see the struct doc), however it decorates them — a schema-aware
-        // mock agent runner and LLM so `output_parser.schema` is honored, and a
-        // wiring preflight over the echo tool invoker so required Composio args
-        // must be present and non-null even in the sandbox.
-        let caps = self.gates.sandbox_capabilities();
-
-        let observer = Arc::new(CapturingObserver::default());
-        let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
-        let run = tinyflows::engine::run_with_observer(&compiled, input, &caps, &observer_dyn);
-        let outcome = match tokio::time::timeout(
+        // The portable sandbox bundle and report path are shared with the
+        // module entry point. Only the host's preflight-only tool invoker is
+        // supplied here.
+        let caps = tinyflows::caps::mock_schema_aware::sandbox_capabilities(
+            self.gates.sandbox_tool_invoker(),
+        );
+        let outcome = match tinyflows::sandbox::execute(
+            &graph,
+            &compiled,
+            input,
+            &caps,
             std::time::Duration::from_secs(DRY_RUN_TIMEOUT_SECS),
-            run,
         )
         .await
         {
-            Ok(Ok(outcome)) => outcome,
-            Ok(Err(e)) => {
-                // A `stop`-policy `tool_call` whose required arg resolved null
-                // aborts the WHOLE run here (via `PreflightToolInvoker`), so
-                // the honest per-field diagnostic never reaches the settled-run
-                // `null_resolutions` path below. Recover it from the observer:
-                // if the abort was caused by a required arg bound to an upstream
-                // Composio `tool_call`'s output, the echo mock simply CAN'T
-                // produce that field — so surface it as `unverifiable` rather
-                // than letting the generic "required arg missing/null" text
-                // (which sent the transcript agent re-wiring a correct binding
-                // three times) stand alone. WS6.
-                let unverifiable_bindings =
-                    authoring_report::unverifiable_bindings(&graph, &observer.steps());
+            Ok(outcome) => outcome,
+            Err(tinyflows::sandbox::SandboxError::Failed {
+                message: error,
+                unverifiable_bindings,
+            }) => {
                 if !unverifiable_bindings.is_empty() {
                     tracing::debug!(
                         target: "flows",
-                        error = %e,
+                        error = %error,
                         unverifiable_count = unverifiable_bindings.len(),
                         "[flows] dry_run_workflow: sandbox run aborted on a Composio-upstream \
                          binding the echo mock cannot verify — surfacing it honestly"
@@ -280,7 +269,7 @@ impl Tool for DryRunWorkflowTool {
                     return Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
                         "sandbox": true,
                         "ok": false,
-                        "error": e.to_string(),
+                        "error": error,
                         "unverifiable_bindings": unverifiable_bindings,
                         "note": "SANDBOX (mock) output — a tool_call node aborted because a \
                             required arg binds to the output of an upstream Composio tool_call, \
@@ -292,30 +281,28 @@ impl Tool for DryRunWorkflowTool {
                             of re-wiring blindly. No real side effects occurred.",
                     }))?));
                 }
-                tracing::debug!(target: "flows", error = %e, "[flows] dry_run_workflow: sandbox run errored");
+                tracing::debug!(target: "flows", error = %error, "[flows] dry_run_workflow: sandbox run errored");
                 return Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
                     "sandbox": true,
                     "ok": false,
-                    "error": e.to_string(),
+                    "error": error,
                     "note": "SANDBOX (mock) output — a node errored during simulation. No real side effects occurred.",
                 }))?));
             }
-            Err(_elapsed) => {
+            Err(tinyflows::sandbox::SandboxError::TimedOut) => {
                 return Ok(ToolResult::error(format!(
                     "Sandbox dry-run timed out after {DRY_RUN_TIMEOUT_SECS}s"
                 )));
             }
         };
 
-        // The bucketing and advice wording live upstream (`tinyflows::authoring_report`);
-        // this tool keeps the mock capabilities, the timeout and the JSON envelope.
         let AuthoringReport {
             null_resolutions,
             agent_prompt_nulls,
             agent_input_context_nulls,
             node_errors,
             routing_divergence_warnings,
-        } = AuthoringReport::build(&graph, &observer.steps(), &outcome.output);
+        } = outcome.report;
 
         let permissions_manifest = self.gates.approval_manifest(&graph).await;
 

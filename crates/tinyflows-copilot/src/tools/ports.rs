@@ -15,7 +15,7 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tinyflows::caps::Capabilities;
+use tinyflows::caps::ToolInvoker;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::types::FlowSuggestion;
@@ -127,9 +127,9 @@ pub trait BuilderGates: Send + Sync {
         draft_id: Option<String>,
         flow_id: Option<String>,
     ) -> Result<Value, String>;
-    /// The capability set a dry run executes against: mock capabilities, however
-    /// the host decorates them. No real side effect may fire through it.
-    fn sandbox_capabilities(&self) -> Capabilities;
+    /// Host-bound tool preflight used by sandbox runs. It must validate only;
+    /// it must never invoke a real integration or cause an external effect.
+    fn sandbox_tool_invoker(&self) -> std::sync::Arc<dyn ToolInvoker>;
 }
 
 /// One selectable agent definition, already rendered the way the tool returns it.

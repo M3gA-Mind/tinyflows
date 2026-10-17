@@ -5,7 +5,6 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tinyflows::caps::Capabilities;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::types::FlowSuggestion;
@@ -357,8 +356,8 @@ impl BuilderGates for MemHost {
         }))
     }
 
-    fn sandbox_capabilities(&self) -> Capabilities {
-        tinyflows::caps::mock::mock_capabilities()
+    fn sandbox_tool_invoker(&self) -> std::sync::Arc<dyn tinyflows::caps::ToolInvoker> {
+        tinyflows::caps::mock::mock_capabilities().tools
     }
 }
 

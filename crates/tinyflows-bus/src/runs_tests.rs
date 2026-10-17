@@ -139,8 +139,8 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"callback":{"destination":"host.caps","object_path":"/run/1"}}),
     );
-    assert_eq!(CONTRACT_VERSION, 2);
-    assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun"]);
+    assert_eq!(CONTRACT_VERSION, 3);
+    assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun", "SandboxRun"]);
     assert_eq!(CAPS_CONTRACT_VERSION, 1);
     assert_eq!(CAPS_METHODS.len(), 19);
 }
