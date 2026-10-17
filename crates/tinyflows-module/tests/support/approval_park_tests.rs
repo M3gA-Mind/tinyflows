@@ -115,11 +115,21 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         .unwrap();
     let owner = owner(&connection, "resume-guards", None, None, None, None).await;
     let graph = parked_graph();
-    let flow_id =
-        create_flow_with_graph(&catalog_proxy, &owner.storage, "Guarded resume", graph.clone())
-            .await;
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Guarded resume",
+        graph.clone(),
+    )
+    .await;
     let callback = serve_agent(&connection, "resume-guards").await;
-    let mut start = request(&owner, flow_id.clone(), "guarded-run", graph.clone(), 20_000);
+    let mut start = request(
+        &owner,
+        flow_id.clone(),
+        "guarded-run",
+        graph.clone(),
+        20_000,
+    );
     start.trigger_data = json!({"id":"guarded-item","payload":"review"});
     runs_proxy
         .call::<runs::StartRunResponse>("StartRun", (start,))
@@ -129,10 +139,20 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
     poll_until_kind(&runs_proxy, &owner.storage, "guarded-run", "parked").await;
 
     let mut wrong_flow = resume_request(&owner, "wrong-flow", "guarded-run", "gate");
-    assert!(runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow.clone(),)).await.is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow.clone(),))
+            .await
+            .is_err()
+    );
     wrong_flow.flow_id = flow_id.clone();
     wrong_flow.approvals = vec!["not-pending".into()];
-    assert!(runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow,)).await.is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::ResumeRunResponse>("ResumeRun", (wrong_flow,))
+            .await
+            .is_err()
+    );
     let parked: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -163,13 +183,15 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         .await
         .unwrap();
     assert!(matches!(updated, catalog::PutWorkflowResponse::Ok(_)));
-    assert!(runs_proxy
-        .call::<runs::ResumeRunResponse>(
-            "ResumeRun",
-            (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
-        )
-        .await
-        .is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::ResumeRunResponse>(
+                "ResumeRun",
+                (resume_request(&owner, &flow_id, "guarded-run", "gate"),),
+            )
+            .await
+            .is_err()
+    );
 
     let cancelled: Option<catalog::FlowRun> = catalog_proxy
         .call(
@@ -205,19 +227,108 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         None
     );
     let checkpointer = DriverCheckpointer::<Value>::new(owner.docs.clone());
-    assert!(checkpointer
-        .get("guarded-run", None)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        checkpointer
+            .get("guarded-run", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
-fn resume_request(
-    owner: &Owner,
-    flow_id: &str,
-    run_id: &str,
-    gate: &str,
-) -> runs::ResumeRun {
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn compiled_module_keeps_resume_cancellable_and_rejects_a_second_claim() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
+    let broker = tinybus::broker::Broker::new();
+    let module_host = ModuleHost::new(broker.clone());
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let catalog_proxy = connection
+        .proxy(BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)
+        .unwrap();
+    let runs_proxy = connection
+        .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
+        .unwrap();
+    let owner = owner(&connection, "resume-cancel", None, None, None, None).await;
+    let graph = json!({
+        "inputs":[{"name":"declared","type":"string","required":true}],
+        "nodes":[
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":"approval","name":"Approval","kind":"approval","config":{"request_id":"review"}},
+            {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"test-agent","prompt":"work"}},
+            {"id":"output","name":"Output","kind":"transform","config":{"set":{"declared":"=inputs.declared","payload":"=run.trigger.payload"}}}
+        ],
+        "edges":[
+            {"from_node":"trigger","from_port":"main","to_node":"approval","to_port":"main"},
+            {"from_node":"approval","from_port":"main","to_node":"agent","to_port":"main"},
+            {"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}
+        ]
+    });
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Cancellable resume",
+        graph.clone(),
+    )
+    .await;
+    let agent = serve_agent(&connection, "resume-cancel").await;
+    let start = request(&owner, flow_id.clone(), "cancel-resume-run", graph, 20_000);
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&agent.approval_started, "approval callback").await;
+    poll_until_kind(&runs_proxy, &owner.storage, "cancel-resume-run", "parked").await;
+
+    let resume = resume_request(&owner, &flow_id, "cancel-resume-run", "approval");
+    runs_proxy
+        .call::<runs::ResumeRunResponse>("ResumeRun", (resume.clone(),))
+        .await
+        .unwrap();
+    wait_notify(&agent.started, "resumed agent callback").await;
+    assert!(
+        runs_proxy
+            .call::<runs::ResumeRunResponse>("ResumeRun", (resume,))
+            .await
+            .is_err()
+    );
+    let cancelled: runs::CancelRunResponse = runs_proxy
+        .call(
+            "CancelRun",
+            (RunControlRequest {
+                storage: owner.storage.clone(),
+                run_id: "cancel-resume-run".into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(cancelled.signalled);
+    agent.release.notify_one();
+    let terminal = poll_until_done(&runs_proxy, &owner.storage, "cancel-resume-run").await;
+    assert_eq!(terminal.events.last().unwrap().data["status"], "cancelled");
+    let row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "cancel-resume-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let row = row.unwrap();
+    assert_eq!(row.status, "cancelled");
+    assert!(!row.steps.iter().any(|step| step.node_id == "output"));
+}
+
+fn resume_request(owner: &Owner, flow_id: &str, run_id: &str, gate: &str) -> runs::ResumeRun {
     runs::ResumeRun {
         run_id: run_id.into(),
         flow_id: flow_id.into(),
