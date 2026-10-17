@@ -243,6 +243,17 @@ impl CronDocuments {
         claim: &ClaimedOccurrence,
         queued_at: DateTime<Utc>,
     ) -> Result<bool> {
+        self.queue_claimed_run_with_id(claim, queued_at, None).await
+    }
+
+    /// As [`Self::queue_claimed_run`], retaining an invocation identity in the
+    /// durable queued history row when one was supplied.
+    pub async fn queue_claimed_run_with_id(
+        &self,
+        claim: &ClaimedOccurrence,
+        queued_at: DateTime<Utc>,
+        invocation_id: Option<&str>,
+    ) -> Result<bool> {
         self.docs
             .capabilities()
             .require(Capability::Transactions)
@@ -269,6 +280,7 @@ impl CronDocuments {
             let run = run_to_doc(
                 seq,
                 &claim.job.id,
+                invocation_id,
                 Some(&claim.lease.incarnation),
                 queued_at,
                 queued_at,

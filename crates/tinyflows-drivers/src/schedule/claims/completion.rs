@@ -11,6 +11,16 @@ use chrono::{DateTime, Utc};
 use tinyflows_schedule::{DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output};
 use tinystoragedrivers_core::{Capability, Precondition, WriteOp};
 
+/// The outcome and invocation identity to persist for a claimed run.
+#[derive(Debug, Clone)]
+pub struct RunCompletion {
+    pub finished_at: DateTime<Utc>,
+    pub success: bool,
+    pub output: String,
+    pub delivery_status: Option<DeliveryStatus>,
+    pub run_id: Option<String>,
+}
+
 impl CronDocuments {
     /// Atomically records a run and advances its still-owned occurrence.
     /// Stale, expired, edited, canceled or re-created jobs return false
@@ -34,8 +44,27 @@ impl CronDocuments {
         output: &str,
         delivery_status: Option<DeliveryStatus>,
     ) -> Result<bool> {
-        self.complete_claim_mode(claim, finished_at, success, output, delivery_status, true)
-            .await
+        self.complete_claim_mode(
+            claim,
+            RunCompletion {
+                finished_at,
+                success,
+                output: output.to_string(),
+                delivery_status,
+                run_id: None,
+            },
+            true,
+        )
+        .await
+    }
+
+    /// As [`Self::complete_claim`], also persisting the invocation identity.
+    pub async fn complete_claim_with_run(
+        &self,
+        claim: &ClaimedOccurrence,
+        completion: RunCompletion,
+    ) -> Result<bool> {
+        self.complete_claim_mode(claim, completion, true).await
     }
 
     /// Atomically records a manual run without advancing or mutating its saved
@@ -51,19 +80,42 @@ impl CronDocuments {
         output: &str,
         delivery_status: Option<DeliveryStatus>,
     ) -> Result<bool> {
-        self.complete_claim_mode(claim, finished_at, success, output, delivery_status, false)
-            .await
+        self.complete_claim_mode(
+            claim,
+            RunCompletion {
+                finished_at,
+                success,
+                output: output.to_string(),
+                delivery_status,
+                run_id: None,
+            },
+            false,
+        )
+        .await
+    }
+
+    /// As [`Self::complete_manual_claim`], also persisting the invocation identity.
+    pub async fn complete_manual_claim_with_run(
+        &self,
+        claim: &ClaimedOccurrence,
+        completion: RunCompletion,
+    ) -> Result<bool> {
+        self.complete_claim_mode(claim, completion, false).await
     }
 
     async fn complete_claim_mode(
         &self,
         claim: &ClaimedOccurrence,
-        finished_at: DateTime<Utc>,
-        success: bool,
-        output: &str,
-        delivery_status: Option<DeliveryStatus>,
+        completion: RunCompletion,
         advance_schedule: bool,
     ) -> Result<bool> {
+        let RunCompletion {
+            finished_at,
+            success,
+            output,
+            delivery_status,
+            run_id: invocation_id,
+        } = completion;
         self.docs
             .capabilities()
             .require(Capability::Transactions)
@@ -114,11 +166,12 @@ impl CronDocuments {
             let run = run_to_doc(
                 seq,
                 &job.id,
+                invocation_id.as_deref(),
                 Some(&claim.lease.incarnation),
                 claim.lease.started_at,
                 finished_at,
                 if success { "ok" } else { "error" },
-                Some(truncate_cron_output(output)),
+                Some(truncate_cron_output(&output)),
                 (finished_at - claim.lease.started_at).num_milliseconds(),
                 delivery_status.as_ref(),
             );
