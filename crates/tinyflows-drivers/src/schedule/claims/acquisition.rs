@@ -124,7 +124,7 @@ impl CronDocuments {
                 .await
             {
                 Ok(_) => {}
-                Err(error) if super::admission::conflict(&error) => {
+                Err(error) if super::super::admission::conflict(&error) => {
                     self.give_back(&leases, &key, &lease).await;
                     continue;
                 }
