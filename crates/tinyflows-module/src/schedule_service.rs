@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
     self, AcknowledgeManualRun, CheckOriginRequest, CheckPatchRequest, ManualRunHandle,
-    ManualRunRequest, ManualRunState, NextRunRequest, PrepareManualRun,
+    ManualRunState, NextRunRequest, PrepareManualRun,
     RunJobNow, RunJobReply, RunsCloserThanRequest, StartManualRun, StartScheduler,
     StopManualRun, TooFrequent, ValidateScheduleRequest, WaitManualRun,
 };

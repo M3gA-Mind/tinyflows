@@ -1,6 +1,6 @@
 //! Module-owned reservations and retained lifecycle state for detached manual runs.
 use std::{collections::HashMap, sync::Mutex, time::Duration};
-use super::schedule_callbacks::HostCallbacks;
+use super::super::{schedule_callbacks::HostCallbacks, schedule_store::Store};
 use tinybus::Connection;
 use tinyflows_bus::schedule::{
     ManualRunHandle, ManualRunOutcome, ManualRunRequest, ManualRunState, PrepareManualRun,
@@ -254,9 +254,7 @@ async fn run_manual_worker_body(
     }
     let config: SchedulerConfig = serde_json::from_value(request.config)?;
     let mut ports = HostCallbacks::ports(connection.clone(), request.callback);
-    ports.store = std::sync::Arc::new(
-        super::schedule_store::Store::new(connection, request.storage).await?,
-    );
+    ports.store = std::sync::Arc::new(Store::new(connection, request.storage).await?);
     if entry.stopped() {
         return Ok(ManualRunOutcome::Stopped { run_id: None });
     }
