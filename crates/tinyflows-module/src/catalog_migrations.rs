@@ -8,10 +8,7 @@ use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tinyflows_drivers::{catalog_storage_schema, document_only_scope, import_legacy_kv};
 use tinystoragedrivers_core::{MigrateOptions, Registry, Scope};
 
-pub(super) async fn migrate(
-    connection: Connection,
-    storage: CatalogStorage,
-) -> Result<()> {
+pub(super) async fn migrate(connection: Connection, storage: CatalogStorage) -> Result<()> {
     let mut documents =
         super::catalog_documents::Documents::new(connection, storage.callback).await?;
     documents.require_record_metadata().await?;
@@ -24,6 +21,11 @@ pub(super) async fn migrate(
         .migrate(&scoped, &MigrateOptions::default())
         .await?;
     let imported_kv = import_legacy_kv(&scoped).await?;
-    tracing::debug!(steps_run = report.ran.len(), already_done = report.already_done, imported_kv, "catalog migration complete");
+    tracing::debug!(
+        steps_run = report.ran.len(),
+        already_done = report.already_done,
+        imported_kv,
+        "catalog migration complete"
+    );
     Ok(())
 }
