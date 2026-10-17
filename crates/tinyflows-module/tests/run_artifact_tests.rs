@@ -1,9 +1,9 @@
 use super::*;
-use tinyflows_bus::catalog::RunIdRequest;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use tinyflows_bus::catalog::RunIdRequest;
 use tokio::sync::Notify;
 
 #[path = "run_artifact_poll.rs"]
@@ -90,7 +90,8 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(started.run_id, run_id);
     assert!(!started.already_running);
     alice_agent.started.notified().await;
-    let live_graph = poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
+    let live_graph =
+        poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;
     assert!(live_graph.iter().any(|event| event.graph_run_id.is_some()));
 
     let duplicate: runs::StartRunResponse = runs_proxy
@@ -145,7 +146,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )
         .await
         .unwrap();
-    assert!(!gap.done, "terminal row cannot finish polling before its event");
+    assert!(
+        !gap.done,
+        "terminal row cannot finish polling before its event"
+    );
     assert!(gap.events.iter().all(|event| event.kind != "finished"));
     release_terminal_write.notify_one();
 
@@ -223,11 +227,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         &connection,
         "retry",
         None,
-        Some((
-            fail_insert,
-            insert_started.clone(),
-            release_insert.clone(),
-        )),
+        Some((fail_insert, insert_started.clone(), release_insert.clone())),
     )
     .await;
     let retry_flow = create_flow(&catalog_proxy, &retry_owner.storage, "Retry").await;
@@ -258,13 +258,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .await
         .unwrap();
     assert_eq!(failed_row, None);
-    let retry_started: runs::StartRunResponse = runs_proxy
-        .call("StartRun", (retry_request,))
-        .await
-        .unwrap();
+    let retry_started: runs::StartRunResponse =
+        runs_proxy.call("StartRun", (retry_request,)).await.unwrap();
     assert!(!retry_started.already_running);
     retry_agent.started.notified().await;
     retry_agent.release.notify_one();
     let _ = poll_until_done(&runs_proxy, &retry_owner.storage, "rollback-id").await;
 }
-

@@ -7,10 +7,10 @@ use std::sync::{Arc, LazyLock, Mutex};
 use anyhow::{Context, Result, bail};
 use tinybus::Connection;
 use tinyflows::engine::CancellationToken;
-use tokio::sync::Notify;
 use tinyflows_bus::runs::{
     CancelRunResponse, PollRun, RunControlRequest, StartRun, StartRunResponse,
 };
+use tokio::sync::Notify;
 
 mod actor;
 mod cancellation;
@@ -103,13 +103,8 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
     let run_key = key(&request.storage, &request.run_id);
     let active = loop {
         if let Some(existing) = active(&run_key) {
-            if let Some(response) = wait_for_admission(
-                &prepared.catalog,
-                &request.run_id,
-                &run_key,
-                existing,
-            )
-            .await?
+            if let Some(response) =
+                wait_for_admission(&prepared.catalog, &request.run_id, &run_key, existing).await?
             {
                 return Ok(response);
             }
@@ -126,13 +121,9 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         match register(run_key.clone()) {
             Ok(active) => break active,
             Err(existing) => {
-                if let Some(response) = wait_for_admission(
-                    &prepared.catalog,
-                    &request.run_id,
-                    &run_key,
-                    existing,
-                )
-                .await?
+                if let Some(response) =
+                    wait_for_admission(&prepared.catalog, &request.run_id, &run_key, existing)
+                        .await?
                 {
                     return Ok(response);
                 }
@@ -247,9 +238,7 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
         .context("decoding flow run events")?;
     let next_cursor = events.last().map_or(request.cursor, |event| event.seq);
     let last_seq = catalog.flow_run_event_last_seq(&request.run_id).await?;
-    let terminal_seq = catalog
-        .flow_run_terminal_event_seq(&request.run_id)
-        .await?;
+    let terminal_seq = catalog.flow_run_terminal_event_seq(&request.run_id).await?;
     Ok(PollRun {
         events,
         next_cursor,

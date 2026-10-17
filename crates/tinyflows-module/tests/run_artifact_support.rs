@@ -4,10 +4,8 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-use tinybus::module::ModuleHost;
-use tinybus::transport::memory::MemoryTransport;
+use tinybus::Connection;
 use tinyflows_bus::{
-    BUS_NAME,
     catalog::{self, CatalogStorage, PutWorkflowRequest, PutWorkflowResponse, RunIdRequest},
     runs::{
         self, AgentDefinition, AgentEventsRequest, AgentEventsResponse, AgentProgressEvent,
@@ -17,7 +15,6 @@ use tinyflows_bus::{
 };
 use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 use tokio::sync::Notify;
-
 
 struct OwnerDocuments {
     docs: Arc<dyn DocumentStore>,
@@ -141,10 +138,10 @@ fn reply(value: tinystoragedrivers_core::Result<impl Serialize>) -> Value {
     }
 }
 
-struct AgentCallback {
-    started: Notify,
-    release: Notify,
-    calls: Arc<AtomicUsize>,
+pub(super) struct AgentCallback {
+    pub(super) started: Notify,
+    pub(super) release: Notify,
+    pub(super) calls: Arc<AtomicUsize>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CapsHost")]
@@ -186,12 +183,12 @@ impl AgentCallback {
     }
 }
 
-struct Owner {
-    storage: CatalogStorage,
-    caps: runs::CallbackAddress,
+pub(super) struct Owner {
+    pub(super) storage: CatalogStorage,
+    pub(super) caps: runs::CallbackAddress,
 }
 
-async fn owner(
+pub(super) async fn owner(
     connection: &Connection,
     name: &str,
     terminal_gate: Option<(Arc<Notify>, Arc<Notify>)>,
@@ -235,7 +232,7 @@ async fn owner(
     }
 }
 
-async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
+pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
     let callback = Arc::new(AgentCallback {
         started: Notify::new(),
         release: Notify::new(),
@@ -250,7 +247,11 @@ async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> 
     callback
 }
 
-async fn create_flow(proxy: &tinybus::Proxy, storage: &CatalogStorage, name: &str) -> String {
+pub(super) async fn create_flow(
+    proxy: &tinybus::Proxy,
+    storage: &CatalogStorage,
+    name: &str,
+) -> String {
     let response: PutWorkflowResponse = proxy
         .call(
             "PutWorkflow",
@@ -269,7 +270,7 @@ async fn create_flow(proxy: &tinybus::Proxy, storage: &CatalogStorage, name: &st
     created.workflow.id
 }
 
-fn graph(include_agent: bool) -> Value {
+pub(super) fn graph(include_agent: bool) -> Value {
     let mut nodes = vec![json!({"id":"trigger","name":"Trigger","kind":"trigger","config":{}})];
     let mut edges = Vec::new();
     if include_agent {
@@ -289,7 +290,7 @@ fn graph(include_agent: bool) -> Value {
     })
 }
 
-fn request(
+pub(super) fn request(
     owner: &Owner,
     flow_id: String,
     run_id: &str,
@@ -315,4 +316,3 @@ fn request(
         timeout_ms,
     }
 }
-

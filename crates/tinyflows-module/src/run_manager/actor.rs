@@ -46,10 +46,11 @@ pub(super) async fn drive(
     )
     .await;
     let (result, timed_out) = match capabilities {
-        Ok(capabilities) => {
-            execute(&request, &prepared, &capabilities, &active, &observer).await
-        }
-        Err(error) => (Err(anyhow::anyhow!("building run capabilities: {error}")), false),
+        Ok(capabilities) => execute(&request, &prepared, &capabilities, &active, &observer).await,
+        Err(error) => (
+            Err(anyhow::anyhow!("building run capabilities: {error}")),
+            false,
+        ),
     };
     let observed = observer.steps();
     let mut graph_run_id = None;
@@ -172,8 +173,12 @@ pub(super) async fn drive(
             .await
         {
             Ok(true) => {}
-            Ok(false) => tracing::error!(run_id = %request.run_id, "terminal event cursor was not committed"),
-            Err(error) => tracing::error!(%error, run_id = %request.run_id, "committing terminal event cursor"),
+            Ok(false) => {
+                tracing::error!(run_id = %request.run_id, "terminal event cursor was not committed")
+            }
+            Err(error) => {
+                tracing::error!(%error, run_id = %request.run_id, "committing terminal event cursor")
+            }
         },
         Err(error) => {
             tracing::error!(%error, run_id = %request.run_id, "persisting terminal run event");
@@ -191,7 +196,10 @@ async fn execute(
     capabilities: &tinyflows::caps::Capabilities,
     active: &ActiveRun,
     observer: &Arc<Observer>,
-) -> (Result<(tinyflows::engine::RunOutcome, Option<String>)>, bool) {
+) -> (
+    Result<(tinyflows::engine::RunOutcome, Option<String>)>,
+    bool,
+) {
     let input = RunInput::new(request.trigger_data.clone())
         .with_inputs(prepared.inputs.clone())
         .with_run_id(request.run_id.clone())
@@ -223,12 +231,7 @@ async fn execute(
         } else {
             "executing workflow graph"
         })
-        .map(|outcome| {
-            (
-                outcome.outcome,
-                Some(outcome.graph_run_ids.run_id),
-            )
-        });
+        .map(|outcome| (outcome.outcome, Some(outcome.graph_run_ids.run_id)));
     (result, timed_out)
 }
 

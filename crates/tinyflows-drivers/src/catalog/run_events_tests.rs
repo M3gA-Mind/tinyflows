@@ -118,10 +118,12 @@ async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
         None,
         "the event itself must be durable before its terminal marker"
     );
-    assert!(catalog
-        .mark_flow_run_terminal_event("event-run", 1)
-        .await
-        .unwrap());
+    assert!(
+        catalog
+            .mark_flow_run_terminal_event("event-run", 1)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         catalog
             .flow_run_terminal_event_seq("event-run")

@@ -52,10 +52,7 @@ impl FlowCatalogDocuments {
             .get(RUNS, id)
             .await?
             .context("flow run does not exist")?;
-        Ok(stored
-            .doc
-            .get("terminal_event_seq")
-            .and_then(Value::as_u64))
+        Ok(stored.doc.get("terminal_event_seq").and_then(Value::as_u64))
     }
 
     /// Stores the exact execution snapshot used to start a run. Parked-run
