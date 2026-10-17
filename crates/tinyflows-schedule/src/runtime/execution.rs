@@ -76,7 +76,7 @@ pub(super) async fn execute_and_persist(
             run_id: run_id.clone(),
             attempt: attempt.clone(),
             success,
-            delivery_status,
+            delivery_status: delivery_status.clone(),
         })
         .await?;
     ports
