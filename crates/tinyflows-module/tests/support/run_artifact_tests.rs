@@ -319,6 +319,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .find(|event| event.kind == "finished")
         .expect("completed run has a terminal event");
     assert_eq!(bob_finished.data["successful"], true);
+    let finished: runs::RunFinished =
+        serde_json::from_value(bob_finished.data.clone()).unwrap();
+    assert_eq!(finished.status, "completed");
+    assert!(finished.successful);
 
     let alice_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
