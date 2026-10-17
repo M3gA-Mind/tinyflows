@@ -36,7 +36,12 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
     wait_notify(&agent.started, "dedup test agent start").await;
     let steps = poll_until_kind(&runs_proxy, &owner.storage, "dedup-run", "step").await;
     assert_eq!(
-        steps[0].data["node_id"], "original-dedup",
+        steps
+            .iter()
+            .find(|event| event.kind == "step")
+            .unwrap()
+            .data["node_id"],
+        "original-dedup",
         "step events: {steps:?}"
     );
 
