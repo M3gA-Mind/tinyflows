@@ -2,6 +2,14 @@
 mod authoring_contract_calls;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/schedule_v4_delivery_artifact.rs"]
+mod schedule_v4_delivery_artifact;
+#[path = "support/schedule_v4_artifact.rs"]
+mod schedule_v4_artifact;
+#[path = "support/schedule_v4_manual_artifact.rs"]
+mod schedule_v4_manual_artifact;
+#[path = "support/schedule_v4_recovery_artifact.rs"]
+mod schedule_v4_recovery_artifact;
 #[path = "support/copilot_artifact.rs"]
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
@@ -486,4 +494,5 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
 
     wiring_warning_artifact::verify_authoring_gates(&proxy).await;
     copilot_artifact::verify_surface(&connection).await;
+    schedule_v4_artifact::verify(&schedule_proxy, docs, storage, state).await;
 }
