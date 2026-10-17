@@ -216,6 +216,7 @@ impl AgentCallback {
 pub(super) struct Owner {
     pub(super) storage: CatalogStorage,
     pub(super) caps: runs::CallbackAddress,
+    pub(super) docs: Arc<dyn DocumentStore>,
 }
 
 pub(super) async fn owner(
@@ -228,12 +229,13 @@ pub(super) async fn owner(
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
         .unwrap();
+    let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{name}");
     connection
         .serve_at(
             path.parse().unwrap(),
             OwnerDocuments {
-                docs: scoped.documents().clone(),
+                docs: docs.clone(),
                 terminal_write_started: terminal_gate.as_ref().map(|(started, _)| started.clone()),
                 release_terminal_write: terminal_gate.as_ref().map(|(_, release)| release.clone()),
                 terminal_write_pending: terminal_gate
@@ -264,6 +266,7 @@ pub(super) async fn owner(
             destination: "test.CapsHost".into(),
             object_path: format!("/test/caps/{name}"),
         },
+        docs,
     }
 }
 
@@ -287,13 +290,22 @@ pub(super) async fn create_flow(
     storage: &CatalogStorage,
     name: &str,
 ) -> String {
+    create_flow_with_graph(proxy, storage, name, graph(true)).await
+}
+
+pub(super) async fn create_flow_with_graph(
+    proxy: &tinybus::Proxy,
+    storage: &CatalogStorage,
+    name: &str,
+    graph: Value,
+) -> String {
     let response: PutWorkflowResponse = proxy
         .call(
             "PutWorkflow",
             &(PutWorkflowRequest::Create {
                 storage: storage.clone(),
                 name: name.into(),
-                graph: graph(true),
+                graph,
                 require_approval: false,
             }),
         )
@@ -303,6 +315,23 @@ pub(super) async fn create_flow(
         panic!("failed to create flow: {response:?}");
     };
     created.workflow.id
+}
+
+pub(super) fn dedup_graph(node_id: &str) -> Value {
+    json!({
+        "inputs":[{"name":"declared","type":"string","required":true}],
+        "nodes":[
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":node_id,"name":"Dedup","kind":"dedup","config":{"key":"=item.id"}},
+            {"id":"agent","name":"Agent","kind":"agent","config":{"agent_ref":"test-agent","prompt":"work"}},
+            {"id":"output","name":"Output","kind":"transform","config":{"set":{"declared":"=inputs.declared","payload":"=run.trigger.payload"}}}
+        ],
+        "edges":[
+            {"from_node":"trigger","from_port":"main","to_node":node_id,"to_port":"main"},
+            {"from_node":node_id,"from_port":"main","to_node":"agent","to_port":"main"},
+            {"from_node":"agent","from_port":"main","to_node":"output","to_port":"main"}
+        ]
+    })
 }
 
 pub(super) fn graph(include_agent: bool) -> Value {
