@@ -10,6 +10,7 @@ pub struct State {
     pub records: Mutex<Vec<Value>>,
     pub completions: Mutex<Vec<Value>>,
     pub triggers: Mutex<Vec<String>>,
+    pub trigger_jobs: Mutex<Vec<Value>>,
     pub defer_first: std::sync::atomic::AtomicBool,
     pub started: tokio::sync::Notify,
     pub release: tokio::sync::Notify,
@@ -167,7 +168,10 @@ impl Callbacks {
             self.0.execute_release.notified().await;
         }
         self.0.executions.lock().unwrap().push(run_id);
-        Ok(json!({"success":true,"output":"manual output","retryable":false}))
+        Ok(json!({
+            "success":true,"output":"manual output","retryable":false,
+            "raw_detail":"opaque callback classification"
+        }))
     }
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
         Ok(())
@@ -193,12 +197,16 @@ impl Callbacks {
     async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
         let flow_id = job["command"].as_str().unwrap_or_default().to_owned();
         self.0.triggers.lock().unwrap().push(flow_id.clone());
+        self.0.trigger_jobs.lock().unwrap().push(job.clone());
         if flow_id == "artifact-flow"
             && self.0.defer_first.load(std::sync::atomic::Ordering::SeqCst)
         {
             self.0.started.notify_one();
             self.0.release.notified().await;
         }
-        Ok(json!({"success":true,"output":"scheduled","retryable":false}))
+        Ok(json!({
+            "success":true,"output":"scheduled","retryable":false,
+            "raw_detail":"opaque trigger classification"
+        }))
     }
 }

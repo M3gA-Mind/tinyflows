@@ -82,6 +82,10 @@ pub async fn verify(
     assert_eq!(terminal["success"], false);
     assert_eq!(terminal["delivery_status"], "failed");
     assert_eq!(terminal["attempt"]["success"], true);
+    assert_eq!(
+        terminal["attempt"]["raw_detail"],
+        "opaque callback classification"
+    );
     drop(projections);
     let after = store.get_job(&job.id).await.unwrap();
     assert_eq!(after.last_status.as_deref(), Some("error"));

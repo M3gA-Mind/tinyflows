@@ -83,5 +83,10 @@ pub async fn verify(
         state.executions.lock().unwrap().len(),
         executions_before + 1
     );
-    assert!(state.projections.lock().unwrap().last().unwrap()["success"] == true);
+    let projection = state.projections.lock().unwrap();
+    assert_eq!(projection.last().unwrap()["success"], true);
+    assert_eq!(
+        projection.last().unwrap()["attempt"]["raw_detail"],
+        "opaque callback classification"
+    );
 }

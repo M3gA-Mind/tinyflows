@@ -82,6 +82,10 @@ pub async fn verify(
         .lock()
         .unwrap()
         .contains(&"artifact-manual-run".to_owned()));
+    assert_eq!(
+        state.projections.lock().unwrap().last().unwrap()["attempt"]["raw_detail"],
+        "opaque callback classification"
+    );
 
     let held_job = store
         .add_shell_job(
@@ -103,9 +107,9 @@ pub async fn verify(
             "RunJobNow",
             &(RunJobNow {
                 scope: "artifact-manual-scope".into(),
-                callback,
+                callback: callback.clone(),
                 config: serde_json::json!({}),
-                storage,
+                storage: storage.clone(),
                 job: held_job.clone(),
                 run_id: "artifact-refused-run".into(),
                 delivery: ManualDelivery::NotRequested,
@@ -122,4 +126,91 @@ pub async fn verify(
     ));
     assert!(store.list_runs(&held_job.id, 10).await.unwrap().is_empty());
     assert!(store.release_claim(&held, Utc::now()).await.unwrap());
+
+    let detached_job = store
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: Utc::now() + Duration::hours(1),
+            },
+            "echo detached",
+        )
+        .await
+        .unwrap();
+    let projection_count = state.projections.lock().unwrap().len();
+    state
+        .defer_execute
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let accepted: RunJobReply = proxy
+        .call(
+            "RunJobNow",
+            &(RunJobNow {
+                scope: "artifact-manual-scope".into(),
+                callback: callback.clone(),
+                config: serde_json::json!({}),
+                storage: storage.clone(),
+                job: detached_job.clone(),
+                run_id: "artifact-detached-run".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: false,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        accepted,
+        RunJobReply::Accepted { ref run_id } if run_id == "artifact-detached-run"
+    ));
+    let queued = store.list_runs(&detached_job.id, 10).await.unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].status, "queued", "queue is visible before RPC ack");
+    state.execute_started.notified().await;
+    let duplicate: RunJobReply = proxy
+        .call(
+            "RunJobNow",
+            &(RunJobNow {
+                scope: "artifact-manual-scope".into(),
+                callback,
+                config: serde_json::json!({}),
+                storage,
+                job: detached_job.clone(),
+                run_id: "artifact-detached-duplicate".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: true,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        duplicate,
+        RunJobReply::Refused {
+            reason: RunJobRefusal::AlreadyRunning
+        }
+    ));
+    assert_eq!(store.list_runs(&detached_job.id, 10).await.unwrap().len(), 1);
+    state.execute_release.notify_one();
+    let mut projected = false;
+    for _ in 0..1_000 {
+        if state.projections.lock().unwrap().len() > projection_count {
+            projected = true;
+            break;
+        }
+        let projection = state.terminal_projection.notified();
+        if state.projections.lock().unwrap().len() > projection_count {
+            projected = true;
+            break;
+        }
+        projection.await;
+    }
+    assert!(projected, "detached module worker reached terminal projection");
+    let mut finished = false;
+    for _ in 0..1_000 {
+        let history = store.list_runs(&detached_job.id, 10).await.unwrap();
+        if history.first().is_some_and(|run| run.status == "ok") {
+            finished = true;
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(finished, "queued placeholder is replaced by terminal history");
 }
