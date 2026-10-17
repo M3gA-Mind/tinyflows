@@ -176,3 +176,16 @@ async fn document_bridge_requires_capability_report_and_never_emulates_transacti
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }
+
+#[test]
+fn shared_tsd_collections_admit_only_cron_keys_and_no_scans() {
+    assert!(Documents::validate_record("tsd.counters", "cron/runs").is_ok());
+    assert!(Documents::validate_record("tsd.leases", "cron/job/123").is_ok());
+    assert!(Documents::validate_record("tsd.leases", "flows/x").is_err());
+    assert!(Documents::validate_record("tsd.counters", "~hashed").is_err());
+    assert!(Documents::validate_record("cron.jobs", "anything").is_ok());
+    assert!(Documents::validate_record("tsd.migrations", "cron/x").is_err());
+    assert!(Documents::validate_set("tsd.leases").is_err());
+    assert!(Documents::validate_set("tsd.counters").is_err());
+    assert!(Documents::validate_set("cron.jobs").is_ok());
+}

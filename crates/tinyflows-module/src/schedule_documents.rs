@@ -9,6 +9,11 @@ use tinystoragedrivers_core::{
     Result, Sort, StorageError, Version, Versioned, WriteOp, WriteOptions, WriteResult,
 };
 
+/// Collections owned by `tsd`, shared by every owner's primitives.
+const SHARED: [&str; 2] = ["tsd.counters", "tsd.leases"];
+/// Every `cron` record in a shared collection is keyed `Key::of(["cron", ..])`.
+const CRON_KEY_PREFIX: &str = "cron/";
+
 pub(super) struct Documents {
     connection: Connection,
     address: CallbackAddress,
@@ -80,7 +85,6 @@ impl Documents {
             "cron.admission",
             "tsd.counters",
             "tsd.leases",
-            "tsd.migrations",
             "cron_job_policies",
         ]
         .contains(&collection)
@@ -91,8 +95,42 @@ impl Documents {
         }
         Ok(())
     }
+    /// `tsd.counters` and `tsd.leases` are shared with other owners, so a
+    /// schedule request may only touch records under its own `cron/` keys and
+    /// never scan them.
+    fn validate_record(collection: &str, id: &str) -> Result<()> {
+        Self::validate_collection(collection)?;
+        if SHARED.contains(&collection) && !id.starts_with(CRON_KEY_PREFIX) {
+            return Err(StorageError::invalid_input(
+                "record is outside the schedule owner's keys",
+            ));
+        }
+        Ok(())
+    }
+    fn validate_set(collection: &str) -> Result<()> {
+        Self::validate_collection(collection)?;
+        if SHARED.contains(&collection) {
+            return Err(StorageError::invalid_input(
+                "set operations are outside the schedule port for shared collections",
+            ));
+        }
+        Ok(())
+    }
     async fn call<R: DeserializeOwned>(&self, collection: &str, request: Value) -> Result<R> {
         Self::validate_collection(collection)?;
+        self.request(request).await
+    }
+    async fn call_record<R: DeserializeOwned>(
+        &self,
+        collection: &str,
+        id: &str,
+        request: Value,
+    ) -> Result<R> {
+        Self::validate_record(collection, id)?;
+        self.request(request).await
+    }
+    async fn call_set<R: DeserializeOwned>(&self, collection: &str, request: Value) -> Result<R> {
+        Self::validate_set(collection)?;
         self.request(request).await
     }
     async fn request<R: DeserializeOwned>(&self, request: Value) -> Result<R> {
@@ -122,10 +160,12 @@ impl DocumentStore for Documents {
     async fn atomic_batch(&self, ops: Vec<WriteOp>) -> Result<Vec<WriteResult>> {
         self.capabilities.require(Capability::Transactions)?;
         for operation in &ops {
-            let collection = match operation {
-                WriteOp::Put { collection, .. } | WriteOp::Delete { collection, .. } => collection,
+            let (collection, id) = match operation {
+                WriteOp::Put { collection, id, .. } | WriteOp::Delete { collection, id, .. } => {
+                    (collection, id)
+                }
             };
-            Self::validate_collection(collection)?;
+            Self::validate_record(collection, id)?;
         }
         self.request(json!({"op":"atomic_batch","ops":ops})).await
     }
@@ -134,8 +174,9 @@ impl DocumentStore for Documents {
             .await
     }
     async fn get(&self, collection: &str, id: &str) -> Result<Option<Versioned<Value>>> {
-        self.call(
+        self.call_record(
             collection,
+            id,
             json!({"op":"get","collection":collection,"id":id}),
         )
         .await
@@ -147,7 +188,7 @@ impl DocumentStore for Documents {
         doc: Value,
         precondition: Precondition,
     ) -> Result<Version> {
-        self.call(collection, json!({"op":"put","collection":collection,"id":id,"doc":doc,"precondition":precondition})).await
+        self.call_record(collection, id, json!({"op":"put","collection":collection,"id":id,"doc":doc,"precondition":precondition})).await
     }
     async fn put_with(
         &self,
@@ -172,31 +213,32 @@ impl DocumentStore for Documents {
         if let Some(expires_ms) = options.expires_ms {
             request["expires_ms"] = json!(expires_ms);
         }
-        self.call(collection, request).await
+        self.call_record(collection, id, request).await
     }
     async fn delete(&self, collection: &str, id: &str, precondition: Precondition) -> Result<bool> {
-        self.call(
+        self.call_record(
             collection,
+            id,
             json!({"op":"delete","collection":collection,"id":id,"precondition":precondition}),
         )
         .await
     }
     async fn query(&self, collection: &str, query: &Query) -> Result<Page<Versioned<Value>>> {
-        self.call(
+        self.call_set(
             collection,
             json!({"op":"query","collection":collection,"query":query}),
         )
         .await
     }
     async fn count(&self, collection: &str, filter: &Filter) -> Result<u64> {
-        self.call(
+        self.call_set(
             collection,
             json!({"op":"count","collection":collection,"filter":filter}),
         )
         .await
     }
     async fn delete_where(&self, collection: &str, filter: &Filter) -> Result<u64> {
-        self.call(
+        self.call_set(
             collection,
             json!({"op":"delete_where","collection":collection,"filter":filter}),
         )
