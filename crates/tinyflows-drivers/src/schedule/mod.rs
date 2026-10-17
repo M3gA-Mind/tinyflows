@@ -23,6 +23,11 @@
 //! `finished_ms`; a one-shot schedule carries `at_ms`. Jobs due and runs
 //! started within one millisecond order by id and run number.
 //!
+//! A claim that queued a placeholder run
+//! ([`CronDocuments::queue_claimed_run`]) records its run number as the job's
+//! `queued_run`. Completion, release, a new acquisition and an edit remove the
+//! placeholder together with that field.
+//!
 //! # Concurrency
 //!
 //! On a transaction-capable backend, every job mutation also CASes a shared

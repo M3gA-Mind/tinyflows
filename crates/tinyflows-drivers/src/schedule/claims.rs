@@ -478,7 +478,9 @@ impl CronDocuments {
                     Err(error) => return Err(error),
                 }
             }
-            return self.change_lease(&leases, &key, claim, now, expires_at).await;
+            return self
+                .change_lease(&leases, &key, claim, now, expires_at)
+                .await;
         }
         bail!("cron store: occurrence kept changing during lease change")
     }

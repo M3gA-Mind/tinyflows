@@ -185,7 +185,10 @@ async fn v1_revision_sequence_run_events_and_snapshot_migrate_and_read_back() {
     let def = docs.get("flows.definitions", "f1").await.unwrap().unwrap();
     assert_eq!(def.doc["revision"], 4, "the revision sequence is carried");
     let run = docs.get("flows.runs", "run1").await.unwrap().unwrap();
-    assert_eq!(run.doc["events"][1]["kind"], "finished", "events are a real array");
+    assert_eq!(
+        run.doc["events"][1]["kind"], "finished",
+        "events are a real array"
+    );
     assert!(run.doc.get("events_json").is_none());
     assert_eq!(run.doc["execution_snapshot"]["lease"], "actor");
     assert_eq!(run.doc["terminal_event_seq"], 2);
@@ -198,7 +201,11 @@ async fn v1_revision_sequence_run_events_and_snapshot_migrate_and_read_back() {
         Some(2)
     );
     assert_eq!(
-        catalog.flow_run_events_after("run1", 1, 10).await.unwrap().len(),
+        catalog
+            .flow_run_events_after("run1", 1, 10)
+            .await
+            .unwrap()
+            .len(),
         1
     );
 }

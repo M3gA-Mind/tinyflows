@@ -148,8 +148,7 @@ impl FlowCatalogDocuments {
                         .get(RUNS, id)
                         .await?
                         .context("flow run does not exist")?;
-                    let events =
-                        events_of(&stored.doc).context("flow run events are corrupt")?;
+                    let events = events_of(&stored.doc).context("flow run events are corrupt")?;
                     let last = events
                         .last()
                         .and_then(|event| event["seq"].as_u64())
