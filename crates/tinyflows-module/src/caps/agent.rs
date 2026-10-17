@@ -3,9 +3,9 @@
 use super::*;
 
 use tinyflows::caps::{
-    AgentDefinition, AgentRunOutcome, AgentRunRequest, AgentRunner, ContextBlock, ToolDescriptor,
-    WorkdirCheck,
+    AgentRunOutcome, AgentRunRequest, AgentRunner, ContextBlock, ToolDescriptor, WorkdirCheck,
 };
+use tinyflows::model::AgentDefinition;
 use tinyflows::transcript::TranscriptEntry;
 use tinyflows_bus::runs::AgentEventsRequest;
 
