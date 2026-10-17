@@ -5,8 +5,9 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{
     Mutex,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use tokio::sync::Notify;
 use tinyflows_bus::schedule::{OccurrenceClaim, RunJobRefusal};
 use tinyflows_bus::schedule::DeliveryProjection;
 
@@ -28,6 +29,9 @@ struct Fixture {
     delivery_status_failed: bool,
     claim_fails: bool,
     max_tasks: usize,
+    renewals: AtomicUsize,
+    renewed: Notify,
+    take_lease_on_renew: AtomicBool,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -49,6 +53,9 @@ impl Fixture {
             delivery_status_failed: false,
             claim_fails: false,
             max_tasks: usize::MAX,
+            renewals: AtomicUsize::new(0),
+            renewed: Notify::new(),
+            take_lease_on_renew: AtomicBool::new(false),
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -172,6 +179,13 @@ impl JobStore for Fixture {
         lease: chrono::Duration,
     ) -> Result<bool> {
         let mut leases = self.leases.lock().unwrap();
+        if self.take_lease_on_renew.swap(false, Ordering::SeqCst) {
+            leases.insert(
+                claim.job.id.clone(),
+                ("successor-owner".into(), now + lease),
+            );
+            return Ok(false);
+        }
         let Some((token, expires)) = leases.get_mut(&claim.job.id) else {
             return Ok(false);
         };
@@ -179,6 +193,9 @@ impl JobStore for Fixture {
             return Ok(false);
         }
         *expires = (*expires).max(now + lease);
+        self.renewals.fetch_add(1, Ordering::SeqCst);
+        drop(leases);
+        self.renewed.notify_one();
         Ok(true)
     }
     async fn release_occurrence(

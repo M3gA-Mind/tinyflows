@@ -1,4 +1,103 @@
 use super::*;
+
+struct ControlledLeaseClock {
+    now: DateTime<Utc>,
+    renewal_tick: Notify,
+}
+#[async_trait]
+impl Clock for ControlledLeaseClock {
+    fn now(&self) -> DateTime<Utc> {
+        self.now
+    }
+    async fn sleep(&self, _: Duration) {
+        std::future::pending().await
+    }
+    async fn lease_wait(&self, _: Duration) {
+        self.renewal_tick.notified().await;
+    }
+}
+
+#[tokio::test]
+async fn live_run_renews_its_durable_lease_on_a_controlled_tick() {
+    let fixture = Fixture::new();
+    let executor = Arc::new(BlockExecutor {
+        started: Semaphore::new(0),
+        release: Semaphore::new(0),
+        active: AtomicUsize::new(0),
+        peak: AtomicUsize::new(0),
+    });
+    let clock = Arc::new(ControlledLeaseClock {
+        now: fixture.now(),
+        renewal_tick: Notify::new(),
+    });
+    let mut ports = fixture.ports();
+    ports.executor = executor.clone();
+    ports.clock = clock.clone();
+    let job = fixture.job();
+    let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), ports);
+    assert_eq!(scheduler.dispatch(vec![job]).await.unwrap(), 1);
+    executor.started.acquire().await.unwrap().forget();
+    clock.renewal_tick.notify_one();
+    fixture.renewed.notified().await;
+    assert_eq!(fixture.renewals.load(Ordering::SeqCst), 1);
+    executor.release.add_permits(1);
+    scheduler.drain().await.unwrap();
+    assert_eq!(fixture.completions.lock().unwrap().len(), 1);
+}
+
+struct DropSignal(Arc<Notify>);
+impl Drop for DropSignal {
+    fn drop(&mut self) {
+        self.0.notify_one();
+    }
+}
+struct CancellableExecutor {
+    started: Arc<Notify>,
+    dropped: Arc<Notify>,
+}
+#[async_trait]
+impl JobExecutor for CancellableExecutor {
+    async fn execute(&self, _: &CronJob, _: &str) -> Result<Attempt> {
+        let _drop_signal = DropSignal(self.dropped.clone());
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
+    let fixture = Fixture::new();
+    fixture
+        .take_lease_on_renew
+        .store(true, Ordering::SeqCst);
+    let started = Arc::new(Notify::new());
+    let dropped = Arc::new(Notify::new());
+    let clock = Arc::new(ControlledLeaseClock {
+        now: fixture.now(),
+        renewal_tick: Notify::new(),
+    });
+    let mut ports = fixture.ports();
+    ports.executor = Arc::new(CancellableExecutor {
+        started: started.clone(),
+        dropped: dropped.clone(),
+    });
+    ports.clock = clock.clone();
+    let job = fixture.job();
+    let job_id = job.id.clone();
+    let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), ports);
+    assert_eq!(scheduler.dispatch(vec![job]).await.unwrap(), 1);
+    started.notified().await;
+    clock.renewal_tick.notify_one();
+    dropped.notified().await;
+    assert!(scheduler.drain().await.is_err());
+    assert!(fixture.records.lock().unwrap().is_empty());
+    assert!(fixture.projections.lock().unwrap().is_empty());
+    assert_eq!(
+        fixture.leases.lock().unwrap().get(&job_id).unwrap().0,
+        "successor-owner"
+    );
+    scheduler.shutdown().await;
+}
 async fn dispatch_returns_before_execution_and_limits_concurrent_jobs() {
     let f = Fixture::new();
     let executor = Arc::new(BlockExecutor {
