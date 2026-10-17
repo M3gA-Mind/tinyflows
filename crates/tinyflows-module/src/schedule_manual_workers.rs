@@ -12,7 +12,6 @@ use tokio::{
 };
 
 const PREPARED_TTL: Duration = Duration::from_secs(15 * 60);
-const TERMINAL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(super) struct ManualWorkerEntry {
     control: Mutex<Control>,
@@ -75,9 +74,6 @@ impl ManualWorkerEntry {
 
     pub(super) fn set_state(&self, state: ManualRunState) {
         let mut control = self.control.lock().expect("manual worker control poisoned");
-        if matches!(state, ManualRunState::Terminal { .. }) {
-            control.expires_at = Instant::now() + TERMINAL_TTL;
-        }
         control.state = state;
     }
 
@@ -100,7 +96,6 @@ impl ManualWorkerEntry {
                 control.state = ManualRunState::Terminal {
                     outcome: ManualRunOutcome::Stopped { run_id: None },
                 };
-                control.expires_at = Instant::now() + TERMINAL_TTL;
             }
             ManualRunState::Starting => {
                 control.stop_requested = true;
@@ -125,10 +120,7 @@ impl ManualWorkerEntry {
 
     fn expired(&self, now: Instant) -> bool {
         let control = self.control.lock().expect("manual worker control poisoned");
-        matches!(
-            control.state,
-            ManualRunState::Prepared | ManualRunState::Terminal { .. }
-        ) && control.expires_at <= now
+        matches!(control.state, ManualRunState::Prepared) && control.expires_at <= now
     }
 }
 
