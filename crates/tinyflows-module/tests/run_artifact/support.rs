@@ -144,6 +144,19 @@ impl OwnerDocuments {
     }
 
     async fn doc_delete_where(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows_graph_checkpoints"
+            && self
+                .fail_checkpoint_delete
+                .as_ref()
+                .is_some_and(|fail| fail.swap(false, Ordering::SeqCst))
+        {
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected checkpoint delete-where failure"
+                }
+            }));
+        }
         Ok(reply(
             self.docs
                 .delete_where(text(&request, "collection"), &decode(&request["filter"])?)
