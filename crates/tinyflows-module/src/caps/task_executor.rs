@@ -53,6 +53,7 @@ impl TaskExecutor for CapabilityTaskExecutor {
                     .map_err(|error| {
                         EngineError::Capability(format!("invalid child workflow: {error}"))
                     })?;
+                tinyflows::compat::ensure_compatible(&graph).map_err(capability_error)?;
                 let compiled = tinyflows::compiler::compile(&graph).map_err(capability_error)?;
                 let mut capabilities = self.capabilities.clone();
                 capabilities.tasks = Some(self.task_runner.upgrade().ok_or_else(|| {

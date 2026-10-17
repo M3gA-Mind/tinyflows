@@ -158,12 +158,15 @@ struct CatalogResolver {
 #[async_trait]
 impl WorkflowResolver for CatalogResolver {
     async fn resolve(&self, id: &str) -> Result<tinyflows::model::WorkflowGraph> {
-        self.catalog
+        let graph = self
+            .catalog
             .get_flow(id)
             .await
             .map_err(capability_error)?
             .map(|flow| flow.graph)
-            .ok_or_else(|| capability_error(format!("missing workflow {id}")))
+            .ok_or_else(|| capability_error(format!("missing workflow {id}")))?;
+        tinyflows::compat::ensure_compatible(&graph).map_err(capability_error)?;
+        Ok(graph)
     }
 }
 

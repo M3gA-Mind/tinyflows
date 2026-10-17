@@ -119,6 +119,32 @@ async fn module_builder_uses_scoped_flow_documents_for_state_and_catalog_resolut
         )
         .await
         .unwrap();
+    let unsafe_child: tinyflows::model::WorkflowGraph = serde_json::from_value(json!({
+        "nodes": [
+            {"id":"start","kind":"trigger","name":"Trigger"},
+            {"id":"outer","kind":"condition","name":"Outer","config":{"field":"o"}},
+            {"id":"inner","kind":"condition","name":"Inner","config":{"field":"i"}},
+            {"id":"outer_else","kind":"output_parser","name":"Outer else"},
+            {"id":"inner_else","kind":"output_parser","name":"Inner else"},
+            {"id":"a","kind":"output_parser","name":"A"},
+            {"id":"c","kind":"output_parser","name":"C"},
+            {"id":"m","kind":"merge","name":"Merge"}
+        ],
+        "edges": [
+            {"from_node":"start","from_port":"main","to_node":"outer"},
+            {"from_node":"start","from_port":"main","to_node":"c"},
+            {"from_node":"outer","from_port":"true","to_node":"inner"},
+            {"from_node":"outer","from_port":"false","to_node":"outer_else"},
+            {"from_node":"inner","from_port":"true","to_node":"a"},
+            {"from_node":"inner","from_port":"false","to_node":"inner_else"},
+            {"from_node":"a","from_port":"main","to_node":"m"},
+            {"from_node":"c","from_port":"main","to_node":"m"}
+        ]
+    })).unwrap();
+    let legacy_unsafe = alice_catalog
+        .create_flow("Legacy unsafe child".into(), unsafe_child, false, false)
+        .await
+        .unwrap();
 
     let alice = CapsHostPorts::capabilities(
         module.clone(),
@@ -165,6 +191,8 @@ async fn module_builder_uses_scoped_flow_documents_for_state_and_catalog_resolut
 
     let resolved = alice.resolver.resolve(&child.id).await.unwrap();
     assert_eq!(resolved, child.graph);
+    let compatibility = alice.resolver.resolve(&legacy_unsafe.id).await.unwrap_err();
+    assert!(compatibility.to_string().contains("unsupported_nested_conditional_fan_in"));
     assert!(bob_catalog.get_flow(&child.id).await.unwrap().is_none());
     assert!(bob.resolver.resolve(&child.id).await.is_err());
 }
