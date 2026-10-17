@@ -21,6 +21,7 @@ struct Fixture {
     raw_details: Mutex<Vec<Option<String>>>,
     calls: AtomicUsize,
     triggers: AtomicUsize,
+    trigger_jobs: Mutex<Vec<CronJob>>,
     fail_count: usize,
     permanent: bool,
     delivery_fails: bool,
@@ -41,6 +42,7 @@ impl Fixture {
             raw_details: Mutex::new(vec![]),
             calls: AtomicUsize::new(0),
             triggers: AtomicUsize::new(0),
+            trigger_jobs: Mutex::new(vec![]),
             fail_count: 0,
             permanent: false,
             delivery_fails: false,
@@ -260,8 +262,9 @@ impl RunDelivery for Fixture {
 }
 #[async_trait]
 impl TriggerSink for Fixture {
-    async fn schedule(&self, _: &CronJob, _: &str) -> Result<Attempt> {
+    async fn schedule(&self, job: &CronJob, _: &str) -> Result<Attempt> {
         self.triggers.fetch_add(1, Ordering::SeqCst);
+        self.trigger_jobs.lock().unwrap().push(job.clone());
         Ok(Attempt {
             success: true,
             output: "triggered".into(),
@@ -361,10 +364,11 @@ async fn flow_schedule_dispatches_directly_to_trigger_sink() {
     let mut job = f.job();
     job.job_type = JobType::Flow;
     let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), f.ports());
-    scheduler.dispatch(vec![job]).await.unwrap();
+    scheduler.dispatch(vec![job.clone()]).await.unwrap();
     scheduler.drain().await.unwrap();
     assert_eq!(f.triggers.load(Ordering::SeqCst), 1);
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(f.trigger_jobs.lock().unwrap()[0], job);
 }
 
 #[tokio::test]
