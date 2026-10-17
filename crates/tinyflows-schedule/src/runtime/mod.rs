@@ -4,7 +4,7 @@ mod execution;
 mod ports;
 use crate::CronJob;
 use anyhow::Result;
-pub use claims::{RunClaim, SchedulerSlot};
+pub use claims::SchedulerSlot;
 pub use execution::execute_with_retry;
 pub use ports::*;
 use serde::{Deserialize, Serialize};
