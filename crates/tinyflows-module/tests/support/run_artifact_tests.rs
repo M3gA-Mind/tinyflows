@@ -186,7 +186,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .call(
             "CancelRun",
             (RunControlRequest {
-                storage: alias.storage,
+                storage: alias.storage.clone(),
                 run_id: run_id.into(),
                 cursor: 0,
             },),
@@ -197,6 +197,31 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         !alias_cancel.signalled,
         "an alias cannot cancel another live binding"
     );
+    let alias_sweep: runs::BootSweepResponse = runs_proxy
+        .call(
+            "BootSweep",
+            (runs::BootSweep {
+                storage: alias.storage,
+                shared_backend: false,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !alias_sweep.interrupted.iter().any(|id| id == run_id),
+        "an alias cannot sweep another live actor"
+    );
+    let after_alias_sweep: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: alice.storage.clone(),
+                id: run_id.into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_alias_sweep.unwrap().status, "running");
 
     let duplicate: runs::StartRunResponse = runs_proxy
         .call("StartRun", (alice_start.clone(),))
