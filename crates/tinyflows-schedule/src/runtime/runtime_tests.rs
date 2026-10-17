@@ -36,6 +36,11 @@ struct Fixture {
     take_lease_on_renew: AtomicBool,
     lease_takeover_job: Mutex<Option<String>>,
     lease_taken_over: Notify,
+    control_retry_heartbeat: AtomicBool,
+    backoff_entered: Notify,
+    release_backoff: Notify,
+    heartbeat_entered: Notify,
+    release_heartbeat: Notify,
 }
 impl Fixture {
     fn new() -> Arc<Self> {
@@ -64,6 +69,11 @@ impl Fixture {
             take_lease_on_renew: AtomicBool::new(false),
             lease_takeover_job: Mutex::new(None),
             lease_taken_over: Notify::new(),
+            control_retry_heartbeat: AtomicBool::new(false),
+            backoff_entered: Notify::new(),
+            release_backoff: Notify::new(),
+            heartbeat_entered: Notify::new(),
+            release_heartbeat: Notify::new(),
         })
     }
     fn ports(self: &Arc<Self>) -> RuntimePorts {
@@ -108,11 +118,21 @@ impl Clock for Fixture {
         *self.now.lock().unwrap()
     }
     async fn sleep(&self, duration: Duration) {
+        if self.control_retry_heartbeat.load(Ordering::SeqCst) {
+            self.backoff_entered.notify_one();
+            self.release_backoff.notified().await;
+            return;
+        }
         self.waits.lock().unwrap().push(duration);
         *self.now.lock().unwrap() += chrono::Duration::from_std(duration).unwrap();
     }
     async fn lease_wait(&self, _: Duration) {
-        std::future::pending().await
+        if self.control_retry_heartbeat.load(Ordering::SeqCst) {
+            self.heartbeat_entered.notify_one();
+            self.release_heartbeat.notified().await;
+        } else {
+            std::future::pending().await
+        }
     }
 }
 #[async_trait]
@@ -352,6 +372,51 @@ async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
         result.raw_detail.as_deref(),
         Some("opaque host classification")
     );
+}
+
+#[tokio::test]
+async fn lease_takeover_wins_over_a_ready_retry_backoff_before_another_attempt() {
+    let mut fixture = Fixture::new();
+    let inner = Arc::get_mut(&mut fixture).unwrap();
+    inner.fail_count = 1;
+    inner.control_retry_heartbeat.store(true, Ordering::SeqCst);
+    let job = fixture.job();
+    let claim = fixture
+        .claim_due_occurrence(
+            &job,
+            "original-owner",
+            fixture.now(),
+            chrono::Duration::seconds(10),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let clock = fixture.clone();
+    let job_id = job.id.clone();
+    let task = tokio::spawn(async move {
+        let ports = clock.ports();
+        let scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), ports);
+        scheduler
+            .run_manual_claim(claim, ManualDelivery::Requested)
+            .await
+    });
+
+    fixture.backoff_entered.notified().await;
+    fixture.heartbeat_entered.notified().await;
+    fixture.leases.lock().unwrap().insert(
+        job_id,
+        (
+            "successor-owner".into(),
+            fixture.now() + chrono::Duration::hours(2),
+        ),
+    );
+    fixture.release_backoff.notify_one();
+    fixture.release_heartbeat.notify_one();
+
+    assert!(task.await.unwrap().is_err());
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert!(fixture.records.lock().unwrap().is_empty());
+    assert!(fixture.projections.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
