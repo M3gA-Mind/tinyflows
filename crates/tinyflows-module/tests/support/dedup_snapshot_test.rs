@@ -19,7 +19,7 @@ async fn dedup_cancellation_settles_against_the_executed_graph_snapshot() {
     let runs_proxy = connection
         .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
         .unwrap();
-    let owner = owner(&connection, "dedup-snapshot", None, None, None).await;
+    let owner = owner(&connection, "dedup-snapshot", None, None, None, None).await;
     let original = dedup_graph("original-dedup");
     let flow_id = create_flow_with_graph(
         &catalog_proxy,

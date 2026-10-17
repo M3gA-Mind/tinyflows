@@ -20,7 +20,7 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
     let runs_proxy = connection
         .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
         .unwrap();
-    let owner = owner(&connection, "failed-run", None, None, None).await;
+    let owner = owner(&connection, "failed-run", None, None, None, None).await;
     let graph = dedup_graph("failure-dedup");
     let flow_id =
         create_flow_with_graph(&catalog_proxy, &owner.storage, "Failed flow", graph.clone()).await;
