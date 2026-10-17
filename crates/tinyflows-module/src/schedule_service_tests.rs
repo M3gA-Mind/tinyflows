@@ -505,8 +505,8 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         }) if run_id == "manual-worker-completed"
     ));
     let history = documents.list_runs(&job.id, 10).await.unwrap();
-    assert_eq!(history[0].run_id, "manual-worker-completed");
     assert_eq!(history[0].status, "ok");
+    assert_eq!(history[0].output.as_deref(), Some("executed"));
     assert!(proxy
         .call::<bool>(
             "AcknowledgeManualRun",
