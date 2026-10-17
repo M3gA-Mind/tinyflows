@@ -112,7 +112,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let mut terminal = None;
     for _ in 0..10_000 {
         let current: ManualRunState = proxy
-            .call(
+            .call::<Option<ManualRunState>>(
                 "WaitManualRun",
                 &(WaitManualRun {
                     handle: handle.clone(),
@@ -141,7 +141,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
             },),
         )
         .await
-        .unwrap();
+        .unwrap().expect("known worker handle remains observable");
     assert!(acknowledged);
     assert!(
         proxy
@@ -185,7 +185,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
             chrono::Duration::minutes(1),
         )
         .await
-        .unwrap();
+        .unwrap().expect("known worker handle remains observable");
     let Some(released) = released else {
         panic!("terminal Stopped must follow confirmed claim release")
     };
@@ -231,7 +231,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let mut completed = None;
     for _ in 0..10_000 {
         let current: ManualRunState = proxy
-            .call(
+            .call::<Option<ManualRunState>>(
                 "WaitManualRun",
                 &(WaitManualRun {
                     handle: completed_handle.clone(),
@@ -297,7 +297,7 @@ async fn delivery_projection_error_releases_claim_before_failed_terminal() {
             "echo delivery failure",
         )
         .await
-        .unwrap();
+        .unwrap().expect("known worker handle remains observable");
     host.serve_at(
         "/test/Documents".try_into().unwrap(),
         document_callbacks::Documents {
@@ -350,14 +350,14 @@ async fn delivery_projection_error_releases_claim_before_failed_terminal() {
     let mut terminal = None;
     for _ in 0..10_000 {
         let current: ManualRunState = proxy
-            .call(
+            .call::<Option<ManualRunState>>(
                 "WaitManualRun",
                 &(WaitManualRun {
                     handle: handle.clone(),
                 },),
             )
             .await
-            .unwrap();
+            .unwrap().expect("known worker handle remains observable");
         if matches!(current, ManualRunState::Terminal { .. }) {
             terminal = Some(current);
             break;
