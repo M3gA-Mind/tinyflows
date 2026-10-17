@@ -1,4 +1,5 @@
 use super::*;
+use crate::catalog::test_support::{catalog, trigger_graph};
 
 #[tokio::test]
 async fn run_events_append_in_order_and_poll_after_cursor() {
