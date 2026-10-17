@@ -51,6 +51,94 @@ fn manual_worker_states_are_stable_typed_wire_values() {
 }
 
 #[test]
+fn manual_worker_requests_and_outcomes_round_trip_as_typed_wire_contracts() {
+    fn round_trip<T: serde::Serialize + serde::de::DeserializeOwned>(value: T) {
+        let encoded = serde_json::to_value(value).unwrap();
+        let decoded: T = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+    }
+
+    let handle = ManualRunHandle {
+        token: "opaque-handle".into(),
+    };
+    let callback = CallbackAddress {
+        destination: "host.Callbacks".into(),
+        object_path: "/host/agent".into(),
+    };
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend":{"kind":"documents","callback":{
+            "destination":"host.Callbacks","object_path":"/host/documents"
+        }}
+    }))
+    .unwrap();
+    let job: CronJob = serde_json::from_value(json!({
+        "id":"job","expression":"","schedule":{"kind":"every","every_ms":60000},
+        "command":"echo hi","prompt":null,"name":null,"job_type":"shell",
+        "session_target":"isolated","model":null,"agent_id":null,"enabled":true,
+        "delivery":{"mode":"none"},"delete_after_run":false,
+        "created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z"
+    }))
+    .unwrap();
+    let request = ManualRunRequest {
+        callback,
+        config: json!({"retries":2}),
+        storage,
+        job,
+        run_id: "run".into(),
+        delivery: ManualDelivery::NotRequested,
+    };
+
+    round_trip(PrepareManualRun {
+        scope: "scope".into(),
+        request_id: "request".into(),
+    });
+    round_trip(handle.clone());
+    round_trip(StartManualRun {
+        handle: handle.clone(),
+        request,
+    });
+    round_trip(WaitManualRun {
+        handle: handle.clone(),
+    });
+    round_trip(StopManualRun {
+        handle: handle.clone(),
+    });
+    round_trip(AcknowledgeManualRun { handle });
+
+    round_trip(ManualRunState::Prepared);
+    round_trip(ManualRunState::Starting);
+    round_trip(ManualRunState::Running {
+        run_id: "run".into(),
+    });
+    round_trip(ManualRunState::Stopping {
+        run_id: Some("run".into()),
+    });
+    round_trip(ManualRunState::CleanupPending { run_id: None });
+    round_trip(ManualRunState::Terminal {
+        outcome: ManualRunOutcome::Completed {
+            run_id: "run".into(),
+            attempt: Attempt {
+                success: true,
+                output: "done".into(),
+                retryable: false,
+                raw_detail: None,
+            },
+            success: true,
+            delivery_status: Some(DeliveryStatus::Delivered),
+        },
+    });
+    round_trip(ManualRunOutcome::Refused {
+        run_id: "run".into(),
+        reason: RunJobRefusal::AlreadyRunning,
+    });
+    round_trip(ManualRunOutcome::Stopped { run_id: None });
+    round_trip(ManualRunOutcome::Failed {
+        run_id: Some("run".into()),
+        message: "safe failure".into(),
+    });
+}
+
+#[test]
 fn manual_admission_and_terminal_delivery_are_explicit_wire_types() {
     let reply: RunJobReply = serde_json::from_value(json!({
         "kind":"refused", "reason":"already_running"
