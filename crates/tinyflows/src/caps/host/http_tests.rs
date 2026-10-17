@@ -129,13 +129,36 @@ fn credential_preparation_rejects_non_object_request_and_headers() {
 
 #[test]
 fn credential_header_values_support_scheme_templates_and_override_inline_values() {
-    let mut request = json!({"headers":{"authorization":"inline"}});
-    let cred = HttpCredential {
-        header: "Authorization".into(),
-        value: "Bearer {token}".into(),
-    };
-    request = inject_credential(request, &cred).unwrap();
-    assert_eq!(request["headers"]["Authorization"], "Bearer {token}");
+    use crate::caps::HttpCredentialTemplate;
+
+    let bearer = HttpCredentialTemplate::Bearer {
+        secret: "token".into(),
+    }
+    .render()
+    .unwrap();
+    let request = inject_credential(
+        json!({"headers":{"authorization":"inline"}}),
+        &bearer,
+    )
+    .unwrap();
+    assert_eq!(request["headers"]["Authorization"], "Bearer token");
+    assert!(request["headers"].get("authorization").is_none());
+
+    let basic = HttpCredentialTemplate::Basic {
+        username: "alice".into(),
+        secret: "secret".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!(basic.value, "Basic YWxpY2U6c2VjcmV0");
+
+    let custom = HttpCredentialTemplate::Header {
+        header: "X-API-Key".into(),
+        secret: "key".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!((custom.header.as_str(), custom.value.as_str()), ("X-API-Key", "key"));
 }
 
 #[test]

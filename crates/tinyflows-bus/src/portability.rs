@@ -15,10 +15,23 @@ pub const METHODS: &[&str] = &["PrepareHttpRequest", "AppEventBinding", "PinnedI
 pub struct PrepareHttpRequest {
     /// Request object to prepare.
     pub request: Value,
-    /// Header selected by host credential policy.
-    pub header: String,
-    /// Opaque header value; consumers must never log this field.
-    pub value: String,
+    /// Credential template selected by host credential policy.
+    pub credential: HttpCredentialTemplate,
+}
+
+/// Portable HTTP credential forms. Secret fields are transport data and must
+/// never be emitted in logs, errors, or recorded workflow output.
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "scheme", rename_all = "snake_case")]
+pub enum HttpCredentialTemplate {
+    /// Bearer authorization credential.
+    Bearer { secret: String },
+    /// Basic authorization credential.
+    Basic { username: String, secret: String },
+    /// Secret sent through a custom header.
+    Header { header: String, secret: String },
+    /// Value already rendered by the trusted host.
+    Resolved { header: String, value: String },
 }
 
 /// Match a graph's sole app-event trigger against a toolkit and slug.

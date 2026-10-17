@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::caps::HttpClient;
+pub use crate::caps::http_credential::{HttpCredential, inject_credential};
 use crate::error::{EngineError, Result};
 
 /// The `connection_ref` prefix naming an HTTP credential.
@@ -44,15 +45,6 @@ const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// that follows a successful resolution — a resolver that never answers is
 /// not covered by it at all.
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// A credential the host injects into an outbound request.
-#[derive(Debug, Clone)]
-pub struct HttpCredential {
-    /// The header to set, e.g. `Authorization`.
-    pub header: String,
-    /// The header's value, e.g. `Bearer …`. Never logged.
-    pub value: String,
-}
 
 /// The credential name inside a `connection_ref`, if it names one.
 ///
@@ -78,26 +70,6 @@ pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
 ///
 /// Called last, after the request has been described for logs or approval, so
 /// the secret exists only in the value handed to the transport.
-pub fn inject_credential(mut request: Value, cred: &HttpCredential) -> Result<Value> {
-    let object = request.as_object_mut().ok_or_else(|| {
-        EngineError::Capability("http_request: request must be an object".into())
-    })?;
-    let headers = object
-        .entry("headers")
-        .or_insert_with(|| Value::Object(Default::default()));
-    if headers.is_null() {
-        *headers = Value::Object(Default::default());
-    }
-    let headers = headers.as_object_mut().ok_or_else(|| {
-        EngineError::Capability("http_request: headers must be an object or null".into())
-    })?;
-    // Credential values may be scheme templates (for example "Bearer {token}")
-    // already resolved by the host. Keep the value opaque and never include it
-    // in an error or diagnostic.
-    headers.insert(cred.header.clone(), Value::String(cred.value.clone()));
-    Ok(request)
-}
-
 /// A description of a request safe to log or show for approval: method and URL
 /// only, never headers or body.
 pub fn redacted_summary(request: &Value) -> String {

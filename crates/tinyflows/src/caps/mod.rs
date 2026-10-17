@@ -7,6 +7,7 @@
 
 pub mod agent;
 pub mod approval;
+pub mod http_credential;
 #[cfg(any(test, feature = "host-caps"))]
 pub mod host;
 #[cfg(any(test, feature = "mock"))]
@@ -36,6 +37,7 @@ pub use self::agent::{
 pub use self::approval::{
     ApprovalDecision, ApprovalOutcome, ApprovalProvider, ApprovalRequest, ApprovalSubject,
 };
+pub use self::http_credential::{HttpCredential, HttpCredentialTemplate, inject_credential};
 pub use self::schema::sample_for_schema;
 pub use self::shell::{ShellInterpreter, ShellOutcome, ShellRequest, ShellRunner, ShellScript};
 pub use self::tasks::{TaskExecutor, TaskRunner, TaskSpec, TaskState, TokioTaskRunner};

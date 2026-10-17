@@ -5,11 +5,12 @@ use serde_json::json;
 fn portability_wire_requests_round_trip_without_credential_diagnostics() {
     let request = PrepareHttpRequest {
         request: json!({"headers":null}),
-        header: "Authorization".into(),
-        value: "Bearer secret".into(),
+        credential: HttpCredentialTemplate::Bearer {
+            secret: "secret".into(),
+        },
     };
     let wire = serde_json::to_value(&request).unwrap();
-    assert_eq!(wire["value"], "Bearer secret");
+    assert_eq!(wire["credential"]["scheme"], "bearer");
     assert_eq!(serde_json::from_value::<PrepareHttpRequest>(wire).unwrap(), request);
     let binding = AppEventBinding {
         graph: json!({"nodes":[]}),

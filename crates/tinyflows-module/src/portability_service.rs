@@ -13,11 +13,24 @@ impl Portability {
         &self,
         request: tinyflows_bus::portability::PrepareHttpRequest,
     ) -> Result<Value> {
-        let credential = tinyflows::caps::host::HttpCredential {
-            header: request.header,
-            value: request.value,
+        let credential = match request.credential {
+            tinyflows_bus::portability::HttpCredentialTemplate::Bearer { secret } => {
+                tinyflows::caps::HttpCredentialTemplate::Bearer { secret }
+            }
+            tinyflows_bus::portability::HttpCredentialTemplate::Basic { username, secret } => {
+                tinyflows::caps::HttpCredentialTemplate::Basic { username, secret }
+            }
+            tinyflows_bus::portability::HttpCredentialTemplate::Header { header, secret } => {
+                tinyflows::caps::HttpCredentialTemplate::Header { header, secret }
+            }
+            tinyflows_bus::portability::HttpCredentialTemplate::Resolved { header, value } => {
+                tinyflows::caps::HttpCredentialTemplate::Resolved { header, value }
+            }
         };
-        tinyflows::caps::host::inject_credential(request.request, &credential)
+        let credential = credential
+            .render()
+            .map_err(|_| Error::failed("HTTP credential preparation failed"))?;
+        tinyflows::caps::inject_credential(request.request, &credential)
             .map_err(|_| Error::failed("HTTP request preparation failed"))
     }
 
