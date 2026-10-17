@@ -388,6 +388,10 @@ impl DeliveryStatus {
 pub struct CronRun {
     pub id: i64,
     pub job_id: String,
+    /// Stable invocation identity when the run came from an identified request.
+    /// Older history rows do not carry this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
     pub status: String,
