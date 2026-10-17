@@ -8,7 +8,9 @@
 //! | `cron_counters` `runs` | `tsd.counters` owner `cron` name `runs`, through [`import_legacy_cron_counters`] |
 //! | embedded `occurrence_lease` | `tsd.leases` (owner `cron`, key `Key::of([job_id, occurrence_ms])`) |
 //!
-//! An embedded lease or completion receipt is not carried over: a claim only
+//! An embedded lease or completion receipt is not carried over (except the
+//! number of the lease's queued placeholder run, kept as the job's
+//! `queued_run` so the next claim removes the placeholder): a claim only
 //! means something to the worker holding it in memory, which does not survive
 //! the migration. The occurrence can be claimed again, so after an upgrade an
 //! occurrence that was in flight may run once more (execution is at least once).
@@ -124,6 +126,15 @@ fn job(source: &SourceRecord) -> Option<TargetRecord> {
         if let Some(value) = body.get(field) {
             out.insert(field.to_owned(), value.clone());
         }
+    }
+    // The queued placeholder run of a v1 claim outlives the lease it hung on,
+    // so it stays on the job for the next acquisition to remove.
+    if let Some(queued) = body
+        .get("occurrence_lease")
+        .and_then(|lease| lease.get("queued_run"))
+        .filter(|queued| queued.is_i64() || queued.is_u64())
+    {
+        out.insert("queued_run".into(), queued.clone());
     }
     out.insert("schedule".into(), schedule(body.get("schedule")?)?);
     if let Some(delivery) = body.get("delivery").and_then(parsed) {
