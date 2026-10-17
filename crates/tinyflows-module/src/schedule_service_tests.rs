@@ -11,8 +11,17 @@ pub(super) struct State {
 struct Callbacks(Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
 impl Callbacks {
-    async fn due_jobs(&self, _now: String) -> Result<Vec<Value>> {
+    async fn due_jobs(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Value>> {
+        let _ = now;
         Ok(vec![])
+    }
+    async fn due_jobs_excluding(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        excluded: Vec<String>,
+    ) -> Result<Vec<Value>> {
+        let _ = excluded;
+        self.due_jobs(now).await
     }
     async fn execute(&self, _job: Value, run_id: String) -> Result<Value> {
         self.0.executions.lock().await.push(run_id);
@@ -57,12 +66,13 @@ pub(super) async fn connections() -> (Connection, Connection, Arc<State>) {
     host.request_name("test.ScheduleHost").await.unwrap();
     (server, host, state)
 }
-fn callback() -> CallbackAddress {
+pub(super) fn callback() -> CallbackAddress {
     CallbackAddress {
         destination: "test.ScheduleHost".into(),
         object_path: "/test/ScheduleHost".into(),
     }
 }
+
 #[tokio::test]
 async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_delivery() {
     let (_server, host, _) = connections().await;

@@ -35,9 +35,12 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// `sqlite` store backend; storage is the host's document port only. 3 moved
 /// the job/run/policy records and the callback records into this crate
 /// (`types`, `Attempt`/`RunRecord`/`Completion`, `AgentJobSpec`,
-/// `StoreOperation`) and added occurrence leases, module-owned manual run
-/// admission and explicit send/terminal delivery phases.
-pub const CONTRACT_VERSION: u32 = 4;
+/// `StoreOperation`) and added the schedule-maths and validation members and
+/// the `set_max_active_jobs`/`import_job`/`import_run` store operations. 4 added
+/// optional `config.now` for fixed calendar time on manual schedulers. 5 adds
+/// occurrence leases, module-owned manual run admission and explicit
+/// send/terminal delivery phases.
+pub const CONTRACT_VERSION: u32 = 5;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     members::SCHEDULE_STORE,
@@ -116,6 +119,9 @@ pub struct StartScheduler {
     /// Context-bound I/O callbacks used for every scheduled run.
     pub callback: CallbackAddress,
     /// `poll_secs`, `max_concurrent`, `retries`, `backoff_ms`; omitted keys use defaults.
+    /// Manual schedulers additionally accept `now` (RFC3339), fixing calendar
+    /// time for due selection, run records and rescheduling without changing
+    /// the machine clock. Omit it to use system time. Automatic loops refuse it.
     pub config: serde_json::Value,
     #[serde(default)]
     /// True to drive ticks/drain through calls; false starts the module-owned loop.
