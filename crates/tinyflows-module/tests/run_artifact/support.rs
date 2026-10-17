@@ -247,7 +247,7 @@ pub(super) async fn owner(
         .for_scope(&Scope::new(name).unwrap())
         .unwrap();
     let docs = scoped.documents().clone();
-    let path = format!("/test/catalog/{name}");
+    let path = format!("/test/catalog/{}", name.replace('-', "_"));
     connection
         .serve_at(
             path.parse().unwrap(),
@@ -281,7 +281,7 @@ pub(super) async fn owner(
         },
         caps: runs::CallbackAddress {
             destination: "test.CapsHost".into(),
-            object_path: format!("/test/caps/{name}"),
+            object_path: format!("/test/caps/{}", name.replace('-', "_")),
         },
         docs,
     }
@@ -292,7 +292,7 @@ pub(super) async fn alias_owner(
     name: &str,
     docs: Arc<dyn DocumentStore>,
 ) -> Owner {
-    let path = format!("/test/catalog-alias/{name}");
+    let path = format!("/test/catalog_alias/{}", name.replace('-', "_"));
     connection
         .serve_at(
             path.parse().unwrap(),
@@ -318,7 +318,7 @@ pub(super) async fn alias_owner(
         },
         caps: runs::CallbackAddress {
             destination: "test.CapsHost".into(),
-            object_path: format!("/test/caps/{name}"),
+            object_path: format!("/test/caps/{}", name.replace('-', "_")),
         },
         docs,
     }
@@ -344,7 +344,7 @@ async fn serve_agent_with_failure(
         calls: Arc::new(AtomicUsize::new(0)),
         fail_start,
     });
-    let path = format!("/test/caps/{name}");
+    let path = format!("/test/caps/{}", name.replace('-', "_"));
     connection
         .serve_at(path.parse().unwrap(), callback.clone())
         .await
