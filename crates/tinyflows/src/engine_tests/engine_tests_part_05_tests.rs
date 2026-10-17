@@ -120,6 +120,51 @@ async fn resume_denying_a_gate_routes_to_its_error_port() {
 }
 
 #[tokio::test]
+async fn checkpointed_observed_resume_honors_a_cancelled_token() {
+    let cp: Arc<dyn Checkpointer<Value>> = Arc::new(InMemoryCheckpointer::<Value>::default());
+    let mut gate = node("gate", NodeKind::OutputParser);
+    gate.config = json!({ "requires_approval": true });
+    let graph = WorkflowGraph {
+        nodes: vec![
+            node("t", NodeKind::Trigger),
+            gate,
+            node("downstream", NodeKind::OutputParser),
+        ],
+        edges: vec![edge("t", "gate"), edge("gate", "downstream")],
+        ..Default::default()
+    };
+    let compiled = compile(&graph).expect("compile");
+    let paused = run_with_checkpointer(
+        &compiled,
+        json!({}),
+        &mock_capabilities(),
+        cp.clone(),
+        "thread-cancelled-resume",
+    )
+    .await
+    .expect("initial run parks at the gate");
+    assert_eq!(paused.pending_approvals, ["gate"]);
+
+    let token = CancellationToken::new();
+    token.cancel();
+    let outcome = resume_cancellable_with_checkpointer_journaled_observed(
+        &compiled,
+        &mock_capabilities(),
+        cp,
+        "thread-cancelled-resume",
+        vec!["gate".into()],
+        Vec::new(),
+        Arc::new(InMemoryGraphEventJournal::new()),
+        &(Arc::new(crate::observability::NoopObserver) as Arc<dyn RunObserver>),
+        token,
+    )
+    .await
+    .expect("cancellable checkpoint resume");
+    assert!(outcome.outcome.cancelled);
+    assert!(outcome.outcome.output["nodes"]["downstream"].is_null());
+}
+
+#[tokio::test]
 async fn resume_denying_a_gate_with_no_error_port_fails_the_run() {
     // trigger -> gate{requires_approval} -> downstream, with NO `error` edge.
     // Denying the gate must fail the run rather than silently swallow it.

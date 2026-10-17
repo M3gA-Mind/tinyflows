@@ -396,6 +396,28 @@ impl FlowCatalogDocuments {
         Ok(flipped.is_some())
     }
 
+    /// Atomically claims a parked run and binds the lease of the actor that
+    /// will resume it. The lease update shares the same parked-status CAS, so
+    /// boot reconciliation cannot mistake the claimed run for an orphan.
+    pub async fn claim_parked_flow_run_for_resume(&self, id: &str, lease: &str) -> Result<bool> {
+        let docs = self.docs().await?;
+        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
+            if status(doc) != "pending_approval" || lease.trim().is_empty() {
+                return None;
+            }
+            let mut next = doc.clone();
+            let snapshot = next.get_mut("execution_snapshot")?.as_object_mut()?;
+            snapshot.insert("lease".into(), json!(lease));
+            next["status"] = json!("running");
+            set_finished(&mut next, None);
+            set_optional(&mut next, "error", None);
+            Some(next)
+        })
+        .await
+        .context("Failed to claim parked flow run for resume")?;
+        Ok(flipped.is_some())
+    }
+
     /// Reconciles an orphaned `running` run to `interrupted`, only while it is
     /// still `running`; returns whether it flipped.
     pub async fn mark_run_interrupted(&self, id: &str, now: &str, reason: &str) -> Result<bool> {

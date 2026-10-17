@@ -428,6 +428,48 @@ pub async fn resume_with_checkpointer_journaled_observed(
     })
 }
 
+/// Resumes a checkpointed approval run with cooperative cancellation,
+/// journaling, and live observer events.
+///
+/// The same durable checkpoint and decision semantics as
+/// [`resume_with_checkpointer_journaled_observed`] apply. The supplied token is
+/// installed in the rebuilt graph runtime, so cancellation stops scheduling
+/// work at the next node boundary and is reflected in the returned outcome.
+///
+/// # Errors
+/// Same as [`resume_with_checkpointer_journaled_observed`].
+#[allow(clippy::too_many_arguments)]
+pub async fn resume_cancellable_with_checkpointer_journaled_observed(
+    workflow: &CompiledWorkflow,
+    capabilities: &Capabilities,
+    checkpointer: Arc<dyn Checkpointer<Value>>,
+    thread_id: &str,
+    newly_approved: Vec<String>,
+    rejected: Vec<String>,
+    journal: Arc<dyn GraphEventJournal>,
+    observer: &Arc<dyn RunObserver>,
+    token: CancellationToken,
+) -> Result<JournaledRunOutcome> {
+    let (outcome, graph_run_ids) = resume_with_checkpointer_inner(
+        workflow,
+        capabilities,
+        checkpointer,
+        thread_id,
+        Continuation::Approvals {
+            approved: newly_approved,
+            rejected,
+        },
+        Some(journal),
+        observer,
+        Some(token),
+    )
+    .await?;
+    Ok(JournaledRunOutcome {
+        outcome,
+        graph_run_ids,
+    })
+}
+
 /// Why a checkpointed thread is being continued.
 ///
 /// The two boundaries a run can stop at need different things delivered back

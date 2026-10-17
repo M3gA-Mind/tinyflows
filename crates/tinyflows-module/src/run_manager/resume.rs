@@ -52,7 +52,7 @@ pub(super) async fn resume(
         bail!("resume decisions do not name a currently pending gate")
     }
 
-    let mut snapshot = catalog
+    let snapshot = catalog
         .flow_run_snapshot(&request.run_id)
         .await?
         .context("parked run has no execution snapshot")?;
@@ -124,32 +124,6 @@ pub(super) async fn resume(
         timeout_ms: request.timeout_ms,
     };
 
-    let run_key = key(&request.storage, &request.run_id);
-    let active = reserve_resume(run_key)?;
-    if !catalog.mark_run_resuming(&request.run_id).await? {
-        unregister(&active);
-        bail!("parked run was claimed by another lifecycle operation")
-    }
-    snapshot["lease"] = Value::String(active.lease.clone());
-    if let Err(error) = catalog
-        .set_flow_run_snapshot(&request.run_id, snapshot)
-        .await
-    {
-        let now = chrono::Utc::now().to_rfc3339();
-        let _ = catalog
-            .finish_flow_run(
-                &request.run_id,
-                "failed",
-                &now,
-                &row.steps,
-                &[],
-                Some("could not bind resumed run owner lease"),
-                None,
-            )
-            .await;
-        unregister(&active);
-        return Err(error).context("binding resumed run owner lease");
-    }
     let documents: Arc<dyn DocumentStore> =
         Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let prepared = Prepared {
@@ -159,6 +133,22 @@ pub(super) async fn resume(
         checkpointer: DriverCheckpointer::new(documents),
         require_approval,
     };
+    let run_key = key(&request.storage, &request.run_id);
+    let active = reserve_resume(run_key)?;
+    let claimed = match catalog
+        .claim_parked_flow_run_for_resume(&request.run_id, &active.lease)
+        .await
+    {
+        Ok(claimed) => claimed,
+        Err(error) => {
+            unregister(&active);
+            return Err(error).context("claiming parked run for resume");
+        }
+    };
+    if !claimed {
+        unregister(&active);
+        bail!("parked run was claimed by another lifecycle operation")
+    }
     active
         .phase
         .store(RUNNING, std::sync::atomic::Ordering::Release);
