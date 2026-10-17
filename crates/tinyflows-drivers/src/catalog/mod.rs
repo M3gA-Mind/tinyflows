@@ -41,7 +41,7 @@
 //! - `update_flow_graph` records the revision *before* swapping the graph, and
 //!   removes it again when the swap loses; a crash in between leaves one extra
 //!   revision, never a graph change without one.
-//! - A run's steps live on the run document (`steps_json`, as in SQLite), so
+//! - A run's steps live on the run document (`steps`, a JSON array), so
 //!   settling a run and its step list is one compare-and-swap, and an
 //!   incremental step write from a parallel branch retries on the winner's
 //!   list instead of losing to it (R-m1).

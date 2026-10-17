@@ -1,5 +1,5 @@
-//! A run's steps, kept in the run document itself as one JSON string
-//! (`steps_json`) — the same shape as SQLite's `flow_runs.steps_json` column.
+//! A run's steps, kept in the run document itself as one JSON array
+//! (`steps`), alongside the SQLite store's `flow_runs.steps_json` column.
 //!
 //! Keeping them on the run is what makes a step write and a run transition
 //! one compare-and-swap: `finish_flow_run` settles the status and the step
