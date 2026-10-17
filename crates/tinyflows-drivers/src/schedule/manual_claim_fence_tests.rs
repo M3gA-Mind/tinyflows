@@ -1,5 +1,4 @@
 use super::CronDocuments;
-use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::Value;
@@ -137,12 +136,7 @@ async fn admission_fence_rejects_claim_transaction_that_commits_after_reconcilia
     let claim_job = job.clone();
     let late_claim = tokio::spawn(async move {
         claim_store
-            .claim_job_now(
-                &claim_job,
-                "late-owner",
-                now,
-                Duration::hours(2),
-            )
+            .claim_job_now(&claim_job, "late-owner", now, Duration::hours(2))
             .await
     });
     held_docs.entered.notified().await;
