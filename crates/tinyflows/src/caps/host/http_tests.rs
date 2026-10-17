@@ -160,7 +160,7 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
     assert_eq!(basic.value, "Basic YWxpY2U6c2VjcmV0");
 
     let custom = HttpCredentialTemplate::Header {
-        header: "X-API-Key".into(),
+        header: " X-API-Key ".into(),
         secret: "key".into(),
     }
     .render()
@@ -177,6 +177,25 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
     .render()
     .unwrap();
     assert_eq!(resolved.value, "already formatted");
+}
+
+#[test]
+fn custom_header_template_rejects_empty_fields_without_revealing_values() {
+    use crate::caps::HttpCredentialTemplate;
+
+    for template in [
+        HttpCredentialTemplate::Header {
+            header: "   ".into(),
+            secret: "secret-token".into(),
+        },
+        HttpCredentialTemplate::Header {
+            header: "X-Key".into(),
+            secret: "  ".into(),
+        },
+    ] {
+        let error = template.render().expect_err("empty field must fail");
+        assert!(!error.to_string().contains("secret-token"));
+    }
 }
 
 #[test]

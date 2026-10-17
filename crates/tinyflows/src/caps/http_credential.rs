@@ -61,7 +61,12 @@ impl HttpCredentialTemplate {
                         "http_request: custom credential header is empty".into(),
                     ));
                 }
-                (header, secret)
+                if secret.trim().is_empty() {
+                    return Err(EngineError::Capability(
+                        "http_request: custom credential value is empty".into(),
+                    ));
+                }
+                (header.trim().to_string(), secret)
             }
             Self::Resolved { header, value } => (header, value),
         };
