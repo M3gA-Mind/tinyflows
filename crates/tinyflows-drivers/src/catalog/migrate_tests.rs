@@ -19,7 +19,7 @@ async fn seed(storage: &ScopedStorage, collection: &str, id: &str, body: Value) 
 }
 
 async fn migrate(storage: &ScopedStorage) {
-    let registry = Registry::compose([crate::storage_schema()]).unwrap();
+    let registry = Registry::compose([crate::catalog_storage_schema()]).unwrap();
     registry
         .migrate(storage, &MigrateOptions::new())
         .await
@@ -32,7 +32,7 @@ fn graph() -> Value {
 
 #[test]
 fn the_schema_composes_and_names_every_catalog_collection() {
-    let schema = crate::storage_schema();
+    let schema = crate::catalog_storage_schema();
     assert_eq!(schema.owner.as_str(), "flows");
     let names: Vec<&str> = schema.items.iter().map(|item| item.name()).collect();
     for name in [
@@ -45,6 +45,7 @@ fn the_schema_composes_and_names_every_catalog_collection() {
         assert!(names.contains(&name), "{name}");
     }
     assert!(schema.items.iter().all(|i| i.scope() == ScopeClass::Tenant));
+    assert!(!schema.items.iter().any(|item| item.name() == "flows.workflows"));
     Registry::compose([schema]).unwrap();
 }
 

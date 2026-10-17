@@ -36,7 +36,7 @@ impl Documents {
         let id = request["id"].as_str().unwrap_or("");
         match request["op"].as_str().unwrap_or("") {
             "capabilities" => Ok(
-                json!({"transactions":self.docs.capabilities().contains(tinystoragedrivers_core::Capability::Transactions)}),
+                json!({"transactions":self.docs.capabilities().contains(tinystoragedrivers_core::Capability::Transactions),"record_metadata":true}),
             ),
             "atomic_batch" => {
                 self.atomic_calls.fetch_add(1, Ordering::SeqCst);
@@ -59,6 +59,9 @@ impl Documents {
                 }
                 if let Some(expires_ms) = request["expires_ms"].as_i64() {
                     options = options.expires_ms(expires_ms);
+                }
+                if let Some(created_ms) = request["created_ms"].as_i64() {
+                    options = options.created_ms(created_ms);
                 }
                 encode(
                     self.docs
