@@ -218,7 +218,10 @@ impl CronDocuments {
                 }
             }
         }
-        tracing::warn!(job_id, "[cron-claims] a lease kept changing while it was freed");
+        tracing::warn!(
+            job_id,
+            "[cron-claims] a lease kept changing while it was freed"
+        );
     }
 
     /// Acquires one enabled, due occurrence, or recovers its expired lease.
