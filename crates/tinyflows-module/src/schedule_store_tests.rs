@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tinyflows_schedule::runtime::*;
 use tinyflows_schedule::{DeliveryStatus, Schedule};
-use tinystoragedrivers_core::{DocumentStoreExt, MemoryStorage, Scope, StorageBackend};
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 struct Replacement(CronDocuments);
 #[async_trait]
@@ -116,7 +116,7 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
     let scoped = backend.for_scope(&Scope::new("lease-recovery").unwrap()).unwrap();
     let documents = CronDocuments::new(scoped.documents().clone());
     let mut job = documents
-        .add_flow_schedule_job("lease-recovery", schedule)
+        .add_shell_job(Some("lease-recovery"), schedule, "true")
         .await
         .unwrap();
     job.next_run = now;
@@ -158,7 +158,7 @@ async fn interrupted_recurring_occurrence_is_recovered_before_next_recurrence() 
 #[tokio::test]
 async fn interrupted_one_shot_occurrence_is_recovered_after_restart() {
     assert_interrupted_occurrence_recovers(Schedule::At {
-        at: "2026-01-01T00:00:00Z".parse().unwrap(),
+        at: Utc::now() + chrono::Duration::hours(1),
     })
     .await;
 }
