@@ -42,10 +42,6 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         assert!(!error.to_string().contains("module-secret"));
     }
 
-    let graph = json!({"name":"event","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{
-        "trigger_kind":"app_event","toolkit":"GitHub","trigger_slug":"ISSUE_CREATED",
-        "inputs":{"literal":"=value"}
-    }}],"edges":[]});
     for (kind, schedule) in [
         ("cron", json!({"kind":"cron","expr":"0 9 * * 1","tz":"UTC"})),
         ("at", json!({"kind":"at","at":"2027-01-01T00:00:00Z"})),
