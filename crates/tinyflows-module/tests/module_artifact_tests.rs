@@ -32,6 +32,35 @@ use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS};
 
 struct HostCallback;
 
+#[tokio::test]
+#[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled module"]
+async fn compiled_module_prepares_manual_worker_through_schedule_abi() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to a compiled cdylib");
+    let broker = Broker::new();
+    let host = ModuleHost::new(broker.clone());
+    host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let schedule = connection
+        .proxy(
+            tinyflows_bus::schedule::BUS_NAME,
+            tinyflows_bus::schedule::OBJECT_PATH,
+            tinyflows_bus::schedule::INTERFACE,
+        )
+        .unwrap();
+
+    let prepared: serde_json::Value = schedule
+        .call(
+            "PrepareManualRun",
+            (json!({"scope":"artifact-scope","request_id":"artifact-request"}),),
+        )
+        .await
+        .unwrap();
+    assert!(prepared["handle"].is_object(), "prepare returns an opaque handle");
+}
+
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
 impl HostCallback {
     async fn resolve_workflow(&self, _: String) -> tinybus::Result<Option<serde_json::Value>> {
