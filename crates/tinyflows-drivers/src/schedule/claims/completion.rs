@@ -5,7 +5,7 @@ use super::super::{CAS_ATTEMPTS, CronDocuments, OWNER, RUNS, storage_error};
 use super::{
     CLAIM_EPOCH, COMPLETED, ClaimedOccurrence, JOBS, QUEUED, Receipt, lease_key, queued_run_cleanup,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use tinyflows_schedule::{DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output};
 use tinystoragedrivers_core::{Capability, Precondition, WriteOp};
@@ -22,9 +22,9 @@ impl CronDocuments {
     ///
     /// # Errors
     /// Completion predates acquisition, state/schedule is malformed, transactions
-    /// are unavailable, retries are exhausted, or the backend fails. Pruning
-    /// failure, or a failed release of the claim's lease, is reported after the
-    /// run and advance have already committed.
+    /// are unavailable, retries are exhausted, or the backend fails. Once the
+    /// run and advance have committed the call is `Ok(true)`: a failed lease
+    /// release or history prune is logged, never returned.
     pub async fn complete_claim(
         &self,
         claim: &ClaimedOccurrence,
@@ -132,29 +132,40 @@ impl CronDocuments {
                 .await
             {
                 Ok(_) => {
-                    // The occurrence is done: end its lease so the receipt is
-                    // the only trace of this claim. A failed release is
-                    // reported (the run and advance have already committed);
-                    // the lease still expires on its own.
-                    let key = lease_key(&job.id, claim.lease.occurrence.timestamp_millis())?;
-                    let released = self
-                        .leases_at(finished_at)
-                        .release(OWNER, &key, &claim.lease.token, claim.lease.epoch)
-                        .await;
-                    self.prune_runs(&job.id, &stored.doc).await?;
-                    if let Err(error) = released {
-                        tracing::warn!(
+                    // The run, receipt and advance are durable, so nothing
+                    // below may fail the completion: a caller that saw an
+                    // error would skip `delete_after_run` removal and report
+                    // a finished run as failed. Ending the lease and pruning
+                    // history are liveness only (`claim_epoch` already fences
+                    // a stale holder and the lease expires on its own).
+                    match lease_key(&job.id, claim.lease.occurrence.timestamp_millis()) {
+                        Ok(key) => {
+                            if let Err(error) = self
+                                .leases_at(finished_at)
+                                .release(OWNER, &key, &claim.lease.token, claim.lease.epoch)
+                                .await
+                            {
+                                tracing::warn!(
+                                    job_id = %job.id,
+                                    epoch = claim.lease.epoch,
+                                    %error,
+                                    "[cron-claims] releasing a completed claim's lease failed; it expires on its own"
+                                );
+                            }
+                        }
+                        Err(error) => tracing::warn!(
                             job_id = %job.id,
                             epoch = claim.lease.epoch,
                             %error,
-                            "[cron-claims] releasing a completed claim's lease failed"
+                            "[cron-claims] no lease key for a completed claim"
+                        ),
+                    }
+                    if let Err(error) = self.prune_runs(&job.id, &stored.doc).await {
+                        tracing::warn!(
+                            job_id = %job.id,
+                            %error,
+                            "[cron-claims] pruning run history after completion failed"
                         );
-                        return Err(storage_error(error)).with_context(|| {
-                            format!(
-                                "cron store: completed job {} (epoch {}) but its lease was not released",
-                                job.id, claim.lease.epoch
-                            )
-                        });
                     }
                     return Ok(true);
                 }

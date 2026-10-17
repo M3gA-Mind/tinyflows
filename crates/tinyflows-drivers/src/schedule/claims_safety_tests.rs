@@ -289,7 +289,7 @@ async fn a_failed_job_commit_gives_the_lease_back() {
 }
 
 #[tokio::test]
-async fn a_failed_lease_release_after_completion_is_reported_not_swallowed() {
+async fn a_failed_lease_release_after_a_committed_completion_does_not_fail_it() {
     let backend = MemoryStorage::new();
     let (store, docs) = fault_store(&backend, "release-failure", None);
     let job = store.add_shell_job(None, daily(), "echo").await.unwrap();
@@ -301,11 +301,17 @@ async fn a_failed_lease_release_after_completion_is_reported_not_swallowed() {
     docs.faults
         .lease_writes
         .store(true, std::sync::atomic::Ordering::SeqCst);
-    let error = store
-        .complete_claim(&claim, job.next_run, true, "done", None)
-        .await
-        .unwrap_err();
-    assert!(format!("{error:#}").contains(&job.id), "{error:#}");
-    // The outcome itself committed.
+    // The run, receipt and advance are durable; the lease only expires later.
+    assert!(
+        store
+            .complete_claim(&claim, job.next_run, true, "done", None)
+            .await
+            .unwrap(),
+        "a lease that could not be released must not fail a committed completion"
+    );
     assert_eq!(store.list_runs(&job.id, 10).await.unwrap().len(), 1);
+    // So the host still reaches its `delete_after_run` cleanup.
+    assert!(store.remove_completed_claim(&claim).await.unwrap());
+    assert!(store.list_runs(&job.id, 10).await.unwrap().is_empty());
+    assert!(store.find_job(&job.id).await.unwrap().is_none());
 }
