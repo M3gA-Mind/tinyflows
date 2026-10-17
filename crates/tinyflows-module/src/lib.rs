@@ -16,6 +16,8 @@ mod schedule_service;
 
 mod schedule_documents;
 mod schedule_store;
+mod runs_service;
+mod run_manager;
 
 #[cfg(feature = "static-link")]
 pub use exports::linked_module;
