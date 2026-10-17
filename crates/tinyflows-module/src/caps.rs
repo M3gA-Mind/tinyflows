@@ -80,10 +80,11 @@ impl CapsHostPorts {
                 .await
                 .map_err(capability_error)?;
         let catalog = FlowCatalogDocuments::new(Arc::new(documents) as Arc<dyn DocumentStore>);
-        let state: Arc<dyn StateStore> = Arc::new(FlowStateDocuments::new(
-            catalog.clone(),
-            format!("flow:{}", scope.flow_id),
-        ));
+        let state: Arc<dyn StateStore> = Arc::new(
+            FlowStateDocuments::open(catalog.clone(), format!("flow:{}", scope.flow_id))
+                .await
+                .map_err(capability_error)?,
+        );
         let resolver: Arc<dyn WorkflowResolver> = Arc::new(CatalogResolver { catalog });
         let ports = Arc::new(Self {
             connection,
