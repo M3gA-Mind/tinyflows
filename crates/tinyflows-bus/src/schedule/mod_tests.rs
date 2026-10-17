@@ -210,6 +210,7 @@ fn every_advertised_store_operation_round_trips_through_the_typed_form() {
         json!({"op":"set_max_active_jobs","limit":3}),
         json!({"op":"import_job","job":job}),
         json!({"op":"import_run","run":run}),
+        json!({"op":"migrate"}),
     ];
     assert_eq!(operations.len(), STORE_OPERATIONS.len());
     for (operation, name) in operations.iter().zip(STORE_OPERATIONS) {

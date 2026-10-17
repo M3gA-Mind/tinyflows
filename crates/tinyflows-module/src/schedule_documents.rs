@@ -10,9 +10,10 @@ use tinystoragedrivers_core::{
 };
 
 /// Collections owned by `tsd`, shared by every owner's primitives.
-const SHARED: [&str; 2] = ["tsd.counters", "tsd.leases"];
+const SHARED: [&str; 3] = ["tsd.counters", "tsd.leases", "tsd.migrations"];
 /// Every `cron` record in a shared collection is keyed `Key::of(["cron", ..])`.
 const CRON_KEY_PREFIX: &str = "cron/";
+const LEGACY: [&str; 3] = ["cron_jobs", "cron_runs", "cron_counters"];
 
 pub(super) struct Documents {
     connection: Connection,
@@ -70,10 +71,15 @@ impl Documents {
         #[derive(Deserialize)]
         struct CapabilityReport {
             transactions: bool,
+            #[serde(default)]
+            record_metadata: bool,
         }
         let report: CapabilityReport = documents.request(json!({"op":"capabilities"})).await?;
         if report.transactions {
             documents.capabilities = documents.capabilities.with(Capability::Transactions);
+        }
+        if report.record_metadata {
+            documents.capabilities = documents.capabilities.with(Capability::RecordMetadata);
         }
         Ok(documents)
     }
@@ -86,6 +92,9 @@ impl Documents {
             "tsd.counters",
             "tsd.leases",
             "cron_job_policies",
+            "cron_jobs",
+            "cron_runs",
+            "cron_counters",
         ]
         .contains(&collection)
         {
