@@ -64,18 +64,17 @@ async fn admission_waiter_rechecks_after_rollback_and_after_success() {
     let waiter_catalog = catalog.clone();
     let waiter_key = scoped_key.clone();
     let waiter_run = Arc::clone(&reservation);
+    let waiter_run_id = run_id.clone();
     tokio::spawn(async move {
-        let result = wait_for_admission(
-            &waiter_catalog,
-            &run_id,
-            &waiter_key,
-            waiter_run,
-        )
-        .await;
+        let result =
+            wait_for_admission(&waiter_catalog, &waiter_run_id, &waiter_key, waiter_run).await;
         let _ = finished.send(result);
     });
     reservation.admission_waiting.notified().await;
-    assert!(matches!(result.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+    assert!(matches!(
+        result.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
     unregister(&reservation);
     assert_eq!(result.await.unwrap().unwrap(), None);
 
