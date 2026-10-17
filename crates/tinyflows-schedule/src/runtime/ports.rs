@@ -136,6 +136,11 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> DateTime<Utc>;
     /// Wait for a poll interval or retry delay; test clocks may advance directly.
     async fn sleep(&self, duration: Duration);
+    /// Wait before renewing an occurrence lease. Tests may control this
+    /// independently from retry backoff sleeps.
+    async fn lease_wait(&self, duration: Duration) {
+        self.sleep(duration).await;
+    }
 }
 
 /// Production wall clock.
@@ -148,6 +153,10 @@ impl Clock for SystemClock {
     }
     /// Wait for a poll interval or retry delay; test clocks may advance directly.
     async fn sleep(&self, duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+    /// Production lease heartbeat timer.
+    async fn lease_wait(&self, duration: Duration) {
         tokio::time::sleep(duration).await;
     }
 }

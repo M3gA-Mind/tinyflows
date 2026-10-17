@@ -294,7 +294,7 @@ async fn run_claim_with_renewal(
                     return Err(anyhow::anyhow!("scheduler stopped before occurrence completion"));
                 }
             }
-            _ = ports.clock.sleep(Duration::from_secs(30)) => {
+            _ = ports.clock.lease_wait(Duration::from_secs(30)) => {
                 anyhow::ensure!(
                     ports.store.renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE).await?,
                     "scheduler lost the occurrence lease"
