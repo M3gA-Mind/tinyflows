@@ -53,6 +53,32 @@ fn transfer_claim(fixture: &Fixture, job_id: String) {
 }
 
 #[tokio::test]
+async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
+    let mut fixture = Fixture::new();
+    Arc::get_mut(&mut fixture).unwrap().fail_count = 1;
+    fixture
+        .raw_details
+        .lock()
+        .unwrap()
+        .extend([Some("opaque host classification".into()), None]);
+    let mut job = fixture.job();
+    job.policy.retries = Some(1);
+    let result = execute_with_retry(
+        &fixture.ports(),
+        &SchedulerConfig::default(),
+        &job,
+        "raw-detail-run",
+    )
+    .await
+    .unwrap();
+    assert!(result.success);
+    assert_eq!(
+        result.raw_detail.as_deref(),
+        Some("opaque host classification")
+    );
+}
+
+#[tokio::test]
 async fn lease_takeover_beats_a_ready_retry_and_heartbeat() {
     let (fixture, job_id, task) = parked_retry(false).await;
     transfer_claim(&fixture, job_id);

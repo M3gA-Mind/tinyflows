@@ -351,32 +351,6 @@ async fn retries_use_clock_and_zero_override_is_one_attempt() {
 }
 
 #[tokio::test]
-async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
-    let mut fixture = Fixture::new();
-    Arc::get_mut(&mut fixture).unwrap().fail_count = 1;
-    fixture
-        .raw_details
-        .lock()
-        .unwrap()
-        .extend([Some("opaque host classification".into()), None]);
-    let mut job = fixture.job();
-    job.policy.retries = Some(1);
-    let result = execute_with_retry(
-        &fixture.ports(),
-        &SchedulerConfig::default(),
-        &job,
-        "raw-detail-run",
-    )
-    .await
-    .unwrap();
-    assert!(result.success);
-    assert_eq!(
-        result.raw_detail.as_deref(),
-        Some("opaque host classification")
-    );
-}
-
-#[tokio::test]
 async fn permanent_failure_halts_without_waiting() {
     let mut f = Fixture::new();
     let inner = Arc::get_mut(&mut f).unwrap();
