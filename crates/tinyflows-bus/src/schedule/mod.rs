@@ -45,7 +45,6 @@ pub const METHODS: &[&str] = &[
     members::STOP_SCHEDULER,
     members::TICK_SCHEDULER,
     members::DRAIN_SCHEDULER,
-    members::EXECUTE_JOB,
     members::RUN_JOB_NOW,
     members::PARSE_HUMAN_DELAY,
     members::VALIDATE_DELIVERY,
@@ -72,8 +71,6 @@ pub mod members {
     pub const TICK_SCHEDULER: &str = "TickScheduler";
     /// `(handle: string) -> ()`; manual-tick schedulers only.
     pub const DRAIN_SCHEDULER: &str = "DrainScheduler";
-    /// `(scope, CallbackAddress, config, job, run_id) -> Attempt`.
-    pub const EXECUTE_JOB: &str = "ExecuteJob";
     /// `(RunJobNow) -> RunJobReply`; durable admission precedes acknowledgement.
     pub const RUN_JOB_NOW: &str = "RunJobNow";
     /// `(delay: string) -> milliseconds: i64`.
