@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
-    self, CallbackAddress, CheckOriginRequest, CheckPatchRequest, ManualDelivery,
+    self, CallbackAddress, CheckOriginRequest, CheckPatchRequest,
     NextRunRequest, RunJobNow, RunJobReply, RunsCloserThanRequest, StartScheduler,
     TooFrequent, ValidateScheduleRequest,
 };
