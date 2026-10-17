@@ -67,12 +67,6 @@ fn graph(raw: Value) -> Result<tinyflows::model::WorkflowGraph> {
 }
 
 impl CatalogService {
-    async fn migrate_storage(&self, storage: CatalogStorage) -> tinybus::Result<Value> {
-        super::catalog_migrations::migrate(self.connection.clone(), storage)
-            .await
-            .map_err(failure)
-    }
-
     async fn store(&self, storage: CatalogStorage) -> Result<FlowCatalogDocuments> {
         let docs =
             super::catalog_documents::Documents::new(self.connection.clone(), storage.callback)
@@ -274,6 +268,12 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
+    async fn migrate_storage(&self, storage: CatalogStorage) -> tinybus::Result<Value> {
+        super::catalog_migrations::migrate(self.connection.clone(), storage)
+            .await
+            .map_err(failure)
+    }
+
     async fn node_kinds(
         &self,
     ) -> tinybus::Result<Vec<tinyflows_bus::node_kinds::NodeKindContract>> {
