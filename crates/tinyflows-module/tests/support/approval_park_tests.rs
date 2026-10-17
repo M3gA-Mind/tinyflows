@@ -195,6 +195,21 @@ async fn compiled_module_guards_resume_ownership_pending_gate_and_graph_pin() {
         .unwrap();
     assert!(terminal.done);
     assert_eq!(terminal.events.last().unwrap().data["status"], "cancelled");
+    let documents = FlowCatalogDocuments::new(owner.docs.clone());
+    let namespace = format!("flow:{flow_id}");
+    assert_eq!(
+        documents
+            .kv_get(&namespace, "dedup:dedup:tentative")
+            .await
+            .unwrap(),
+        None
+    );
+    let checkpointer = DriverCheckpointer::<Value>::new(owner.docs.clone());
+    assert!(checkpointer
+        .get("guarded-run", None)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 fn resume_request(
