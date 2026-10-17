@@ -16,8 +16,8 @@ async fn compiled_module_resumes_a_rejected_approval_over_the_runs_bus() {
         ],
         "edges":[
             {"from_node":"trigger","from_port":"main","to_node":"approval","to_port":"main"},
-            {"from_node":"approval","from_port":"main","to_node":"accepted","to_port":"main"},
-            {"from_node":"approval","from_port":"error","to_node":"recovery","to_port":"main"}
+            {"from_node":"approval","from_port":"approved","to_node":"accepted","to_port":"main"},
+            {"from_node":"approval","from_port":"rejected","to_node":"recovery","to_port":"main"}
         ]
     });
     let flow_id = create_flow_with_graph(
