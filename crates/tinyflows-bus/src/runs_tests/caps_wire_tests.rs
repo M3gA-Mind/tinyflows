@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn non_agent_capability_records_round_trip_and_match_fixtures() {
-    pin(CodeLanguage::JavaScript, serde_json::json!("java_script"));
+    pin(CodeLanguage::JavaScript, serde_json::json!("javascript"));
     pin(
         CodeRunRequest {
             language: CodeLanguage::Python,

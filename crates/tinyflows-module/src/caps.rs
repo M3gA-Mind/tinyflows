@@ -344,18 +344,25 @@ impl AgentRunner for CapsHostPorts {
 
     async fn run(&self, request: AgentRunRequest) -> Result<AgentRunOutcome> {
         let wire_request: runs::AgentRunRequest = convert(request)?;
+        let started = tokio::time::Instant::now();
         let handle: runs::AgentRunHandle = self
             .call_one_timeout(members::AGENT_RUN, &wire_request, CALLBACK_TIMEOUT)
             .await?;
+        if started.elapsed() >= CALLBACK_TIMEOUT {
+            return Err(capability_error("agent callback exceeded its deadline"));
+        }
         if handle.handle.is_empty() {
             return Err(capability_error("agent callback returned an empty handle"));
         }
 
-        let started = tokio::time::Instant::now();
         let mut cursor = 0;
         let mut transcript = Vec::new();
         loop {
             if started.elapsed() >= CALLBACK_TIMEOUT {
+                return Err(capability_error("agent event stream exceeded its deadline"));
+            }
+            let remaining = CALLBACK_TIMEOUT.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
                 return Err(capability_error("agent event stream exceeded its deadline"));
             }
             let events: runs::AgentEventsResponse = self
@@ -365,7 +372,7 @@ impl AgentRunner for CapsHostPorts {
                         handle: handle.handle.clone(),
                         cursor,
                     },
-                    CALLBACK_TIMEOUT.saturating_sub(started.elapsed()),
+                    remaining,
                 )
                 .await?;
             if events.events.len() > runs::MAX_AGENT_EVENTS_PAGE {
