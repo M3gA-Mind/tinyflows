@@ -8,11 +8,7 @@ use tinyflows_bus::schedule::{
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::Schedule;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
-
-#[path = "support/schedule_artifact_callbacks.rs"]
-mod callbacks;
-#[path = "support/document_callbacks.rs"]
-mod document_callbacks;
+use super::{callbacks, document_callbacks};
 
 #[tokio::test]
 #[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled module"]
