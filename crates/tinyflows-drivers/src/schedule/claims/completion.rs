@@ -2,8 +2,10 @@
 use super::super::codec::{doc_to_job, run_id, run_to_doc, set_last_run};
 use super::super::jobs::reschedule;
 use super::super::{CAS_ATTEMPTS, CronDocuments, OWNER, RUNS, storage_error};
-use super::{COMPLETED, ClaimedOccurrence, JOBS, QUEUED, Receipt, lease_key, queued_run_cleanup};
-use anyhow::{Result, bail};
+use super::{
+    CLAIM_EPOCH, COMPLETED, ClaimedOccurrence, JOBS, QUEUED, Receipt, lease_key, queued_run_cleanup,
+};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use tinyflows_schedule::{DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output};
 use tinystoragedrivers_core::{Capability, Precondition, WriteOp};
@@ -21,7 +23,8 @@ impl CronDocuments {
     /// # Errors
     /// Completion predates acquisition, state/schedule is malformed, transactions
     /// are unavailable, retries are exhausted, or the backend fails. Pruning
-    /// failure is reported after the run and advance have already committed.
+    /// failure, or a failed release of the claim's lease, is reported after the
+    /// run and advance have already committed.
     pub async fn complete_claim(
         &self,
         claim: &ClaimedOccurrence,
@@ -86,6 +89,7 @@ impl CronDocuments {
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?;
             body.remove(QUEUED);
+            body.remove(CLAIM_EPOCH);
             body.insert(
                 COMPLETED.into(),
                 serde_json::to_value(Receipt {
@@ -129,13 +133,29 @@ impl CronDocuments {
             {
                 Ok(_) => {
                     // The occurrence is done: end its lease so the receipt is
-                    // the only trace of this claim.
+                    // the only trace of this claim. A failed release is
+                    // reported (the run and advance have already committed);
+                    // the lease still expires on its own.
                     let key = lease_key(&job.id, claim.lease.occurrence.timestamp_millis())?;
-                    let _ = self
+                    let released = self
                         .leases_at(finished_at)
                         .release(OWNER, &key, &claim.lease.token, claim.lease.epoch)
                         .await;
                     self.prune_runs(&job.id, &stored.doc).await?;
+                    if let Err(error) = released {
+                        tracing::warn!(
+                            job_id = %job.id,
+                            epoch = claim.lease.epoch,
+                            %error,
+                            "[cron-claims] releasing a completed claim's lease failed"
+                        );
+                        return Err(storage_error(error)).with_context(|| {
+                            format!(
+                                "cron store: completed job {} (epoch {}) but its lease was not released",
+                                job.id, claim.lease.epoch
+                            )
+                        });
+                    }
                     return Ok(true);
                 }
                 Err(error) if super::super::admission::conflict(&error) => {}
