@@ -4,6 +4,8 @@ mod authoring_contract_calls;
 mod callbacks;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
+#[path = "run_artifact_tests.rs"]
+mod run_artifact_tests;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
@@ -37,7 +39,7 @@ impl HostCallback {
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
     assert_eq!(tinyflows_bus::CONTRACT_VERSION, 2);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 4);
-    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 1);
+    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 2);
     assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
     assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 19);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
@@ -70,6 +72,22 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         dependency.optional
             && dependency.interface.interface.as_str() == tinyflows_bus::runs::CAPS_INTERFACE
     }));
+    let runs_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| {
+            provided.version.interface.as_str() == tinyflows_bus::runs::INTERFACE
+        })
+        .expect("run-control interface is provided");
+    let mut actual: Vec<_> = runs_interface.methods.iter().map(ToString::to_string).collect();
+    let mut expected: Vec<_> = tinyflows_bus::runs::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
     let provided = info
         .manifest
         .provides

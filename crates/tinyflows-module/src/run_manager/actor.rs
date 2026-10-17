@@ -89,8 +89,7 @@ pub(super) async fn drive(
         failure.get_or_insert_with(|| error);
     }
 
-    let settled_steps = run_summary::settle_steps(observed, &output)
-        .collect::<Vec<_>>();
+    let settled_steps = run_summary::settle_steps(observed, &output);
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
     let status = if pending {
         "pending_approval"
