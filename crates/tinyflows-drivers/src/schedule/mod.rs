@@ -88,7 +88,7 @@ mod runtime;
 #[cfg(test)]
 mod test_support;
 
-pub use claims::ClaimedOccurrence;
+pub use claims::{ClaimedOccurrence, RunCompletion};
 pub use import::ImportedJob;
 pub use migrate::{import_legacy_cron_counters, storage_schema};
 

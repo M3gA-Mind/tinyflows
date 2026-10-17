@@ -20,6 +20,7 @@
 #[path = "claims/acquisition.rs"]
 mod acquisition;
 mod completion;
+pub use completion::RunCompletion;
 #[path = "claims/manual_claim_reconciliation.rs"]
 mod manual_claim_reconciliation;
 
