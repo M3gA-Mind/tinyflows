@@ -74,7 +74,21 @@ async fn compiled_module_prepares_manual_worker_through_schedule_abi() {
     let late_start = schedule
         .call::<serde_json::Value>(
             "StartManualRun",
-            (json!({"handle":handle,"request":{}}),),
+            (json!({
+                "handle":handle.clone(),
+                "request":{
+                    "callback":{"destination":"test.Callbacks","object_path":"/test/Callbacks"},
+                    "config":{},
+                    "storage":{"backend":{"kind":"documents","callback":{"destination":"test.Callbacks","object_path":"/test/Documents"}}},
+                    "job":{
+                        "id":"stale-job","expression":"","schedule":{"kind":"at","at":"2026-01-01T00:00:00Z"},
+                        "command":"echo stale","prompt":null,"name":null,"job_type":"shell","session_target":"isolated",
+                        "model":null,"agent_id":null,"enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,
+                        "created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z"
+                    },
+                    "run_id":"stale-run","delivery":"not_requested"
+                }
+            }),),
         )
         .await;
     assert!(late_start.is_err(), "an acknowledged handle cannot start later");
