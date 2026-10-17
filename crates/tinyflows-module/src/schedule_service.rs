@@ -4,12 +4,12 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
-    self, CallbackAddress, CheckOriginRequest, CheckPatchRequest,
+    self, CheckOriginRequest, CheckPatchRequest,
     NextRunRequest, RunJobNow, RunJobReply, RunsCloserThanRequest, StartScheduler,
     TooFrequent, ValidateScheduleRequest,
 };
 use tinyflows_schedule::{
-    CronJob, DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
+    DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
 };
 use tokio::{
     sync::{Mutex, oneshot},

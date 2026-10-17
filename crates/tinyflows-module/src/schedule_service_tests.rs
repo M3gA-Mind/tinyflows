@@ -5,8 +5,6 @@ use tokio::sync::Mutex;
 
 #[derive(Default)]
 pub(super) struct State {
-    records: Mutex<Vec<Value>>,
-    completions: Mutex<Vec<Value>>,
     executions: Mutex<Vec<String>>,
     triggers: Mutex<Vec<String>>,
 }
