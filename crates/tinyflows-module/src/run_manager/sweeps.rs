@@ -10,6 +10,7 @@ use tinystoragedrivers_core::DocumentStore;
 
 use super::preparation::catalog;
 use super::{PARKED, active, key, unregister};
+use crate::catalog_documents::Documents;
 
 const BOOT_REASON: &str = "Run interrupted by module restart; no local actor owns this run.";
 
@@ -37,16 +38,12 @@ pub(super) async fn expire_parked(
             unregister(&run);
         }
         settle_terminal_event(&catalog, run_id, "cancelled", "parked run expired").await?;
-        if let Some(snapshot) = catalog.flow_run_snapshot(run_id).await?
-            && let Some(thread_id) = snapshot.get("thread_id").and_then(Value::as_str)
-        {
+        if let Some(run) = catalog.get_flow_run(run_id).await? {
             let documents: Arc<dyn DocumentStore> = Arc::new(
-                super::preparation::catalog(connection, request.storage.clone())
-                    .await
-                    .context("opening parked checkpoint scope")?,
+                Documents::new(connection.clone(), request.storage.callback.clone()).await?,
             );
             let checkpointer = DriverCheckpointer::<Value>::new(documents);
-            if let Err(error) = checkpointer.delete_thread(thread_id).await {
+            if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
                 tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
             }
         }
@@ -67,7 +64,7 @@ pub(super) async fn boot_sweep(
     let floor = chrono::Utc::now().to_rfc3339();
     let candidates = catalog.list_running_run_ids(&floor).await?;
     let checkpointer_docs: Arc<dyn DocumentStore> = Arc::new(
-        super::preparation::catalog(connection, request.storage.clone())
+        Documents::new(connection.clone(), request.storage.callback.clone())
             .await
             .context("opening startup checkpoint scope")?,
     );
@@ -83,9 +80,8 @@ pub(super) async fn boot_sweep(
         {
             continue;
         }
-        if let Some(snapshot) = catalog.flow_run_snapshot(&run_id).await?
-            && let Some(thread_id) = snapshot.get("thread_id").and_then(Value::as_str)
-            && let Err(error) = checkpointer.delete_thread(thread_id).await
+        if let Some(run) = catalog.get_flow_run(&run_id).await?
+            && let Err(error) = checkpointer.delete_thread(&run.thread_id).await
         {
             tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
         }
