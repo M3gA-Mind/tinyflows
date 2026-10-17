@@ -1,5 +1,5 @@
 use super::{callbacks, document_callbacks};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::sync::Arc;
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
 use tinyflows_bus::schedule::{
