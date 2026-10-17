@@ -2,12 +2,31 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use tinystoragedrivers_core::DocumentStoreExt;
 
 use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict};
 
 const EVENT_ATTEMPTS: usize = 128;
 
 impl FlowCatalogDocuments {
+    /// Removes only the untouched initial row from an admission attempt that
+    /// failed before its execution snapshot or events were persisted.
+    pub async fn remove_unstarted_flow_run(&self, id: &str) -> Result<bool> {
+        let docs = self.docs().await?;
+        let Some(stored) = docs.get(RUNS, id).await? else {
+            return Ok(false);
+        };
+        if stored.doc.get("status").and_then(Value::as_str) != Some("running")
+            || stored.doc.get("execution_snapshot").is_some()
+            || stored.doc.get("events_json").is_some()
+        {
+            return Ok(false);
+        }
+        docs.delete(RUNS, id, stored.unchanged())
+            .await
+            .map_err(Into::into)
+    }
+
     /// Commits the terminal cursor only after the event itself is durable.
     pub async fn mark_flow_run_terminal_event(&self, id: &str, seq: u64) -> Result<bool> {
         let marked = compare_and_swap(self.docs().await?, RUNS, id, |doc| {
