@@ -11,7 +11,7 @@ fn portability_wire_requests_round_trip_without_credential_diagnostics() {
     };
     let wire = serde_json::to_value(&request).unwrap();
     assert_eq!(wire["credential"]["scheme"], "bearer");
-    assert_eq!(serde_json::from_value::<PrepareHttpRequest>(wire).unwrap(), request);
+    assert!(serde_json::from_value::<PrepareHttpRequest>(wire).unwrap() == request);
     let binding = AppEventBinding {
         graph: json!({"nodes":[]}),
         toolkit: "github".into(),
