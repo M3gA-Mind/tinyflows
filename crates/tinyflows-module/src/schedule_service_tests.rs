@@ -172,7 +172,8 @@ async fn run_job_now_is_a_typed_module_owned_admission_operation() {
                 wait: true,
             },),
         )
-        .await;
+        .await
+        .unwrap();
     let RunJobReply::Completed {
         run_id,
         success,
