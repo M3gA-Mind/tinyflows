@@ -22,7 +22,7 @@ use tokio::sync::Notify;
 
 #[path = "../run_artifact/poll.rs"]
 mod run_artifact_poll;
-use run_artifact_poll::{poll_until_done, poll_until_kind};
+use run_artifact_poll::{assert_terminal_outcome, poll_until_done, poll_until_kind};
 #[path = "../run_artifact/support.rs"]
 mod run_artifact_support;
 use run_artifact_support::*;
@@ -303,26 +303,13 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             .any(|event| event.kind == "graph_observation")
     );
     assert!(alice_poll.events.iter().any(|event| event.kind == "step"));
-    assert_eq!(
-        alice_poll.events.last().unwrap().data["status"],
-        "cancelled"
-    );
-    assert_eq!(
-        alice_poll.events.last().unwrap().data["successful"],
-        false,
-        "cancelled terminal event is authoritative non-success"
-    );
-    assert!(bob_poll.events.iter().any(|event| event.kind == "finished"));
+    assert_terminal_outcome(alice_poll.events.last().unwrap(), "cancelled", false);
     let bob_finished = bob_poll
         .events
         .iter()
         .find(|event| event.kind == "finished")
         .expect("completed run has a terminal event");
-    assert_eq!(bob_finished.data["successful"], true);
-    let finished: runs::RunFinished =
-        serde_json::from_value(bob_finished.data.clone()).unwrap();
-    assert_eq!(finished.status, "completed");
-    assert!(finished.successful);
+    assert_terminal_outcome(bob_finished, "completed", true);
 
     let alice_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
