@@ -81,7 +81,8 @@ pub struct ToolContract {
     pub output_fields: Vec<String>,
     /// JSON schema describing the tool output, when known.
     pub output_schema: Option<Value>,
-    /// Dotted payload path of the primary array, when known.
+    /// Dotted path of the primary array relative to the full output, including
+    /// any envelope prefix. The empty string denotes a root array.
     pub primary_array_path: Option<String>,
     /// Payload envelope prefix, such as `data` or `payload`.
     pub envelope_prefix: Option<String>,

@@ -14,7 +14,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 
 | Surface | Status | Members |
 | --- | --- | --- |
-| Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
+| Authoring | served, v3 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, import, gates, preflight, advisory wiring) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |

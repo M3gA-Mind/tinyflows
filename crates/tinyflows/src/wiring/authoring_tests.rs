@@ -23,7 +23,7 @@ fn fixture() -> Contracts {
                 output_schema: Some(
                     json!({"type":"object", "properties":{"issues":{"type":"array"},"count":{"type":"integer"}}}),
                 ),
-                primary_array_path: Some("issues".into()),
+                primary_array_path: Some("data.issues".into()),
                 envelope_prefix: Some("data".into()),
                 metadata_fields: vec!["request_id".into()],
             },
@@ -35,7 +35,7 @@ fn fixture() -> Contracts {
                 output_schema: Some(
                     json!({"type":"object", "properties":{"items":{"type":"array"}}}),
                 ),
-                primary_array_path: Some("items".into()),
+                primary_array_path: Some("payload.items".into()),
                 envelope_prefix: Some("payload".into()),
                 metadata_fields: vec!["trace".into()],
             },
@@ -106,4 +106,72 @@ async fn schema_without_primary_array_warns_only_when_path_is_known_non_array() 
     let warnings = wiring_warnings(&candidate, &contracts).await;
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("known non-array"));
+}
+
+#[tokio::test]
+async fn schema_paths_normalize_missing_and_empty_prefixes_and_keep_prefix_named_fields() {
+    let contracts = Contracts(HashMap::from([
+        (
+            "provider:unwrapped".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"object", "properties":{"data":{"type":"array"}}})),
+                ..ToolContract::default()
+            },
+        ),
+        (
+            "provider:empty-prefix".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"object", "properties":{"data":{"type":"array"}}})),
+                envelope_prefix: Some(String::new()),
+                ..ToolContract::default()
+            },
+        ),
+        (
+            "provider:collision".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"object", "properties":{"payload":{"type":"object", "properties":{"items":{"type":"array"}}}}})),
+                primary_array_path: Some("payload.items".into()),
+                envelope_prefix: Some("payload".into()),
+                ..ToolContract::default()
+            },
+        ),
+        (
+            "provider:root-array".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"array"})),
+                primary_array_path: Some(String::new()),
+                ..ToolContract::default()
+            },
+        ),
+    ]));
+    let candidate = graph(json!({"nodes":[
+        {"id":"unwrapped","name":"Unwrapped","kind":"tool_call","config":{"slug":"provider:unwrapped"}},
+        {"id":"empty","name":"Empty prefix","kind":"tool_call","config":{"slug":"provider:empty-prefix"}},
+        {"id":"collision","name":"Collision","kind":"tool_call","config":{"slug":"provider:collision"}},
+        {"id":"root","name":"Root array","kind":"tool_call","config":{"slug":"provider:root-array"}},
+        {"id":"unwrapped_split","name":"Unwrapped split","kind":"split_out","config":{"path":"json.data"}},
+        {"id":"empty_split","name":"Empty split","kind":"split_out","config":{"path":"json.data"}},
+        {"id":"collision_split","name":"Collision split","kind":"split_out","config":{"path":"json.payload.items"}},
+        {"id":"root_split","name":"Root split","kind":"split_out","config":{"path":"json"}}
+    ],"edges":[
+        {"from_node":"unwrapped","from_port":"main","to_node":"unwrapped_split"},
+        {"from_node":"empty","from_port":"main","to_node":"empty_split"},
+        {"from_node":"collision","from_port":"main","to_node":"collision_split"},
+        {"from_node":"root","from_port":"main","to_node":"root_split"}
+    ]}));
+    assert!(wiring_warnings(&candidate, &contracts).await.is_empty());
+}
+
+#[test]
+fn public_data_envelope_helper_delegates_to_generic_schema_resolution() {
+    let schema = json!({"type":"object", "properties":{"data":{"type":"array"}}});
+    assert_eq!(crate::wiring::schema_says_path_is_non_array(&schema, "json.data"), Some(false));
+    assert_eq!(
+        schema_says_path_is_non_array(&schema, "json.data", None),
+        Some(true)
+    );
+    assert_eq!(
+        schema_says_path_is_non_array(&schema, "json.data", Some("")),
+        Some(true)
+    );
 }

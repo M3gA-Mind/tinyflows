@@ -24,6 +24,16 @@ This check is best effort: compile errors, capability errors and timeouts
 produce no diagnostics. Call `ValidateGraph` first; an empty preflight report
 does not establish structural validity.
 
+`WiringWarnings({graph, host})` reports best-effort output-field, payload
+envelope, and `split_out` path warnings. The module walks bindings with the
+engine parser and asks the request-scoped host callback for each static tool's
+output contract. Unknown or unavailable contracts are skipped. The host
+contract carries output fields and schema, the primary array path, its payload
+envelope prefix, and top-level metadata fields. The check performs no provider
+lookup, authentication, mock execution, or production capability call; dynamic
+`=` slugs are skipped. Whole-payload and metadata bindings stay silent. These
+diagnostics are advisory and never gate draft authoring or runtime.
+
 Deserialization failures in these gate operations are method failures.
 `BuilderFailures(graph, host, native_slug_prefixes)` owns the ordered gate
 composition. Call `ValidateGraph` first. It returns diagnostics from the first
@@ -44,12 +54,17 @@ The `host` object has `bus_name` and `object_path` fields. The destination serve
   checks for `tool_policy`, `agent_references`, `connections`, and
   `tool_contracts`. An empty list passes the stage. A method failure fails the
   whole operation; it cannot silently pass the gate.
+- `LookupToolContract(slug: String) -> Option<ToolContract>` returns the output
+  facts available for that exact slug. Return `None` when unknown or
+  unavailable. `ToolContract` has `output_fields`, optional `output_schema`,
+  optional `primary_array_path`, optional `envelope_prefix`, and
+  `metadata_fields`.
 
 Bind the callback object to the acting identity and store for the request.
 The module has no credential or account lookup implementation. Hosts can apply
 native-tool argument rules and query their own agent, account, and tool catalogs
 through this callback without linking the workflow engine.
 
-The wire contract starts at version 1. Its identity and method constants live
+The authoring wire contract is version 3. Its identity and method constants live
 in `src/lib.rs`. Build and exercise the actual dynamic artifact with
 `bash scripts/verify-module-artifact.sh` from the repository root.

@@ -14,7 +14,8 @@ pub struct ToolContract {
     pub output_fields: Vec<String>,
     /// Output schema, when published.
     pub output_schema: Option<Value>,
-    /// Known primary array path, relative to the payload unless already prefixed.
+    /// Known primary array path relative to the full output, including any
+    /// envelope prefix. Empty denotes a root array.
     pub primary_array_path: Option<String>,
     /// Payload envelope segment.
     pub envelope_prefix: Option<String>,
@@ -138,7 +139,7 @@ pub async fn wiring_warnings(
                 continue;
             }
             if let Some(primary) = contract.primary_array_path.as_deref() {
-                let expected = expected_array_path(contract, primary);
+                let expected = expected_array_path(primary);
                 if configured != Some(expected.as_str()) {
                     let shown = configured
                         .map(|path| format!("\"{path}\""))
@@ -146,7 +147,11 @@ pub async fn wiring_warnings(
                     warnings.push(format!("Node '{}': split_out.path is {shown} but tool_call `{}` (`{slug}`) publishes its array at `{expected}`; set config.path to `{expected}`.", node.id, source.id));
                 }
             } else if let (Some(path), Some(schema)) = (configured, contract.output_schema.as_ref())
-                && schema_says_path_is_non_array(schema, path, contract.envelope_prefix.as_deref())
+                && schema_says_path_is_non_array(
+                    schema,
+                    path,
+                    contract.envelope_prefix.as_deref(),
+                )
                     == Some(true)
             {
                 warnings.push(format!("Node '{}': split_out.path is `{path}` but tool_call `{}` (`{slug}`) has a known non-array value there, so it fans out over one item. Check the tool's published output contract.", node.id, source.id));
@@ -156,18 +161,12 @@ pub async fn wiring_warnings(
     warnings
 }
 
-fn expected_array_path(contract: &ToolContract, path: &str) -> String {
+fn expected_array_path(path: &str) -> String {
     let relative = path.strip_prefix("json.").unwrap_or(path);
-    match contract
-        .envelope_prefix
-        .as_deref()
-        .filter(|prefix| !prefix.is_empty())
-    {
-        Some(prefix) if relative == prefix || relative.starts_with(&format!("{prefix}.")) => {
-            format!("json.{relative}")
-        }
-        Some(prefix) => format!("json.{prefix}.{relative}"),
-        None => format!("json.{relative}"),
+    if relative.is_empty() {
+        "json".into()
+    } else {
+        format!("json.{relative}")
     }
 }
 
@@ -187,19 +186,20 @@ fn check_output_field(
     }
 }
 
-fn schema_says_path_is_non_array(
+pub(super) fn schema_says_path_is_non_array(
     schema: &Value,
     configured: &str,
     prefix: Option<&str>,
 ) -> Option<bool> {
     let mut relative = configured.strip_prefix("json.").unwrap_or(configured);
-    if let Some(prefix) = prefix {
+    if let Some(prefix) = prefix.filter(|prefix| !prefix.is_empty()) {
         if relative == prefix {
             let ty = schema.get("type").and_then(Value::as_str)?;
             return Some(ty != "array");
         }
         relative = relative.strip_prefix(&format!("{prefix}."))?;
-    } else if relative == "data" {
+    }
+    if relative.is_empty() {
         let ty = schema.get("type").and_then(Value::as_str)?;
         return Some(ty != "array");
     }

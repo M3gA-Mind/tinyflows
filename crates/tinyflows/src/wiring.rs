@@ -17,22 +17,7 @@ pub use authoring::{ToolContract, ToolContractLookup, wiring_warnings};
 ///   than guess.
 #[must_use]
 pub fn schema_says_path_is_non_array(output_schema: &Value, configured_path: &str) -> Option<bool> {
-    let relative = configured_path
-        .strip_prefix("json.")
-        .unwrap_or(configured_path);
-    if relative == "data" {
-        // Whole-payload access: non-array unless the payload's own root type is
-        // literally "array" (a bare-array response).
-        let ty = output_schema.get("type").and_then(Value::as_str)?;
-        return Some(ty != "array");
-    }
-    let rest = relative.strip_prefix("data.").filter(|r| !r.is_empty())?;
-    let mut node = output_schema;
-    for seg in rest.split('.') {
-        node = node.get("properties")?.get(seg)?;
-    }
-    let ty = node.get("type").and_then(Value::as_str)?;
-    Some(ty != "array")
+    authoring::schema_says_path_is_non_array(output_schema, configured_path, Some("data"))
 }
 
 #[cfg(test)]
