@@ -337,6 +337,7 @@ async fn run_claim_with_renewal(
     mut cancellation: watch::Receiver<bool>,
 ) -> Result<ManualRunOutcome> {
     let work_cancellation = cancellation.clone();
+    let (work_stop, mut work_stop_receiver) = watch::channel(false);
     let work = async {
         let _permit = match permits {
             Some(permits) => Some(permits.acquire_owned().await?),
@@ -353,27 +354,36 @@ async fn run_claim_with_renewal(
             !*work_cancellation.borrow(),
             "scheduler stopped before execution"
         );
-        execution::execute_and_persist(ports, config, &claim, delivery, advance_schedule).await
+        execution::execute_and_persist_inner(
+            ports,
+            config,
+            &claim,
+            delivery,
+            advance_schedule,
+            Some(&mut work_stop_receiver),
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("scheduler stopped before occurrence completion"))
     };
     tokio::pin!(work);
+    let mut renewals_enabled = true;
     loop {
         tokio::select! {
             biased;
             changed = cancellation.changed() => {
                 if changed.is_ok() && *cancellation.borrow() {
-                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await?;
-                    return Err(anyhow::anyhow!("scheduler stopped before occurrence completion"));
+                    work_stop.send_replace(true);
                 }
             }
-            _ = ports.clock.lease_wait(Duration::from_secs(30)) => {
+            _ = ports.clock.lease_wait(Duration::from_secs(30)), if renewals_enabled => {
                 match ports.store.renew_occurrence(&claim, ports.clock.now(), OCCURRENCE_LEASE).await {
                     Ok(true) => {}
                     // A terminal commit may already have cleared the fence
                     // while its response is still in flight. Await the work;
                     // its callback boundaries remain guarded by claim checks.
                     Ok(false) | Err(_) => {
-                        let result = work.as_mut().await;
-                        return release_claim_after_work_error(ports, &claim, result).await;
+                        renewals_enabled = false;
+                        work_stop.send_replace(true);
                     }
                 }
             }
