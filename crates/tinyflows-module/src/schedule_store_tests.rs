@@ -64,7 +64,7 @@ async fn old_run_history_does_not_attach_to_a_recreated_flow_job() {
     scheduler.dispatch(vec![job.clone()]).await.unwrap();
     let error = scheduler.drain().await.unwrap_err();
     assert!(
-        error.to_string().contains("removed job creation"),
+        error.to_string().contains("lost the occurrence"),
         "{error:#}"
     );
     assert!(
