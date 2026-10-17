@@ -72,7 +72,7 @@ async fn compiled_module_prepares_manual_worker_through_schedule_abi() {
     assert!(acknowledged);
 
     let late_start = schedule
-        .call::<_, serde_json::Value>(
+        .call::<serde_json::Value>(
             "StartManualRun",
             (json!({"handle":handle,"request":{}}),),
         )
