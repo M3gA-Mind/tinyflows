@@ -42,8 +42,12 @@ pub fn storage_schema() -> Schema {
         schema = schema.collection_with(SCHEMA_VERSION, spec, ScopeClass::Tenant);
     }
     schema
-        .step(Step::new("jobs_v2", JOBS, 1, 2, |batch| Ok(map(batch, job))).source("cron_jobs"))
-        .step(Step::new("runs_v2", RUNS, 1, 2, |batch| Ok(map(batch, run))).source("cron_runs"))
+        .step(
+            Step::new("jobs_v2", JOBS, 1, 2, |batch| Ok(map(batch, JOBS, job))).source("cron_jobs"),
+        )
+        .step(
+            Step::new("runs_v2", RUNS, 1, 2, |batch| Ok(map(batch, RUNS, run))).source("cron_runs"),
+        )
         .step(
             Step::new("admission_v2", ADMISSION, 1, 2, |batch| {
                 Ok(batch.iter().filter_map(counter_record).collect())
@@ -52,11 +56,23 @@ pub fn storage_schema() -> Schema {
         )
 }
 
+/// Converts each record. One that does not convert is carried unchanged under
+/// its v1 id (and logged), so it reads back as corrupt instead of vanishing
+/// with its v1 source.
 fn map(
     batch: Vec<SourceRecord>,
+    collection: &str,
     convert: fn(&SourceRecord) -> Option<TargetRecord>,
 ) -> Vec<TargetRecord> {
-    batch.iter().filter_map(convert).collect()
+    batch
+        .iter()
+        .map(|source| {
+            convert(source).unwrap_or_else(|| {
+                tracing::warn!(collection, id = %source.id, "[cron-storage] carrying unconvertible v1 record");
+                TargetRecord::new(collection, source.id.clone(), source.body.clone())
+            })
+        })
+        .collect()
 }
 
 fn instant_ms(rfc: &str) -> Option<i64> {

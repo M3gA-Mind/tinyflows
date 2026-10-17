@@ -190,6 +190,9 @@ async fn unconvertible_v1_jobs_and_runs_are_carried_not_dropped() {
     migrate(&storage).await;
     for (collection, id) in [("cron.jobs", "bad"), ("cron.runs", "badrun")] {
         let row = storage.documents().get(collection, id).await.unwrap();
-        assert!(row.is_some(), "{collection}/{id} must survive the migration");
+        assert!(
+            row.is_some(),
+            "{collection}/{id} must survive the migration"
+        );
     }
 }

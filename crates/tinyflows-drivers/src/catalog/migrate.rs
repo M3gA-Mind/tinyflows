@@ -53,17 +53,22 @@ pub(crate) fn extend_schema(mut schema: Schema) -> Schema {
 
 type Convert = fn(&SourceRecord) -> Option<(Value, Option<i64>)>;
 
-/// Converts each record, dropping one whose body is not an object.
+/// Converts each record. One that does not convert (a missing JSON field, a
+/// body that is not an object) is carried unchanged under its v1 id, so it
+/// stays visible as corrupt instead of being lost with its v1 source.
 fn map(batch: Vec<SourceRecord>, collection: &str, convert: Convert) -> Vec<TargetRecord> {
     batch
         .iter()
-        .filter_map(|source| {
-            let (body, created_ms) = convert(source)?;
+        .map(|source| {
+            let Some((body, created_ms)) = convert(source) else {
+                tracing::warn!(collection, id = %source.id, "[flows-storage] carrying unconvertible v1 record");
+                return TargetRecord::new(collection, source.id.clone(), source.body.clone());
+            };
             let record = TargetRecord::new(collection, source.id.clone(), body);
-            Some(match created_ms.filter(|ms| *ms > 0) {
+            match created_ms.filter(|ms| *ms > 0) {
                 Some(ms) => record.created_ms(ms),
                 None => record,
-            })
+            }
         })
         .collect()
 }
