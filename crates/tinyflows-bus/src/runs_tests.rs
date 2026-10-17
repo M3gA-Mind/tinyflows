@@ -4,96 +4,97 @@ fn pin<T>(value: T, expected: serde_json::Value)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
 {
-    let actual = serde_json::to_value(&value).unwrap();
-    assert_eq!(actual, expected);
+    assert_eq!(serde_json::to_value(&value).unwrap(), expected);
     assert_eq!(serde_json::from_value::<T>(expected).unwrap(), value);
 }
 
+fn storage() -> CatalogStorage {
+    CatalogStorage {
+        callback: catalog::CallbackAddress {
+            destination: "host.docs".into(),
+            object_path: "/owner/a".into(),
+        },
+    }
+}
+
 #[test]
-fn run_control_records_keep_their_literal_wire_shape() {
+fn run_start_contract_roundtrips_and_matches_literal_fixture() {
     pin(
         StartRun {
+            run_id: "opaque/run:1".into(),
+            context: RunContext {
+                flow_id: "flow-1".into(),
+                origin: Some(serde_json::json!({"schedule":"s-2"})),
+            },
+            caps_host: CapsHost {
+                callback: CallbackAddress {
+                    destination: "host.caps".into(),
+                    object_path: "/run/opaque".into(),
+                },
+            },
+            storage: storage(),
             graph: serde_json::json!({"nodes": [], "edges": []}),
-            trigger: serde_json::json!({"source": "manual"}),
-            run_id: Some("run-1".into()),
+            trigger: FlowRunTrigger::Schedule,
+            inputs: serde_json::Map::from_iter([("limit".into(), serde_json::json!(3))]),
+            timeout_ms: 600_000,
         },
         serde_json::json!({
-            "graph": {"nodes": [], "edges": []},
-            "trigger": {"source": "manual"},
-            "run_id": "run-1"
+            "run_id":"opaque/run:1",
+            "context":{"flow_id":"flow-1","origin":{"schedule":"s-2"}},
+            "caps_host":{"callback":{"destination":"host.caps","object_path":"/run/opaque"}},
+            "storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},
+            "graph":{"nodes":[],"edges":[]},
+            "trigger":"schedule",
+            "inputs":{"limit":3},
+            "timeout_ms":600000
         }),
     );
     pin(
-        ResumeRun {
-            run_id: "run-1".into(),
-            approvals: vec!["n1".into()],
+        StartRunResponse {
+            run_id: "opaque/run:1".into(),
+            already_running: true,
         },
-        serde_json::json!({"run_id":"run-1","approvals":["n1"]}),
+        serde_json::json!({"run_id":"opaque/run:1","already_running":true}),
+    );
+}
+
+#[test]
+fn run_control_and_poll_contracts_match_literal_fixtures() {
+    pin(
+        RunControlRequest {
+            storage: storage(),
+            run_id: "run-1".into(),
+            cursor: 4,
+        },
+        serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},"run_id":"run-1","cursor":4}),
+    );
+    pin(
+        CancelRunResponse {
+            signalled: true,
+        },
+        serde_json::json!({"signalled":true}),
     );
     pin(
         RunEvent {
-            seq: 1,
-            kind: "step".into(),
-            data: serde_json::json!({"node":"n1"}),
+            seq: 5,
+            kind: "graph_observation".into(),
+            data: serde_json::json!({"event":"node.started"}),
+            graph_run_id: Some("graph-run-9".into()),
         },
-        serde_json::json!({"seq":1,"kind":"step","data":{"node":"n1"}}),
+        serde_json::json!({"seq":5,"kind":"graph_observation","data":{"event":"node.started"},"graph_run_id":"graph-run-9"}),
     );
     pin(
         PollRun {
             events: vec![],
-            done: true,
+            next_cursor: 4,
+            done: false,
         },
-        serde_json::json!({"events":[],"done":true}),
+        serde_json::json!({"events":[],"next_cursor":4,"done":false}),
     );
     pin(
-        CallbackAddress {
-            destination: "host.cb".into(),
-            object_path: "/run/1".into(),
-        },
-        serde_json::json!({"destination":"host.cb","object_path":"/run/1"}),
+        FlowRunTrigger::AppEvent,
+        serde_json::json!("app_event"),
     );
-    pin(
-        CapsHost {
-            callback: CallbackAddress {
-                destination: "host.cb".into(),
-                object_path: "/run/1".into(),
-            },
-        },
-        serde_json::json!({"callback":{"destination":"host.cb","object_path":"/run/1"}}),
-    );
-    assert_eq!(
-        CAPS_METHODS,
-        [
-            "LlmComplete",
-            "ToolInvoke",
-            "HttpRequest",
-            "CodeRun",
-            "ShellRun",
-            "MemoryRecall",
-            "MemoryFlavour",
-            "MemoryPeople",
-            "MemoryRemember",
-            "MemoryForget",
-            "AgentRun",
-            "AgentEvents",
-            "ResolveAgent",
-            "ListAgents",
-            "ResolveContext",
-            "ResolveTools",
-            "ResolveWorkdir",
-            "ApprovalDecide",
-            "ApprovalCancel"
-        ]
-    );
-    assert_eq!(CAPS_CONTRACT_VERSION, 1);
-    assert_eq!(MAX_AGENT_EVENTS_PAGE, 256);
-    assert_eq!(MAX_AGENT_TRANSCRIPT_EVENTS, 10_000);
+    assert_eq!(CONTRACT_VERSION, 2);
+    assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun"]);
 }
-
-#[cfg(test)]
-#[path = "runs_tests/caps_wire_tests.rs"]
-mod caps_wire_tests;
-
-#[cfg(test)]
-#[path = "runs_tests/caps_agent_wire_tests.rs"]
-mod caps_agent_wire_tests;

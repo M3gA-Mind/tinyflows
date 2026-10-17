@@ -121,6 +121,35 @@ pub async fn run_cancellable_with_observer(
     Ok(outcome)
 }
 
+/// Runs with a durable checkpointer and graph journal while retaining the
+/// cooperative cancellation and live observer behavior of [`run_cancellable`].
+pub async fn run_cancellable_with_checkpointer_journaled_observed(
+    workflow: &CompiledWorkflow,
+    input: impl Into<RunInput>,
+    capabilities: &Capabilities,
+    token: CancellationToken,
+    checkpointer: Arc<dyn Checkpointer<Value>>,
+    thread_id: &str,
+    journal: Arc<dyn GraphEventJournal>,
+    observer: &Arc<dyn RunObserver>,
+) -> Result<JournaledRunOutcome> {
+    let (_graph, _thread_id, outcome, graph_run_ids) = build_and_run(
+        workflow,
+        input,
+        capabilities,
+        observer,
+        RunConfig::new(workflow)?
+            .with_token(token)
+            .with_checkpointer(checkpointer, thread_id)
+            .with_journal(journal),
+    )
+    .await?;
+    Ok(JournaledRunOutcome {
+        outcome,
+        graph_run_ids,
+    })
+}
+
 /// The maximum nesting depth for `sub_workflow` runs.
 ///
 /// Each nested `sub_workflow` run (inline **or** by `workflow_id`) increments a
