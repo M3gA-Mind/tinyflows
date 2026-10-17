@@ -66,12 +66,7 @@ fn belt_names_permissions_and_effects_are_pinned() {
             false,
         ),
         (
-            Box::new(DryRunWorkflowTool::new(
-                h.clone(),
-                h.clone(),
-                h.clone(),
-                h.clone(),
-            )),
+            Box::new(DryRunWorkflowTool::new(h.clone(), h.clone(), h.clone())),
             "dry_run_workflow",
             PermissionLevel::None,
             false,
@@ -431,7 +426,7 @@ async fn validate_workflow_reports_structure_and_gates_without_proposing() {
 #[tokio::test]
 async fn dry_run_executes_against_the_host_sandbox_and_labels_it() {
     let h = host();
-    let tool = DryRunWorkflowTool::new(h.clone(), h.clone(), h.clone(), h.clone());
+    let tool = DryRunWorkflowTool::new(h.clone(), h.clone(), h.clone());
     let result = tool
         .execute(json!({ "graph": valid_graph(), "input": { "x": 1 } }))
         .await

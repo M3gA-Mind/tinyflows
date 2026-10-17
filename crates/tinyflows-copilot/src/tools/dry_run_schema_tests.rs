@@ -32,7 +32,7 @@ fn expected_dry_run_workflow() -> serde_json::Value {
 #[test]
 fn dry_run_workflow_static_schema_matches_json_literal() {
     let h = std::sync::Arc::new(crate::tools::fakes::MemHost::default());
-    let tool = DryRunWorkflowTool::new(h.clone(), h.clone(), h.clone(), h);
+    let tool = DryRunWorkflowTool::new(h.clone(), h.clone(), h);
     assert_eq!(
         tinytools::Tool::parameters_schema(&tool),
         expected_dry_run_workflow()

@@ -11,7 +11,7 @@ async fn dry_run_delegates_to_its_sandbox_port_and_preserves_host_manifest() {
     let host = Arc::new(MemHost::default());
     let manifest = vec![json!({"node_id":"send","permission":"write"})];
     *host.sandbox_manifest.lock().unwrap() = manifest.clone();
-    let tool = DryRunWorkflowTool::new(host.clone(), host.clone(), host.clone(), host.clone());
+    let tool = DryRunWorkflowTool::new(host.clone(), host.clone(), host.clone());
     let result = tool
         .execute(json!({
             "graph": {
