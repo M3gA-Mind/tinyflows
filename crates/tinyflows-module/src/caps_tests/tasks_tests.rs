@@ -60,7 +60,7 @@ async fn spawned_tool_and_http_tasks_return_host_results() {
 #[tokio::test]
 async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate() {
     let (module, host) = support::memory_bus().await;
-    support::serve_caps(&host, "alice", "/caps/alice", false).await;
+    let barrier = support::serve_caps_with_nested_barrier(&host, "alice", "/caps/alice").await;
     host.request_name("test.CatalogStorage").await.unwrap();
     let (storage, _) = super::scope_tests::storage_callback(&host, "alice").await;
     let capabilities = CapsHostPorts::capabilities(
@@ -76,12 +76,14 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
     let child = json!({
         "nodes": [
             {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
-            {"id":"spawn","name":"Spawn","kind":"spawn","config":{"target":"tool","slug":"nested.tool","args":{"source":"nested"}}},
+            {"id":"spawn","name":"Spawn","kind":"spawn","config":{"target":"tool","slug":"nested.blocked","args":{"source":"nested"}}},
+            {"id":"release","name":"Release","kind":"tool_call","config":{"slug":"nested.release","args":{}}},
             {"id":"gate","name":"Gate","kind":"gate","config":{"from":["spawn"],"poll_interval_ms":1,"max_polls":100,"on_timeout":"error"}}
         ],
         "edges": [
             {"from_node":"trigger","from_port":"main","to_node":"spawn","to_port":"main"},
-            {"from_node":"spawn","from_port":"main","to_node":"gate","to_port":"main"}
+            {"from_node":"spawn","from_port":"main","to_node":"gate","to_port":"main"},
+            {"from_node":"spawn","from_port":"main","to_node":"release","to_port":"main"}
         ]
     });
     let runner = capabilities.tasks.as_ref().unwrap();
@@ -92,14 +94,22 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
         })
         .await
         .unwrap();
-    let TaskState::Done(result) = await_task(runner.as_ref(), &ticket).await else {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        await_task(runner.as_ref(), &ticket),
+    )
+    .await
+    .expect("release node should run while nested tool callback is blocked");
+    let TaskState::Done(result) = result else {
         panic!("child workflow should return a real result")
     };
+    barrier.started.notified().await;
     let encoded = result.to_string();
     assert!(
-        encoded.contains("nested.tool"),
+        encoded.contains("nested.blocked"),
         "nested task result missing: {result}"
     );
+    assert!(encoded.contains("nested.release"), "release result missing: {result}");
     assert!(
         encoded.contains("alice"),
         "nested host callback missing: {result}"

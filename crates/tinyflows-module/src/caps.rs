@@ -408,6 +408,11 @@ impl AgentRunner for CapsHostPorts {
             match (events.done, events.outcome) {
                 (true, Some(outcome)) => {
                     let mut outcome: AgentRunOutcome = convert(outcome)?;
+                    if outcome.transcript.len() > runs::MAX_AGENT_TRANSCRIPT_EVENTS {
+                        return Err(capability_error(
+                            "agent callback exceeded the transcript event limit",
+                        ));
+                    }
                     if outcome.transcript.is_empty() {
                         outcome.transcript = transcript;
                     } else {
