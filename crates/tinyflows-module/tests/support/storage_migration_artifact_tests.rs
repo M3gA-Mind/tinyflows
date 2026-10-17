@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, atomic::AtomicBool};
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
 use tinyflows_drivers::schedule::CronDocuments;
-use tinystoragedrivers_core::{DocumentStore, DocumentStoreExt, MemoryStorage, Precondition, Scope, StorageBackend};
+use tinystoragedrivers_core::{MemoryStorage, Precondition, Scope, StorageBackend};
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
