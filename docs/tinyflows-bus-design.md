@@ -102,8 +102,7 @@ the engine compatibility guard before compilation; run-time resolution fails
 closed when a legacy saved graph has a topology the current executor cannot run.
 If a child workflow parks for approval, its task settles as a capability failure
 instead of reporting partial output as success: TaskState has no parked/resume
-state yet. The run-resume slice must add a checkpointed child-task lifecycle
-before removing that guard.
+state, and detached tasks are process-local rather than checkpointed run state.
 
 Only `AgentRunner` streams progress. `AgentRun` returns an opaque handle, then
 `AgentEvents(handle, cursor)` reads typed events and a typed terminal outcome.
