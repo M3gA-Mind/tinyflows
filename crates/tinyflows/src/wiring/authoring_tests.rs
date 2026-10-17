@@ -170,6 +170,67 @@ async fn each_static_tool_slug_is_looked_up_once_in_graph_order() {
 }
 
 #[tokio::test]
+async fn full_output_paths_preserve_a_literal_json_field_name() {
+    let contracts = Contracts(HashMap::from([(
+        "provider:json-field".into(),
+        ToolContract {
+            output_schema: Some(
+                json!({"type":"object", "properties":{"json":{"type":"object", "properties":{"rows":{"type":"array"}}}}}),
+            ),
+            primary_array_path: Some("json.rows".into()),
+            ..ToolContract::default()
+        },
+    )]));
+    let candidate = graph(json!({"nodes":[
+        {"id":"tool","name":"Tool","kind":"tool_call","config":{"slug":"provider:json-field"}},
+        {"id":"split","name":"Split","kind":"split_out","config":{"path":"json.json.rows"}}
+    ],"edges":[{"from_node":"tool","from_port":"main","to_node":"split"}]}));
+    assert!(wiring_warnings(&candidate, &contracts).await.is_empty());
+}
+
+#[tokio::test]
+async fn unwrapped_schema_root_paths_warn_for_objects_but_accept_root_arrays() {
+    let contracts = Contracts(HashMap::from([
+        (
+            "provider:root-object".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"object"})),
+                ..ToolContract::default()
+            },
+        ),
+        (
+            "provider:empty-root-object".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"object"})),
+                envelope_prefix: Some(String::new()),
+                ..ToolContract::default()
+            },
+        ),
+        (
+            "provider:root-array".into(),
+            ToolContract {
+                output_schema: Some(json!({"type":"array"})),
+                ..ToolContract::default()
+            },
+        ),
+    ]));
+    let candidate = graph(json!({"nodes":[
+        {"id":"object","name":"Object","kind":"tool_call","config":{"slug":"provider:root-object"}},
+        {"id":"empty_object","name":"Empty object","kind":"tool_call","config":{"slug":"provider:empty-root-object"}},
+        {"id":"array","name":"Array","kind":"tool_call","config":{"slug":"provider:root-array"}},
+        {"id":"object_split","name":"Object split","kind":"split_out","config":{"path":"json"}},
+        {"id":"empty_split","name":"Empty prefix split","kind":"split_out","config":{"path":"json"}},
+        {"id":"array_split","name":"Array split","kind":"split_out","config":{"path":"json"}}
+    ],"edges":[
+        {"from_node":"object","from_port":"main","to_node":"object_split"},
+        {"from_node":"empty_object","from_port":"main","to_node":"empty_split"},
+        {"from_node":"array","from_port":"main","to_node":"array_split"}
+    ]}));
+    let warnings = wiring_warnings(&candidate, &contracts).await;
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+}
+
+#[tokio::test]
 async fn schema_paths_normalize_missing_and_empty_prefixes_and_keep_prefix_named_fields() {
     let contracts = Contracts(HashMap::from([
         (
@@ -243,5 +304,9 @@ fn public_data_envelope_helper_delegates_to_generic_schema_resolution() {
     assert_eq!(
         schema_says_path_is_non_array(&schema, "json.data", Some("")),
         Some(false)
+    );
+    assert_eq!(
+        crate::wiring::schema_says_path_is_non_array(&schema, "json"),
+        None
     );
 }

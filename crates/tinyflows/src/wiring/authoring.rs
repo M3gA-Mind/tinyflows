@@ -42,10 +42,9 @@ pub async fn wiring_warnings(
         if node.kind == NodeKind::ToolCall
             && let Some(slug) = node.config.get("slug").and_then(Value::as_str)
             && !slug.starts_with('=')
+            && seen.insert(slug.to_string())
         {
-            if seen.insert(slug.to_string()) {
-                lookup_order.push(slug.to_string());
-            }
+            lookup_order.push(slug.to_string());
         }
     }
     for slug in lookup_order {
@@ -88,12 +87,14 @@ pub async fn wiring_warnings(
             else {
                 check_output_field(
                     &mut warnings,
-                    node,
-                    &location,
-                    &expr,
+                    BindingContext {
+                        node,
+                        location: &location,
+                        expression: &expr,
+                        source_id: &binding.node_id,
+                        slug,
+                    },
                     &binding.field_path,
-                    &binding.node_id,
-                    slug,
                     contract,
                 );
                 continue;
@@ -110,12 +111,14 @@ pub async fn wiring_warnings(
             };
             check_output_field(
                 &mut warnings,
-                node,
-                &location,
-                &expr,
+                BindingContext {
+                    node,
+                    location: &location,
+                    expression: &expr,
+                    source_id: &binding.node_id,
+                    slug,
+                },
                 payload_path,
-                &binding.node_id,
-                slug,
                 contract,
             );
         }
@@ -162,27 +165,30 @@ pub async fn wiring_warnings(
 }
 
 fn expected_array_path(path: &str) -> String {
-    let relative = path.strip_prefix("json.").unwrap_or(path);
-    if relative.is_empty() {
+    if path.is_empty() {
         "json".into()
     } else {
-        format!("json.{relative}")
+        format!("json.{path}")
     }
+}
+
+struct BindingContext<'a> {
+    node: &'a crate::model::Node,
+    location: &'a str,
+    expression: &'a str,
+    source_id: &'a str,
+    slug: &'a str,
 }
 
 fn check_output_field(
     warnings: &mut Vec<String>,
-    node: &crate::model::Node,
-    location: &str,
-    expr: &str,
+    context: BindingContext<'_>,
     field_path: &str,
-    source_id: &str,
-    slug: &str,
     contract: &ToolContract,
 ) {
     let field = field_path.split('.').next().unwrap_or(field_path);
     if !contract.output_fields.iter().any(|known| known == field) {
-        warnings.push(format!("Node '{}': binding `{location}` (`{expr}`) reads field `{field}` from tool_call `{source_id}` (`{slug}`), but it is absent from the published output fields ({}). Check the tool's output contract.", node.id, contract.output_fields.join(", ")));
+        warnings.push(format!("Node '{}': binding `{}` (`{}`) reads field `{field}` from tool_call `{}` (`{}`), but it is absent from the published output fields ({}). Check the tool's output contract.", context.node.id, context.location, context.expression, context.source_id, context.slug, contract.output_fields.join(", ")));
     }
 }
 
@@ -191,8 +197,15 @@ pub(super) fn schema_says_path_is_non_array(
     configured: &str,
     prefix: Option<&str>,
 ) -> Option<bool> {
-    let mut relative = configured.strip_prefix("json.").unwrap_or(configured);
+    let mut relative = if configured == "json" {
+        ""
+    } else {
+        configured.strip_prefix("json.").unwrap_or(configured)
+    };
     if let Some(prefix) = prefix.filter(|prefix| !prefix.is_empty()) {
+        if relative.is_empty() {
+            return Some(true);
+        }
         if relative == prefix {
             let ty = schema.get("type").and_then(Value::as_str)?;
             return Some(ty != "array");

@@ -17,6 +17,9 @@ pub use authoring::{ToolContract, ToolContractLookup, wiring_warnings};
 ///   than guess.
 #[must_use]
 pub fn schema_says_path_is_non_array(output_schema: &Value, configured_path: &str) -> Option<bool> {
+    if configured_path == "json" {
+        return None;
+    }
     authoring::schema_says_path_is_non_array(output_schema, configured_path, Some("data"))
 }
 
