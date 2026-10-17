@@ -17,9 +17,9 @@
 //! own epoch before it commits against that job version, and an edit drops
 //! it. A holder whose lease expired, was taken over, or whose job was edited
 //! therefore cannot commit, whatever it read earlier.
-mod completion;
 #[path = "claims/acquisition.rs"]
 mod acquisition;
+mod completion;
 #[path = "claims/manual_claim_reconciliation.rs"]
 mod manual_claim_reconciliation;
 

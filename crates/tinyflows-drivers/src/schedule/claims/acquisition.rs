@@ -154,5 +154,4 @@ impl CronDocuments {
             tracing::warn!(%key, epoch = lease.epoch, %error, "[cron-claims] giving back an unused lease failed");
         }
     }
-
 }
