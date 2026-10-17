@@ -27,6 +27,7 @@ pub(super) struct FakeHost {
     pub fail_approval: bool,
     pub tool_gate: Option<Arc<ToolGate>>,
     pub first_event_seq: u64,
+    pub terminal_transcript_len: usize,
 }
 
 impl FakeHost {
@@ -158,6 +159,17 @@ impl FakeHost {
                 outcome: None,
             })
         } else {
+            let transcript = (0..self.terminal_transcript_len)
+                .map(|index| runs::TranscriptEntry {
+                    at_ms: 11 + index as i64,
+                    kind: "agent_final".into(),
+                    text: if index == 0 {
+                        "authoritative terminal transcript".into()
+                    } else {
+                        "additional host transcript".into()
+                    },
+                })
+                .collect();
             Ok(AgentEventsResponse {
                 events: vec![],
                 done: true,
@@ -167,11 +179,7 @@ impl FakeHost {
                     json: json!({"ok": true}),
                     raw: json!({"ok": true}),
                     usage: None,
-                    transcript: vec![runs::TranscriptEntry {
-                        at_ms: 11,
-                        kind: "agent_final".into(),
-                        text: "authoritative terminal transcript".into(),
-                    }],
+                    transcript,
                 }),
             })
         }
@@ -266,6 +274,7 @@ pub(super) async fn serve_caps(
             fail_approval,
             tool_gate: None,
             first_event_seq: 1,
+            terminal_transcript_len: 1,
         },
     )
     .await
@@ -292,6 +301,7 @@ pub(super) async fn serve_caps_with_blocked_tools(
             fail_approval: false,
             tool_gate: Some(Arc::clone(&gate)),
             first_event_seq: 1,
+            terminal_transcript_len: 1,
         },
     )
     .await
@@ -318,6 +328,7 @@ pub(super) async fn serve_caps_with_nested_barrier(
             fail_approval: false,
             tool_gate: Some(Arc::clone(&gate)),
             first_event_seq: 1,
+            terminal_transcript_len: 1,
         },
     )
     .await
@@ -340,6 +351,29 @@ pub(super) async fn serve_caps_with_first_event_seq(
             fail_approval: false,
             tool_gate: None,
             first_event_seq,
+            terminal_transcript_len: 1,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+pub(super) async fn serve_caps_with_terminal_transcript_len(
+    host: &Connection,
+    owner: &str,
+    path: &str,
+    terminal_transcript_len: usize,
+) {
+    host.serve_at(
+        path.parse().unwrap(),
+        FakeHost {
+            owner: owner.into(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+            approval_calls: Arc::new(AtomicUsize::new(0)),
+            fail_approval: false,
+            tool_gate: None,
+            first_event_seq: 1,
+            terminal_transcript_len,
         },
     )
     .await

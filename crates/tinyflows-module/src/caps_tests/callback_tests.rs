@@ -476,3 +476,34 @@ async fn agent_event_gap_is_rejected_and_terminal_empty_page_is_valid() {
     let error = AgentRunner::run(&port, request).await.unwrap_err();
     assert!(matches!(error, EngineError::Capability(_)));
 }
+
+#[tokio::test]
+async fn oversized_authoritative_terminal_transcript_fails_as_a_capability_error() {
+    let (module, host) = support::memory_bus().await;
+    support::serve_caps_with_terminal_transcript_len(
+        &host,
+        "alice",
+        "/caps/large-transcript",
+        runs::MAX_AGENT_TRANSCRIPT_EVENTS + 1,
+    )
+    .await;
+    let port = ports(module, "/caps/large-transcript");
+    let request = AgentRunRequest {
+        agent: AgentDefinition::new("agent"),
+        model: AgentModelSelection::default(),
+        input: AgentInput::default(),
+        context: vec![],
+        tools: vec![],
+        connection_ref: None,
+        working_dir: None,
+        identity: AgentRunIdentity {
+            node_id: "agent".into(),
+            ..AgentRunIdentity::default()
+        },
+        metadata: Default::default(),
+        output_schema: None,
+        config: json!({}),
+    };
+    let error = AgentRunner::run(&port, request).await.unwrap_err();
+    assert!(matches!(error, EngineError::Capability(_)));
+}
