@@ -3,13 +3,16 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-use tinyflows_bus::catalog::RunIdRequest;
+use tinyflows_bus::{
+    catalog::{self, RunIdRequest},
+    runs::{self, RunControlRequest},
+};
 use tokio::sync::Notify;
 
-#[path = "run_artifact_poll.rs"]
+#[path = "../run_artifact/poll.rs"]
 mod run_artifact_poll;
 use run_artifact_poll::{poll_until_done, poll_until_kind};
-#[path = "run_artifact_support.rs"]
+#[path = "../run_artifact/support.rs"]
 mod run_artifact_support;
 use run_artifact_support::*;
 

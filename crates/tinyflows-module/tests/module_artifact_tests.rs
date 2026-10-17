@@ -4,7 +4,7 @@ mod authoring_contract_calls;
 mod callbacks;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
-#[path = "run_artifact_tests.rs"]
+#[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
 use serde_json::json;
 use std::sync::Arc;
