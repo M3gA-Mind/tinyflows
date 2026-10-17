@@ -265,14 +265,22 @@ impl CronDocuments {
 
     /// The job with `job_id`, or an error when there is none.
     pub async fn get_job(&self, job_id: &str) -> Result<CronJob> {
+        self.find_job(job_id)
+            .await?
+            .ok_or_else(|| job_not_found(job_id))
+    }
+
+    /// The job with `job_id`, or `None` when it is absent.
+    pub async fn find_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         self.ensure().await?;
-        let stored = self
+        self
             .docs
             .get(JOBS, job_id)
             .await
             .map_err(storage_error)?
-            .ok_or_else(|| job_not_found(job_id))?;
-        doc_to_job(&stored)
+            .as_ref()
+            .map(doc_to_job)
+            .transpose()
     }
 
     /// Removes duplicate jobs sharing a `name`: per name, keeps the job with
