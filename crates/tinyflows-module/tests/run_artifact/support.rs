@@ -24,6 +24,7 @@ struct OwnerDocuments {
     run_insert_started: Option<Arc<Notify>>,
     release_run_insert: Option<Arc<Notify>>,
     fail_snapshot: Option<Arc<AtomicBool>>,
+    fail_checkpoint_delete: Option<Arc<AtomicBool>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
@@ -110,6 +111,19 @@ impl OwnerDocuments {
     }
 
     async fn doc_delete(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "flows_graph_checkpoints"
+            && self
+                .fail_checkpoint_delete
+                .as_ref()
+                .is_some_and(|fail| fail.swap(false, Ordering::SeqCst))
+        {
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected checkpoint delete failure"
+                }
+            }));
+        }
         Ok(reply(
             self.docs
                 .delete(
@@ -242,6 +256,7 @@ pub(super) async fn owner(
     terminal_gate: Option<(Arc<Notify>, Arc<Notify>)>,
     run_insert_gate: Option<(Arc<AtomicBool>, Arc<Notify>, Arc<Notify>)>,
     fail_snapshot: Option<Arc<AtomicBool>>,
+    fail_checkpoint_delete: Option<Arc<AtomicBool>>,
 ) -> Owner {
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
@@ -264,6 +279,7 @@ pub(super) async fn owner(
                     .map(|(_, started, _)| started.clone()),
                 release_run_insert: run_insert_gate.map(|(_, _, release)| release),
                 fail_snapshot,
+                fail_checkpoint_delete,
             },
         )
         .await
@@ -305,6 +321,7 @@ pub(super) async fn alias_owner(
                 run_insert_started: None,
                 release_run_insert: None,
                 fail_snapshot: None,
+                fail_checkpoint_delete: None,
             },
         )
         .await

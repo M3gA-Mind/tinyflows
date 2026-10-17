@@ -54,9 +54,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         )),
         None,
         None,
+        None,
     )
     .await;
-    let bob = owner(&connection, "bob", None, None, None).await;
+    let bob = owner(&connection, "bob", None, None, None, None).await;
     let alice_flow = create_flow(&catalog_proxy, &alice.storage, "Alice").await;
     let bob_flow = create_flow(&catalog_proxy, &bob.storage, "Bob").await;
     let alice_agent = serve_agent(&connection, "alice").await;
@@ -208,7 +209,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
 
     let wrong_owner = RunControlRequest {
-        storage: owner(&connection, "mallory", None, None, None)
+        storage: owner(&connection, "mallory", None, None, None, None)
             .await
             .storage,
         run_id: run_id.into(),
@@ -331,6 +332,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         None,
         Some((fail_insert, insert_started.clone(), release_insert.clone())),
         None,
+        None,
     )
     .await;
     let retry_flow = create_flow(&catalog_proxy, &retry_owner.storage, "Retry").await;
@@ -374,6 +376,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         None,
         None,
         Some(Arc::new(AtomicBool::new(true))),
+        None,
     )
     .await;
     let snapshot_flow = create_flow(&catalog_proxy, &snapshot_owner.storage, "Snapshot").await;
@@ -414,7 +417,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     snapshot_agent.release.notify_one();
     let _ = poll_until_done(&runs_proxy, &snapshot_owner.storage, "snapshot-id").await;
 
-    let timeout_owner = owner(&connection, "timeout", None, None, None).await;
+    let timeout_owner = owner(&connection, "timeout", None, None, None, None).await;
     let timeout_flow = create_flow(&catalog_proxy, &timeout_owner.storage, "Timeout").await;
     let timeout_agent = serve_agent(&connection, "timeout").await;
     let timeout_start = request(
