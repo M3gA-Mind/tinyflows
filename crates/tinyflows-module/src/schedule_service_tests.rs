@@ -17,12 +17,34 @@ struct Callbacks(Arc<State>);
 impl Callbacks {
     async fn due_jobs(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Value>> {
         self.0.observed_times.lock().await.push(now);
-        Ok(self.0.jobs.lock().await.iter().filter(|job| {
-            job["enabled"] == true && serde_json::from_value::<chrono::DateTime<chrono::Utc>>(job["next_run"].clone()).unwrap() <= now
-        }).cloned().collect())
+        Ok(self
+            .0
+            .jobs
+            .lock()
+            .await
+            .iter()
+            .filter(|job| {
+                job["enabled"] == true
+                    && serde_json::from_value::<chrono::DateTime<chrono::Utc>>(
+                        job["next_run"].clone(),
+                    )
+                    .unwrap()
+                        <= now
+            })
+            .cloned()
+            .collect())
     }
-    async fn due_jobs_excluding(&self, now: chrono::DateTime<chrono::Utc>, excluded: Vec<String>) -> Result<Vec<Value>> {
-        Ok(self.due_jobs(now).await?.into_iter().filter(|job| !excluded.iter().any(|id| job["id"] == *id)).collect())
+    async fn due_jobs_excluding(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        excluded: Vec<String>,
+    ) -> Result<Vec<Value>> {
+        Ok(self
+            .due_jobs(now)
+            .await?
+            .into_iter()
+            .filter(|job| !excluded.iter().any(|id| job["id"] == *id))
+            .collect())
     }
     async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
         Ok(())

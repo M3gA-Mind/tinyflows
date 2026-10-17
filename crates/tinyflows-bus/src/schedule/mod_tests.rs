@@ -7,7 +7,7 @@ fn every() -> Schedule {
 
 #[test]
 fn contract_is_version_three_with_the_exact_member_set() {
-    assert_eq!(CONTRACT_VERSION, 3);
+    assert_eq!(CONTRACT_VERSION, 4);
     assert_eq!(METHODS.len(), 17);
     let mut unique: Vec<_> = METHODS.to_vec();
     unique.sort_unstable();

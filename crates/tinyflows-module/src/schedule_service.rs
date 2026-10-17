@@ -1,4 +1,6 @@
 //! Separate Schedule object in the same loadable TinyFlows module.
+#[path = "schedule_clock.rs"]
+mod clock;
 use super::schedule_callbacks::HostCallbacks;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
@@ -67,8 +69,20 @@ impl ScheduleService {
     }
 
     async fn start_scheduler(&self, request: StartScheduler) -> Result<String> {
+        let now: Option<chrono::DateTime<chrono::Utc>> = request
+            .config
+            .get("now")
+            .map(|now| serde_json::from_value(now.clone()))
+            .transpose()
+            .map_err(failure)?;
+        if now.is_some() && !request.manual_ticks {
+            return Err(Error::failed("a fixed calendar time requires manual ticks"));
+        }
         let config: SchedulerConfig = serde_json::from_value(request.config).map_err(failure)?;
         let mut ports = HostCallbacks::ports(self.connection.clone(), request.callback);
+        if let Some(now) = now {
+            ports.clock = Arc::new(clock::FixedClock(now));
+        }
         if let Some(storage) = request.storage {
             ports.store = Arc::new(
                 super::schedule_store::Store::new(self.connection.clone(), storage)
