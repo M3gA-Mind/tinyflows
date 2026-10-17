@@ -81,7 +81,13 @@ async fn queued_occurrence_renews_and_never_executes_after_takeover() {
         },
         ports,
     );
-    assert_eq!(scheduler.dispatch(vec![first, second.clone()]).await.unwrap(), 2);
+    assert_eq!(
+        scheduler
+            .dispatch(vec![first, second.clone()])
+            .await
+            .unwrap(),
+        2
+    );
     executor.started.acquire().await.unwrap().forget();
     loop {
         let waiting = clock.waiting.notified();
@@ -113,14 +119,15 @@ async fn refill_stops_at_the_batch_cap_after_skipping_a_held_head() {
     let second = fixture.job();
     let third = fixture.job();
     let fourth = fixture.job();
-    *fixture.jobs.lock().unwrap() = vec![
-        first.clone(),
-        second.clone(),
-        third.clone(),
-        fourth.clone(),
-    ];
+    *fixture.jobs.lock().unwrap() =
+        vec![first.clone(), second.clone(), third.clone(), fourth.clone()];
     let held = fixture
-        .claim_due_occurrence(&first, "already-running", fixture.now(), chrono::Duration::hours(1))
+        .claim_due_occurrence(
+            &first,
+            "already-running",
+            fixture.now(),
+            chrono::Duration::hours(1),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -142,7 +149,12 @@ async fn refill_stops_at_the_batch_cap_after_skipping_a_held_head() {
     assert!(recorded.contains(&second.id));
     assert!(recorded.contains(&third.id));
     assert!(!recorded.contains(&fourth.id));
-    assert!(fixture.release_occurrence(&held, fixture.now()).await.unwrap());
+    assert!(
+        fixture
+            .release_occurrence(&held, fixture.now())
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -204,9 +216,7 @@ async fn lease_loss_cancels_owned_execution_before_send_or_commit() {
     let mut scheduler = Scheduler::new(job.id.clone(), SchedulerConfig::default(), ports);
     assert_eq!(scheduler.dispatch(vec![job]).await.unwrap(), 1);
     started.notified().await;
-    fixture
-        .take_lease_on_renew
-        .store(true, Ordering::SeqCst);
+    fixture.take_lease_on_renew.store(true, Ordering::SeqCst);
     clock.renewal_tick.notify_one();
     dropped.notified().await;
     assert!(scheduler.drain().await.is_err());
@@ -272,10 +282,20 @@ async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
     );
     scheduler.dispatch(jobs).await.unwrap();
     executor.started.acquire().await.unwrap().forget();
-    assert!(ids.iter().all(|id| f.leases.lock().unwrap().contains_key(id)));
+    assert!(
+        ids.iter()
+            .all(|id| f.leases.lock().unwrap().contains_key(id))
+    );
     scheduler.shutdown().await;
-    assert!(ids.iter().all(|id| !f.leases.lock().unwrap().contains_key(id)));
-    assert_eq!(executor.started.available_permits(), 0, "queued work never entered Execute after stop");
+    assert!(
+        ids.iter()
+            .all(|id| !f.leases.lock().unwrap().contains_key(id))
+    );
+    assert_eq!(
+        executor.started.available_permits(),
+        0,
+        "queued work never entered Execute after stop"
+    );
     assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
 }
 

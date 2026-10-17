@@ -77,11 +77,13 @@ pub async fn verify(
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "ok");
     assert_eq!(history[0].delivery_status, None);
-    assert!(state
-        .executions
-        .lock()
-        .unwrap()
-        .contains(&"artifact-manual-run".to_owned()));
+    assert!(
+        state
+            .executions
+            .lock()
+            .unwrap()
+            .contains(&"artifact-manual-run".to_owned())
+    );
     assert_eq!(
         state.projections.lock().unwrap().last().unwrap()["attempt"]["raw_detail"],
         "opaque callback classification"
@@ -163,7 +165,10 @@ pub async fn verify(
     ));
     let queued = store.list_runs(&detached_job.id, 10).await.unwrap();
     assert_eq!(queued.len(), 1);
-    assert_eq!(queued[0].status, "queued", "queue is visible before RPC ack");
+    assert_eq!(
+        queued[0].status, "queued",
+        "queue is visible before RPC ack"
+    );
     state.execute_started.notified().await;
     let duplicate: RunJobReply = proxy
         .call(
@@ -187,7 +192,10 @@ pub async fn verify(
             reason: RunJobRefusal::AlreadyRunning
         }
     ));
-    assert_eq!(store.list_runs(&detached_job.id, 10).await.unwrap().len(), 1);
+    assert_eq!(
+        store.list_runs(&detached_job.id, 10).await.unwrap().len(),
+        1
+    );
     state.execute_release.notify_one();
     let mut projected = false;
     for _ in 0..1_000 {
@@ -202,7 +210,10 @@ pub async fn verify(
         }
         projection.await;
     }
-    assert!(projected, "detached module worker reached terminal projection");
+    assert!(
+        projected,
+        "detached module worker reached terminal projection"
+    );
     let mut finished = false;
     for _ in 0..1_000 {
         let history = store.list_runs(&detached_job.id, 10).await.unwrap();
@@ -212,7 +223,10 @@ pub async fn verify(
         }
         tokio::task::yield_now().await;
     }
-    assert!(finished, "queued placeholder is replaced by terminal history");
+    assert!(
+        finished,
+        "queued placeholder is replaced by terminal history"
+    );
     state
         .defer_execute
         .store(false, std::sync::atomic::Ordering::SeqCst);

@@ -26,7 +26,11 @@ pub async fn execute_with_retry(
             retryable: true,
             raw_detail: None,
         });
-        if result.raw_detail.as_ref().is_some_and(|detail| !detail.is_empty()) {
+        if result
+            .raw_detail
+            .as_ref()
+            .is_some_and(|detail| !detail.is_empty())
+        {
             last_raw_detail = result.raw_detail.clone();
         }
         let result = Attempt {
@@ -100,10 +104,7 @@ pub(super) async fn execute_and_persist(
         success,
         delivery_status: delivery_status.clone(),
     };
-    ports
-        .delivery
-        .deliver(&projection)
-        .await?;
+    ports.delivery.deliver(&projection).await?;
     let finished_at = ports.clock.now();
     let one_shot = matches!(job.schedule, Schedule::At { .. });
     let remove = advance_schedule && one_shot && job.delete_after_run && success;

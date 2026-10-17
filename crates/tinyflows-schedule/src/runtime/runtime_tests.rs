@@ -7,9 +7,9 @@ use std::sync::{
     Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-use tokio::sync::Notify;
-use tinyflows_bus::schedule::{OccurrenceClaim, RunJobRefusal};
 use tinyflows_bus::schedule::DeliveryProjection;
+use tinyflows_bus::schedule::{OccurrenceClaim, RunJobRefusal};
+use tokio::sync::Notify;
 
 struct Fixture {
     now: Mutex<DateTime<Utc>>,
@@ -151,12 +151,14 @@ impl JobStore for Fixture {
     ) -> Result<Option<OccurrenceClaim>> {
         let attempt = self.claim_attempts.fetch_add(1, Ordering::SeqCst);
         anyhow::ensure!(
-            !self.claim_fails
-                && *self.claim_fails_after.lock().unwrap() != Some(attempt),
+            !self.claim_fails && *self.claim_fails_after.lock().unwrap() != Some(attempt),
             "durable claim rejected"
         );
         let mut leases = self.leases.lock().unwrap();
-        if leases.get(&job.id).is_some_and(|(_, expires)| *expires > now) {
+        if leases
+            .get(&job.id)
+            .is_some_and(|(_, expires)| *expires > now)
+        {
             return Ok(None);
         }
         let token = uuid::Uuid::new_v4().to_string();
@@ -177,10 +179,7 @@ impl JobStore for Fixture {
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
-        match self
-            .claim_due_occurrence(job, owner, now, lease)
-            .await?
-        {
+        match self.claim_due_occurrence(job, owner, now, lease).await? {
             Some(claim) => Ok(Ok(claim)),
             None => Ok(Err(RunJobRefusal::AlreadyRunning)),
         }
@@ -219,11 +218,7 @@ impl JobStore for Fixture {
         self.renewed.notify_one();
         Ok(true)
     }
-    async fn release_occurrence(
-        &self,
-        claim: &OccurrenceClaim,
-        _: DateTime<Utc>,
-    ) -> Result<bool> {
+    async fn release_occurrence(&self, claim: &OccurrenceClaim, _: DateTime<Utc>) -> Result<bool> {
         let mut leases = self.leases.lock().unwrap();
         if leases
             .get(&claim.job.id)
@@ -234,11 +229,7 @@ impl JobStore for Fixture {
         }
         Ok(false)
     }
-    async fn queue_occurrence(
-        &self,
-        _: &OccurrenceClaim,
-        record: RunRecord,
-    ) -> Result<bool> {
+    async fn queue_occurrence(&self, _: &OccurrenceClaim, record: RunRecord) -> Result<bool> {
         self.records.lock().unwrap().push(record);
         Ok(true)
     }
@@ -249,10 +240,9 @@ impl JobStore for Fixture {
         completion: Completion,
     ) -> Result<bool> {
         let mut leases = self.leases.lock().unwrap();
-        if !leases
-            .get(&claim.job.id)
-            .is_some_and(|(token, expires)| token == &claim.receipt && *expires > record.finished_at)
-        {
+        if !leases.get(&claim.job.id).is_some_and(|(token, expires)| {
+            token == &claim.receipt && *expires > record.finished_at
+        }) {
             return Ok(false);
         }
         leases.remove(&claim.job.id);
@@ -342,10 +332,11 @@ async fn retries_use_clock_and_zero_override_is_one_attempt() {
 async fn last_nonempty_raw_detail_survives_a_later_detail_free_retry() {
     let mut fixture = Fixture::new();
     Arc::get_mut(&mut fixture).unwrap().fail_count = 1;
-    fixture.raw_details.lock().unwrap().extend([
-        Some("opaque host classification".into()),
-        None,
-    ]);
+    fixture
+        .raw_details
+        .lock()
+        .unwrap()
+        .extend([Some("opaque host classification".into()), None]);
     let mut job = fixture.job();
     job.policy.retries = Some(1);
     let result = execute_with_retry(
@@ -432,7 +423,10 @@ async fn required_delivery_failure_disables_failed_one_shot_without_deleting() {
     assert_eq!(r[0].status, "error");
     assert_eq!(r[0].delivery_status, Some(DeliveryStatus::Failed));
     let projection = &f.projections.lock().unwrap()[0];
-    assert!(!projection.success, "terminal delivery sees required-send failure");
+    assert!(
+        !projection.success,
+        "terminal delivery sees required-send failure"
+    );
     assert_eq!(projection.delivery_status, Some(DeliveryStatus::Failed));
 }
 

@@ -1,8 +1,8 @@
 //! Fenced terminal history and schedule mutation for occurrence leases.
-use super::{ClaimedOccurrence, lease, owns};
 use super::super::codec::{doc_to_job, run_id, run_to_doc, set_last_run};
 use super::super::jobs::reschedule;
 use super::super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, storage_error};
+use super::{ClaimedOccurrence, lease, owns};
 use anyhow::{Result, bail};
 use chrono::DateTime;
 use tinyflows_schedule::{DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output};
@@ -75,10 +75,7 @@ impl CronDocuments {
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?;
             body.remove(super::LEASE);
-            body.insert(
-                super::COMPLETED.into(),
-                serde_json::to_value(&claim.lease)?,
-            );
+            body.insert(super::COMPLETED.into(), serde_json::to_value(&claim.lease)?);
             set_last_run(body, finished_at, success, truncate_cron_output(output));
             if advance_schedule {
                 reschedule(

@@ -47,7 +47,8 @@ pub async fn verify(
 
     let lease_doc = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
     let mut expired = lease_doc.doc.clone();
-    expired["occurrence_lease"]["expires_at"] = json!((acquired_at - Duration::seconds(1)).to_rfc3339());
+    expired["occurrence_lease"]["expires_at"] =
+        json!((acquired_at - Duration::seconds(1)).to_rfc3339());
     docs.put("cron_jobs", &job.id, expired, lease_doc.unchanged())
         .await
         .unwrap();
@@ -62,20 +63,33 @@ pub async fn verify(
     };
     let executions_before = state.executions.lock().unwrap().len();
     let handle: String = proxy.call("StartScheduler", (request,)).await.unwrap();
-    assert_eq!(proxy.call::<usize>("TickScheduler", (&handle,)).await.unwrap(), 1);
-    proxy.call::<()>("DrainScheduler", (&handle,)).await.unwrap();
+    assert_eq!(
+        proxy
+            .call::<usize>("TickScheduler", (&handle,))
+            .await
+            .unwrap(),
+        1
+    );
+    proxy
+        .call::<()>("DrainScheduler", (&handle,))
+        .await
+        .unwrap();
     proxy.call::<()>("StopScheduler", (&handle,)).await.unwrap();
 
     let now = Utc::now();
-    assert!(!store
-        .renew_claim(&old_owner, now, Duration::hours(2))
-        .await
-        .unwrap());
+    assert!(
+        !store
+            .renew_claim(&old_owner, now, Duration::hours(2))
+            .await
+            .unwrap()
+    );
     assert!(!store.release_claim(&old_owner, now).await.unwrap());
-    assert!(!store
-        .complete_claim(&old_owner, now, true, "stale result", None)
-        .await
-        .unwrap());
+    assert!(
+        !store
+            .complete_claim(&old_owner, now, true, "stale result", None)
+            .await
+            .unwrap()
+    );
     let history = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "ok");

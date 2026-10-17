@@ -4,9 +4,8 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
-    self, CheckOriginRequest, CheckPatchRequest,
-    NextRunRequest, RunJobNow, RunJobReply, RunsCloserThanRequest, StartScheduler,
-    TooFrequent, ValidateScheduleRequest,
+    self, CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunJobNow, RunJobReply,
+    RunsCloserThanRequest, StartScheduler, TooFrequent, ValidateScheduleRequest,
 };
 use tinyflows_schedule::{
     DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
@@ -179,12 +178,7 @@ impl ScheduleService {
         let owner = uuid::Uuid::new_v4().to_string();
         let claim = match ports
             .store
-            .claim_manual_occurrence(
-                &request.job,
-                &owner,
-                now,
-                chrono::Duration::hours(2),
-            )
+            .claim_manual_occurrence(&request.job, &owner, now, chrono::Duration::hours(2))
             .await
             .map_err(failure)?
         {

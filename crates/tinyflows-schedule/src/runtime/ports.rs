@@ -67,11 +67,7 @@ pub trait JobStore: Send + Sync {
         anyhow::bail!("job store does not support durable occurrence release")
     }
     /// Persist the accepted manual run before returning its acknowledgement.
-    async fn queue_occurrence(
-        &self,
-        _claim: &OccurrenceClaim,
-        _record: RunRecord,
-    ) -> Result<bool> {
+    async fn queue_occurrence(&self, _claim: &OccurrenceClaim, _record: RunRecord) -> Result<bool> {
         anyhow::bail!("job store does not support durable run queueing")
     }
     /// Atomically append terminal history and advance the claimed occurrence.
@@ -98,12 +94,7 @@ pub trait JobExecutor: Send + Sync {
 #[async_trait]
 pub trait RunDelivery: Send + Sync {
     /// Perform the one actual product send; an error may fail required delivery.
-    async fn send(
-        &self,
-        job: &CronJob,
-        run_id: &str,
-        attempt: &Attempt,
-    ) -> Result<DeliveryStatus>;
+    async fn send(&self, job: &CronJob, run_id: &str, attempt: &Attempt) -> Result<DeliveryStatus>;
     /// Project the module's truthful terminal decision. This callback must not
     /// send again; it receives the result only after `send` has returned.
     async fn deliver(&self, projection: &DeliveryProjection) -> Result<()>;

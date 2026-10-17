@@ -7,9 +7,7 @@ use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tinyflows_schedule::{
-    CronJob,
-};
+use tinyflows_schedule::CronJob;
 use tinystoragedrivers_core::{Capability, Precondition, Versioned, WriteOp};
 use uuid::Uuid;
 
@@ -127,7 +125,8 @@ impl CronDocuments {
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
-        self.claim_occurrence(job_id, None, owner, now, duration, false).await
+        self.claim_occurrence(job_id, None, owner, now, duration, false)
+            .await
     }
 
     /// Due-only claim that also verifies the caller's captured definition.
@@ -138,15 +137,8 @@ impl CronDocuments {
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
-        self.claim_occurrence(
-            &expected.id,
-            Some(expected),
-            owner,
-            now,
-            duration,
-            false,
-        )
-        .await
+        self.claim_occurrence(&expected.id, Some(expected), owner, now, duration, false)
+            .await
     }
 
     /// Atomically claims a saved definition for an explicit manual run,
@@ -366,7 +358,8 @@ impl CronDocuments {
                         serde_json::to_value(expires_at.max(current_expiry))?;
                 }
                 None => {
-                    if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run) {
+                    if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run)
+                    {
                         extra.push(WriteOp::Delete {
                             collection: RUNS.into(),
                             id: run_id(queued_run),
@@ -440,5 +433,4 @@ impl CronDocuments {
         }
         bail!("cron store: completed occurrence kept changing during removal")
     }
-
 }

@@ -38,7 +38,12 @@ fn manual_admission_and_terminal_delivery_are_explicit_wire_types() {
         "kind":"refused", "reason":"already_running"
     }))
     .unwrap();
-    assert!(matches!(reply, RunJobReply::Refused { reason: RunJobRefusal::AlreadyRunning }));
+    assert!(matches!(
+        reply,
+        RunJobReply::Refused {
+            reason: RunJobRefusal::AlreadyRunning
+        }
+    ));
     let manual: ManualDelivery = serde_json::from_value(json!("not_requested")).unwrap();
     assert_eq!(manual, ManualDelivery::NotRequested);
     let attempt: Attempt = serde_json::from_value(json!({
@@ -48,7 +53,10 @@ fn manual_admission_and_terminal_delivery_are_explicit_wire_types() {
         "raw_detail":"opaque classifier data"
     }))
     .unwrap();
-    assert_eq!(attempt.raw_detail.as_deref(), Some("opaque classifier data"));
+    assert_eq!(
+        attempt.raw_detail.as_deref(),
+        Some("opaque classifier data")
+    );
     let projection = DeliveryProjection {
         job: serde_json::from_value(json!({
             "id":"job","expression":"","schedule":{"kind":"every","every_ms":60000},

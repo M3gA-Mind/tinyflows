@@ -9,7 +9,10 @@ use tinyflows_bus::schedule::{
     StoreRequest,
 };
 use tinyflows_drivers::schedule::{ClaimedOccurrence, CronDocuments};
-use tinyflows_schedule::{CronJob, runtime::{Completion, RunRecord}};
+use tinyflows_schedule::{
+    CronJob,
+    runtime::{Completion, RunRecord},
+};
 
 /// The module's schedule store: `CronDocuments` over the host's document port.
 pub(super) struct Store(CronDocuments);
@@ -116,11 +119,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Option<OccurrenceClaim>> {
-        let Some(claim) = self
-            .0
-            .claim_due_job_for(job, owner, now, lease)
-            .await?
-        else {
+        let Some(claim) = self.0.claim_due_job_for(job, owner, now, lease).await? else {
             return Ok(None);
         };
         Ok(Some(occurrence_claim(claim)?))
@@ -132,11 +131,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
-        let Some(claim) = self
-            .0
-            .claim_job_now(job, owner, now, lease)
-            .await?
-        else {
+        let Some(claim) = self.0.claim_job_now(job, owner, now, lease).await? else {
             let current = self.0.find_job(&job.id).await?;
             let changed = current.is_none_or(|current| {
                 current.created_at != job.created_at
@@ -159,9 +154,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<bool> {
-        self.0
-            .renew_claim(&decode_claim(claim)?, now, lease)
-            .await
+        self.0.renew_claim(&decode_claim(claim)?, now, lease).await
     }
     async fn release_occurrence(
         &self,
@@ -170,11 +163,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
     ) -> Result<bool> {
         self.0.release_claim(&decode_claim(claim)?, now).await
     }
-    async fn queue_occurrence(
-        &self,
-        claim: &OccurrenceClaim,
-        record: RunRecord,
-    ) -> Result<bool> {
+    async fn queue_occurrence(&self, claim: &OccurrenceClaim, record: RunRecord) -> Result<bool> {
         self.0
             .queue_claimed_run(&decode_claim(claim)?, record.started_at)
             .await

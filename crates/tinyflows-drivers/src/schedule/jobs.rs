@@ -273,8 +273,7 @@ impl CronDocuments {
     /// The job with `job_id`, or `None` when it is absent.
     pub async fn find_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         self.ensure().await?;
-        self
-            .docs
+        self.docs
             .get(JOBS, job_id)
             .await
             .map_err(storage_error)?
@@ -383,7 +382,12 @@ impl CronDocuments {
             let doc = updated_job_doc(&job, &stored.doc)?;
             let invalidated_queued_run = super::claims::queued_run_cleanup(&stored.doc)?;
             match self
-                .commit_job(job_id, Some(&stored), Some(doc.clone()), invalidated_queued_run)
+                .commit_job(
+                    job_id,
+                    Some(&stored),
+                    Some(doc.clone()),
+                    invalidated_queued_run,
+                )
                 .await
             {
                 Ok(results) => {

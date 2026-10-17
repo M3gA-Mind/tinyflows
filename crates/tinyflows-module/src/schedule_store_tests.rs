@@ -2,10 +2,10 @@ use super::*;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
-use tokio::sync::Notify;
 use tinyflows_schedule::runtime::*;
 use tinyflows_schedule::{DeliveryStatus, Schedule};
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+use tokio::sync::Notify;
 
 struct Replacement(CronDocuments);
 #[async_trait]
@@ -173,7 +173,9 @@ impl JobStore for LegacyClaimSlotStore {
 async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool) -> usize {
     let now = Utc::now() - chrono::Duration::seconds(60);
     let backend = MemoryStorage::new();
-    let scoped = backend.for_scope(&Scope::new("lease-recovery").unwrap()).unwrap();
+    let scoped = backend
+        .for_scope(&Scope::new("lease-recovery").unwrap())
+        .unwrap();
     let documents = CronDocuments::new(scoped.documents().clone());
     let mut job = documents
         .add_shell_job(Some("lease-recovery".into()), schedule, "true")
@@ -190,7 +192,9 @@ async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool)
         .await
         .unwrap();
     let frozen = Arc::new(FrozenClock(std::sync::Mutex::new(now)));
-    let held = Arc::new(HeldRun { started: Notify::new() });
+    let held = Arc::new(HeldRun {
+        started: Notify::new(),
+    });
     let store: Arc<dyn JobStore> = if legacy {
         Arc::new(LegacyClaimSlotStore(Store(documents.clone())))
     } else {
@@ -250,7 +254,7 @@ async fn legacy_scheduler_advance_before_execution_fails_the_same_recovery_asser
     assert_eq!(
         interrupted_occurrence_recovery_count(
             Schedule::Every {
-            every_ms: 24 * 60 * 60 * 1_000,
+                every_ms: 24 * 60 * 60 * 1_000,
             },
             true,
         )

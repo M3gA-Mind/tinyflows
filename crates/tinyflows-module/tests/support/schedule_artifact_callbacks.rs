@@ -1,8 +1,8 @@
 // Shared fixture for the compiled module test; client uses only the bus wire vocabulary.
-use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tinybus::Result;
 use tinyflows_bus::schedule::{ManualClaimReply, OccurrenceClaim, RunJobRefusal};
 #[derive(Default)]
@@ -66,7 +66,10 @@ impl Callbacks {
         let receipt = uuid::Uuid::new_v4().to_string();
         leases.insert(
             job.id.clone(),
-            (receipt.clone(), now + chrono::Duration::milliseconds(lease_ms)),
+            (
+                receipt.clone(),
+                now + chrono::Duration::milliseconds(lease_ms),
+            ),
         );
         Ok(Some(OccurrenceClaim {
             receipt,
@@ -93,7 +96,10 @@ impl Callbacks {
         let receipt = uuid::Uuid::new_v4().to_string();
         leases.insert(
             job.id.clone(),
-            (receipt.clone(), now + chrono::Duration::milliseconds(lease_ms)),
+            (
+                receipt.clone(),
+                now + chrono::Duration::milliseconds(lease_ms),
+            ),
         );
         Ok(ManualClaimReply::Claimed {
             claim: OccurrenceClaim {
@@ -177,17 +183,17 @@ impl Callbacks {
         Ok(())
     }
     async fn send(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
-        self.0.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(if self
-            .0
-            .fail_send
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            "failed"
-        } else {
-            "not_requested"
-        }
-        .into())
+        self.0
+            .sends
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(
+            if self.0.fail_send.load(std::sync::atomic::Ordering::SeqCst) {
+                "failed"
+            } else {
+                "not_requested"
+            }
+            .into(),
+        )
     }
     async fn deliver(&self, projection: Value) -> Result<()> {
         self.0.projections.lock().unwrap().push(projection);

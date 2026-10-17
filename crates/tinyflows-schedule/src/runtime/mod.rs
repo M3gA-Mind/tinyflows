@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use tinyflows_bus::schedule::{ManualDelivery, OccurrenceClaim};
-use tokio::{sync::{Semaphore, watch}, task::JoinSet};
+use tokio::{
+    sync::{Semaphore, watch},
+    task::JoinSet,
+};
 
 const OCCURRENCE_LEASE: chrono::Duration = chrono::Duration::hours(2);
 
@@ -113,12 +116,7 @@ impl Scheduler {
                 let claim = self
                     .ports
                     .store
-                    .claim_due_occurrence(
-                        &job,
-                        &self.owner,
-                        now,
-                        OCCURRENCE_LEASE,
-                    )
+                    .claim_due_occurrence(&job, &self.owner, now, OCCURRENCE_LEASE)
                     .await;
                 let claim = match claim {
                     Ok(claim) => claim,
@@ -134,12 +132,7 @@ impl Scheduler {
             if selected.len() >= limit {
                 break;
             }
-            batch = match self
-                .ports
-                .store
-                .due_jobs_excluding(now, &examined)
-                .await
-            {
+            batch = match self.ports.store.due_jobs_excluding(now, &examined).await {
                 Ok(batch) => batch,
                 Err(error) => {
                     self.release_claims(&selected).await;
@@ -154,7 +147,8 @@ impl Scheduler {
                 anyhow::bail!("job store returned an excluded due job");
             }
         }
-        self.dispatch_claims(selected, ManualDelivery::Requested).await
+        self.dispatch_claims(selected, ManualDelivery::Requested)
+            .await
     }
 
     /// Durably claim due occurrences and return the dispatched count. A live
@@ -167,12 +161,7 @@ impl Scheduler {
             let claimed = self
                 .ports
                 .store
-                .claim_due_occurrence(
-                    &job,
-                    &self.owner,
-                    self.ports.clock.now(),
-                    OCCURRENCE_LEASE,
-                )
+                .claim_due_occurrence(&job, &self.owner, self.ports.clock.now(), OCCURRENCE_LEASE)
                 .await;
             let claimed = match claimed {
                 Ok(claimed) => claimed,
@@ -185,7 +174,8 @@ impl Scheduler {
                 claims.push(claim);
             }
         }
-        self.dispatch_claims(claims, ManualDelivery::Requested).await
+        self.dispatch_claims(claims, ManualDelivery::Requested)
+            .await
     }
 
     async fn release_claims(&self, claims: &[OccurrenceClaim]) {
@@ -218,8 +208,8 @@ impl Scheduler {
                     Some(permits),
                     cancellation,
                 )
-                    .await
-                    .map(|_| ())
+                .await
+                .map(|_| ())
             });
             count += 1;
         }

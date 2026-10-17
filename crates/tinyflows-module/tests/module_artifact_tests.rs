@@ -4,14 +4,6 @@ mod authoring_contract_calls;
 mod authoring_surface_artifact;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
-#[path = "support/schedule_v4_delivery_artifact.rs"]
-mod schedule_v4_delivery_artifact;
-#[path = "support/schedule_v4_artifact.rs"]
-mod schedule_v4_artifact;
-#[path = "support/schedule_v4_manual_artifact.rs"]
-mod schedule_v4_manual_artifact;
-#[path = "support/schedule_v4_recovery_artifact.rs"]
-mod schedule_v4_recovery_artifact;
 #[path = "support/copilot_artifact.rs"]
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
@@ -20,6 +12,14 @@ mod document_callbacks;
 mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
+#[path = "support/schedule_v4_artifact.rs"]
+mod schedule_v4_artifact;
+#[path = "support/schedule_v4_delivery_artifact.rs"]
+mod schedule_v4_delivery_artifact;
+#[path = "support/schedule_v4_manual_artifact.rs"]
+mod schedule_v4_manual_artifact;
+#[path = "support/schedule_v4_recovery_artifact.rs"]
+mod schedule_v4_recovery_artifact;
 #[path = "support/wiring_warning_artifact.rs"]
 mod wiring_warning_artifact;
 use serde_json::json;

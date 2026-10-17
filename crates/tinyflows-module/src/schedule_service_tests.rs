@@ -28,7 +28,11 @@ impl Callbacks {
         Ok(())
     }
     async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
-        self.0.triggers.lock().await.push(job["command"].as_str().unwrap_or_default().into());
+        self.0
+            .triggers
+            .lock()
+            .await
+            .push(job["command"].as_str().unwrap_or_default().into());
         Ok(json!({"success":true,"output":"triggered","retryable":false}))
     }
 }
@@ -87,8 +91,8 @@ async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_deliver
 
 #[tokio::test]
 async fn run_job_now_is_a_typed_module_owned_admission_operation() {
-    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
     use tinyflows_bus::schedule::{ManualDelivery, RunJobNow, RunJobReply, StoreConfig};
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
     let (_server, host, state) = connections().await;
     let backend = MemoryStorage::new();
@@ -182,12 +186,16 @@ async fn run_job_now_is_a_typed_module_owned_admission_operation() {
 #[tokio::test]
 async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
     use chrono::Duration as ChronoDuration;
+    use tinyflows_bus::schedule::{
+        ManualDelivery, RunJobNow, RunJobRefusal, RunJobReply, StoreConfig,
+    };
     use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
-    use tinyflows_bus::schedule::{ManualDelivery, RunJobNow, RunJobRefusal, RunJobReply, StoreConfig};
 
     let (_server, host, _) = connections().await;
     let backend = MemoryStorage::new();
-    let scoped = backend.for_scope(&Scope::new("held-scheduled-run").unwrap()).unwrap();
+    let scoped = backend
+        .for_scope(&Scope::new("held-scheduled-run").unwrap())
+        .unwrap();
     let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
     let now = chrono::Utc::now();
     let job = documents
@@ -222,7 +230,11 @@ async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
     }))
     .unwrap();
     let proxy = host
-        .proxy(schedule::BUS_NAME, schedule::OBJECT_PATH, schedule::INTERFACE)
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
         .unwrap();
     let reply: RunJobReply = proxy
         .call(
@@ -247,12 +259,13 @@ async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
         }
     ));
     assert!(documents.list_runs(&job.id, 10).await.unwrap().is_empty());
-    assert!(documents
-        .release_claim(&active, chrono::Utc::now())
-        .await
-        .unwrap());
+    assert!(
+        documents
+            .release_claim(&active, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
 }
-
 
 #[tokio::test]
 async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
@@ -279,7 +292,12 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
         manual_ticks: false,
         storage: None,
     };
-    assert!(proxy.call::<String>("StartScheduler", &(competing,)).await.is_err());
+    assert!(
+        proxy
+            .call::<String>("StartScheduler", &(competing,))
+            .await
+            .is_err()
+    );
     let count: usize = proxy.call("TickScheduler", &(&handle,)).await.unwrap();
     assert_eq!(count, 0);
     proxy

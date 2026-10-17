@@ -68,8 +68,17 @@ pub async fn verify(
         storage: Some(storage),
     };
     let handle: String = proxy.call("StartScheduler", (request,)).await.unwrap();
-    assert_eq!(proxy.call::<usize>("TickScheduler", (&handle,)).await.unwrap(), 1);
-    proxy.call::<()>("DrainScheduler", (&handle,)).await.unwrap();
+    assert_eq!(
+        proxy
+            .call::<usize>("TickScheduler", (&handle,))
+            .await
+            .unwrap(),
+        1
+    );
+    proxy
+        .call::<()>("DrainScheduler", (&handle,))
+        .await
+        .unwrap();
     proxy.call::<()>("StopScheduler", (&handle,)).await.unwrap();
 
     assert_eq!(

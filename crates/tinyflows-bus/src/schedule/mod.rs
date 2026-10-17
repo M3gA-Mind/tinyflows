@@ -12,8 +12,8 @@ pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
     CheckOriginRequest, CheckPatchRequest, DeliveryProjection, ManualClaimReply, ManualDelivery,
-    NextRunRequest, OccurrenceClaim, RunJobNow, RunJobRefusal, RunJobReply,
-    RunsCloserThanRequest, ValidateScheduleRequest,
+    NextRunRequest, OccurrenceClaim, RunJobNow, RunJobRefusal, RunJobReply, RunsCloserThanRequest,
+    ValidateScheduleRequest,
 };
 pub use store_types::{
     AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, StoreOperation, TRUNCATED_OUTPUT_MARKER,

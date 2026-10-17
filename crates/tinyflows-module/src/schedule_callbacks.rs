@@ -124,11 +124,7 @@ impl JobStore for HostCallbacks {
         self.call(callbacks::RELEASE_OCCURRENCE, &(&claim.receipt, now))
             .await
     }
-    async fn queue_occurrence(
-        &self,
-        claim: &OccurrenceClaim,
-        record: RunRecord,
-    ) -> Result<bool> {
+    async fn queue_occurrence(&self, claim: &OccurrenceClaim, record: RunRecord) -> Result<bool> {
         self.call(callbacks::QUEUE_OCCURRENCE, &(&claim.receipt, record))
             .await
     }
@@ -167,19 +163,13 @@ impl RunDelivery for HostCallbacks {
     ) -> Result<()> {
         self.call(callbacks::DELIVER, &(projection,)).await
     }
-    async fn send(
-        &self,
-        job: &CronJob,
-        run_id: &str,
-        attempt: &Attempt,
-    ) -> Result<DeliveryStatus> {
+    async fn send(&self, job: &CronJob, run_id: &str, attempt: &Attempt) -> Result<DeliveryStatus> {
         self.call(callbacks::SEND, &(job, run_id, attempt)).await
     }
 }
 #[async_trait]
 impl TriggerSink for HostCallbacks {
     async fn schedule(&self, job: &CronJob, run_id: &str) -> Result<Attempt> {
-        self.call(callbacks::SCHEDULE_TRIGGER, &(job, run_id))
-            .await
+        self.call(callbacks::SCHEDULE_TRIGGER, &(job, run_id)).await
     }
 }

@@ -5,10 +5,7 @@ struct QueueFailureStore {
 }
 #[async_trait::async_trait]
 impl tinyflows_schedule::runtime::JobStore for QueueFailureStore {
-    async fn due_jobs(
-        &self,
-        _: chrono::DateTime<chrono::Utc>,
-    ) -> anyhow::Result<Vec<CronJob>> {
+    async fn due_jobs(&self, _: chrono::DateTime<chrono::Utc>) -> anyhow::Result<Vec<CronJob>> {
         Ok(vec![])
     }
     async fn queue_occurrence(
@@ -16,7 +13,11 @@ impl tinyflows_schedule::runtime::JobStore for QueueFailureStore {
         _: &tinyflows_bus::schedule::OccurrenceClaim,
         _: tinyflows_schedule::runtime::RunRecord,
     ) -> anyhow::Result<bool> {
-        if self.queue_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+        if self
+            .queue_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            == 0
+        {
             anyhow::bail!("injected queue failure")
         }
         Ok(true)
@@ -71,8 +72,10 @@ async fn a_queue_error_releases_the_claim_and_cannot_be_reported_as_accepted() {
             .is_err()
     );
     assert_eq!(store.releases.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert!(super::persist_manual_queue(&store, &claim, record, now)
-        .await
-        .unwrap());
+    assert!(
+        super::persist_manual_queue(&store, &claim, record, now)
+            .await
+            .unwrap()
+    );
     assert_eq!(store.releases.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
