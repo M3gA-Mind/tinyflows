@@ -5,6 +5,55 @@ use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn compiled_module_resumes_a_parked_approval_run() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
+    let broker = tinybus::broker::Broker::new();
+    let module_host = ModuleHost::new(broker.clone());
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+    let catalog_proxy = connection
+        .proxy(BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)
+        .unwrap();
+    let runs_proxy = connection
+        .proxy(BUS_NAME, runs::OBJECT_PATH, runs::INTERFACE)
+        .unwrap();
+    let owner = owner(&connection, "resume", None, None, None, None).await;
+    let graph = parked_graph();
+    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Resume flow", graph.clone()).await;
+    let callback = serve_agent(&connection, "resume").await;
+    let start = request(&owner, flow_id.clone(), "resume-run", graph, 20_000);
+    let started: runs::StartRunResponse = runs_proxy.call("StartRun", (start,)).await.unwrap();
+    assert!(!started.already_running);
+    wait_notify(&callback.approval_started, "approval callback").await;
+    poll_until_kind(&runs_proxy, &owner.storage, "resume-run", "parked").await;
+
+    let resumed: runs::ResumeRunResponse = runs_proxy
+        .call(
+            "ResumeRun",
+            (runs::ResumeRun {
+                run_id: "resume-run".into(),
+                flow_id,
+                storage: owner.storage.clone(),
+                caps_host: runs::CapsHost { callback: owner.caps },
+                approvals: vec!["approval".into()],
+                rejections: vec![],
+                timeout_ms: 20_000,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resumed.run_id, "resume-run");
+    let terminal = poll_until_done(&runs_proxy, &owner.storage, "resume-run").await;
+    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn pending_approval_is_parked_without_terminal_event_or_dedup_settlement() {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");

@@ -119,9 +119,47 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
     pin(
         ResumeRun {
             run_id: "run-1".into(),
+            flow_id: "flow-1".into(),
+            storage: storage(),
+            caps_host: CapsHost {
+                callback: CallbackAddress {
+                    destination: "host.caps".into(),
+                    object_path: "/run/1".into(),
+                },
+            },
             approvals: vec!["gate".into()],
+            rejections: vec!["decline".into()],
+            timeout_ms: 60_000,
         },
-        serde_json::json!({"run_id":"run-1","approvals":["gate"]}),
+        serde_json::json!({
+            "run_id":"run-1",
+            "flow_id":"flow-1",
+            "storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},
+            "caps_host":{"callback":{"destination":"host.caps","object_path":"/run/1"}},
+            "approvals":["gate"],
+            "rejections":["decline"],
+            "timeout_ms":60000
+        }),
+    );
+    pin(
+        ResumeRunResponse { run_id: "run-1".into() },
+        serde_json::json!({"run_id":"run-1"}),
+    );
+    pin(
+        ExpireParked { storage: storage() },
+        serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}}}),
+    );
+    pin(
+        ExpireParkedResponse { expired: vec![("run-1".into(), "flow-1".into())] },
+        serde_json::json!({"expired":[["run-1","flow-1"]]}),
+    );
+    pin(
+        BootSweep { storage: storage(), shared_backend: false },
+        serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},"shared_backend":false}),
+    );
+    pin(
+        BootSweepResponse { interrupted: vec!["run-1".into()] },
+        serde_json::json!({"interrupted":["run-1"]}),
     );
     pin(
         CallbackAddress {
