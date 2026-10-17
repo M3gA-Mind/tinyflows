@@ -97,7 +97,8 @@ fn a_credential_is_injected_after_the_summary_is_taken() {
             header: "Authorization".into(),
             value: "Bearer super-secret".into(),
         },
-    );
+    )
+    .unwrap();
 
     assert_eq!(summary, "POST https://example.com/x");
     assert!(

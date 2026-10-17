@@ -7,13 +7,31 @@ use crate::error::{EngineError, Result};
 /// Portable credential forms rendered before the HTTP transport is called.
 pub enum HttpCredentialTemplate {
     /// `Authorization: Bearer <secret>`.
-    Bearer { secret: String },
+    Bearer {
+        /// Secret token.
+        secret: String,
+    },
     /// `Authorization: Basic <base64(username:secret)>`.
-    Basic { username: String, secret: String },
+    Basic {
+        /// Basic authentication username.
+        username: String,
+        /// Basic authentication password.
+        secret: String,
+    },
     /// A secret written to a caller-selected header.
-    Header { header: String, secret: String },
+    Header {
+        /// Header name.
+        header: String,
+        /// Secret header value.
+        secret: String,
+    },
     /// A host-resolved header value that must pass through unchanged.
-    Resolved { header: String, value: String },
+    Resolved {
+        /// Header name.
+        header: String,
+        /// Fully resolved header value.
+        value: String,
+    },
 }
 
 impl HttpCredentialTemplate {
