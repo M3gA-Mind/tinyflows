@@ -323,7 +323,12 @@ async fn only_runs_parked_before_the_cutoff_expire() {
 async fn resume_claim_changes_status_and_actor_lease_in_one_cas() {
     let (store, flow) = with_flow().await;
     store
-        .insert_flow_run("resume-claim", &flow, "resume-claim", "2026-01-01T00:00:00Z")
+        .insert_flow_run(
+            "resume-claim",
+            &flow,
+            "resume-claim",
+            "2026-01-01T00:00:00Z",
+        )
         .await
         .unwrap();
     store
@@ -346,20 +351,28 @@ async fn resume_claim_changes_status_and_actor_lease_in_one_cas() {
         .await
         .unwrap();
 
-    assert!(store
-        .claim_parked_flow_run_for_resume("resume-claim", "resume-lease")
-        .await
-        .unwrap());
-    assert!(!store
-        .claim_parked_flow_run_for_resume("resume-claim", "losing-lease")
-        .await
-        .unwrap());
+    assert!(
+        store
+            .claim_parked_flow_run_for_resume("resume-claim", "resume-lease")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .claim_parked_flow_run_for_resume("resume-claim", "losing-lease")
+            .await
+            .unwrap()
+    );
     let row = store.get_flow_run("resume-claim").await.unwrap().unwrap();
     assert_eq!(row.status, "running");
     assert!(row.finished_at.is_none());
     assert_eq!(row.graph_hash.as_deref(), Some("graph-pin"));
     assert_eq!(
-        store.flow_run_snapshot("resume-claim").await.unwrap().unwrap()["lease"],
+        store
+            .flow_run_snapshot("resume-claim")
+            .await
+            .unwrap()
+            .unwrap()["lease"],
         "resume-lease"
     );
 }

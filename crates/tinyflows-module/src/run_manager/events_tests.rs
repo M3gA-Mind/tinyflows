@@ -24,5 +24,8 @@ fn resumed_node_replaces_its_parked_step_instead_of_retaining_stale_diagnostics(
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].status.as_deref(), Some("success"));
     assert!(steps[0].diagnostics.is_empty());
-    assert_eq!(steps[0].output, serde_json::json!([{"json":{"approved":true}}]));
+    assert_eq!(
+        steps[0].output,
+        serde_json::json!([{"json":{"approved":true}}])
+    );
 }

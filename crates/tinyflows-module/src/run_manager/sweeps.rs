@@ -45,9 +45,8 @@ pub(super) async fn expire_parked(
         if let Err(error) =
             settle_terminal_event(&catalog, run_id, "cancelled", "parked run expired").await
         {
-            terminal_error.get_or_insert_with(|| {
-                anyhow::anyhow!("settling expired run {run_id}: {error:#}")
-            });
+            terminal_error
+                .get_or_insert_with(|| anyhow::anyhow!("settling expired run {run_id}: {error:#}"));
         }
         let snapshot = match catalog.flow_run_snapshot(run_id).await {
             Ok(snapshot) => snapshot,
@@ -150,14 +149,15 @@ pub(super) async fn boot_sweep(
         {
             continue;
         }
-        if let Err(error) = settle_terminal_event(&catalog, &run_id, "interrupted", BOOT_REASON).await {
+        if let Err(error) =
+            settle_terminal_event(&catalog, &run_id, "interrupted", BOOT_REASON).await
+        {
             terminal_error.get_or_insert_with(|| {
                 anyhow::anyhow!("settling interrupted run {run_id}: {error:#}")
             });
         }
         settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
-        if let Err(error) = checkpointer.delete_thread(&run.thread_id).await
-        {
+        if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
             tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
         }
         interrupted.push(run_id);
@@ -215,6 +215,9 @@ pub(super) async fn settle_snapshot_dedup(
     if let Some((graph, context)) = decoded {
         super::actor::settle_dedup(catalog.clone(), &context, &graph, false, run_id).await;
     } else {
-        tracing::warn!(run_id, "run snapshot could not be decoded for dedup cleanup");
+        tracing::warn!(
+            run_id,
+            "run snapshot could not be decoded for dedup cleanup"
+        );
     }
 }

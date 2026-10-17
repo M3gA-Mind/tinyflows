@@ -70,7 +70,11 @@ async fn compiled_module_resumes_a_parked_approval_run() {
     let row = row.expect("resumed run remains in the owner scope");
     assert_eq!(row.status, terminal.events.last().unwrap().data["status"]);
     assert!(row.pending_approvals.is_empty());
-    assert_eq!(row.steps.len(), 3, "the resumed gate replaces its parked step");
+    assert_eq!(
+        row.steps.len(),
+        3,
+        "the resumed gate replaces its parked step"
+    );
     let diagnostic_nodes: Vec<&str> = row
         .steps
         .iter()

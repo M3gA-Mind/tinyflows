@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tinyflows::{
     engine::{
-        Checkpointer as _, RunInput, resume_with_checkpointer_journaled_observed,
+        Checkpointer as _, RunInput, resume_cancellable_with_checkpointer_journaled_observed,
         run_cancellable_with_checkpointer_journaled_observed,
     },
     nodes::control_flow::dedup_settle,
@@ -318,7 +318,7 @@ async fn execute(
                 rejections,
                 ..
             } => {
-                resume_with_checkpointer_journaled_observed(
+                resume_cancellable_with_checkpointer_journaled_observed(
                     &prepared.compiled,
                     capabilities,
                     checkpointer,
@@ -327,6 +327,7 @@ async fn execute(
                     rejections.clone(),
                     journal,
                     &observer_dyn,
+                    active.token.clone(),
                 )
                 .await
             }
