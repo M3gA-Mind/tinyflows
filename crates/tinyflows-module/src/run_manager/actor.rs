@@ -6,19 +6,21 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tinyflows::{
-    engine::{RunInput, run_cancellable_with_checkpointer_journaled_observed},
+    engine::{
+        Checkpointer as _, GraphEventJournal, RunInput,
+        run_cancellable_with_checkpointer_journaled_observed,
+    },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::catalog::{FlowRunStep, RunContext};
+use tinyflows_bus::runs::{RunContext, StartRun};
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tinyflows_catalog::run_summary;
 use tokio::time::sleep;
 
 use super::events::{EventWriter, Observer};
 use super::preparation::Prepared;
-use super::{ActiveRun, PARKED, RUNNING, unregister};
+use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
-use tinyflows_bus::runs::{FlowRunTrigger as WireTrigger, StartRun};
 
 pub(super) async fn drive(
     connection: tinybus::Connection,
@@ -88,8 +90,6 @@ pub(super) async fn drive(
     }
 
     let settled_steps = run_summary::settle_steps(observed, &output)
-        .into_iter()
-        .map(flow_run_step)
         .collect::<Vec<_>>();
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
     let status = if pending {
@@ -157,7 +157,7 @@ pub(super) async fn drive(
         return;
     }
 
-    let success = tinyflows_catalog::run_summary::is_success_status(status);
+    let success = dedup_settle::is_success_status(status);
     settle_dedup(
         prepared.catalog.clone(),
         &request.context,
@@ -225,17 +225,6 @@ async fn execute(
             let graph_id = outcome.graph_run_ids.run_id;
             Ok((outcome.outcome, Some(graph_id), true))
         }
-    }
-}
-
-fn flow_run_step(step: tinyflows_catalog::FlowRunStep) -> FlowRunStep {
-    FlowRunStep {
-        node_id: step.node_id,
-        output: step.output,
-        port: step.port,
-        status: step.status,
-        duration_ms: step.duration_ms,
-        diagnostics: step.diagnostics,
     }
 }
 

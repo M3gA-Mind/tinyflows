@@ -6,16 +6,15 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 use tinyflows::{
-    caps::{Capabilities, WorkflowResolver},
+    caps::WorkflowResolver,
     compiler::{self, CompiledWorkflow},
-    engine::{Checkpointer, InMemoryGraphEventJournal},
+    engine::InMemoryGraphEventJournal,
     error::{EngineError, Result as EngineResult},
-    graph::checkpoint::Checkpointer as GraphCheckpointer,
     model::{WorkflowGraph, resolve_inputs},
 };
 use tinyflows_bus::{catalog::CatalogStorage, runs::StartRun};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
-use tinystoragedrivers_core::{DocumentStore, DocumentStoreExt};
+use tinystoragedrivers_core::DocumentStore;
 use tinybus::Connection;
 
 use super::super::catalog_documents::Documents;

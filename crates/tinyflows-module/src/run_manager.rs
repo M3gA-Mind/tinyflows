@@ -179,9 +179,9 @@ pub(super) async fn poll(
     let values = catalog
         .flow_run_events_after(&request.run_id, request.cursor, 256)
         .await?;
-    let events = values
+    let events: Vec<tinyflows_bus::runs::RunEvent> = values
         .into_iter()
-        .map(serde_json::from_value)
+        .map(serde_json::from_value::<tinyflows_bus::runs::RunEvent>)
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("decoding flow run events")?;
     let next_cursor = events.last().map_or(request.cursor, |event| event.seq);

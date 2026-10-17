@@ -9,6 +9,7 @@ use tinyflows::observability::{ExecutionStep, Run, RunObserver, RunStatus, StepS
 use tinyflows_bus::runs::RunEvent;
 use tinyflows_catalog::FlowRunStep;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
+use crate::caps::RunProgressSink;
 
 async fn persist_event(
     catalog: &FlowCatalogDocuments,
@@ -178,7 +179,7 @@ impl Observer {
             .clone()
     }
 
-    pub fn progress_sink(&self) -> super::super::RunProgressSink {
+    pub fn progress_sink(&self) -> RunProgressSink {
         let writer = self.writer.clone();
         Arc::new(move |kind, data| writer.emit(kind, data))
     }

@@ -12,7 +12,7 @@ use tinyflows::graph::checkpoint::Checkpointer as _;
 
 use super::events::EventWriter;
 use super::preparation::Prepared;
-use super::{ActiveRun, PARKED, RUNNING, unregister};
+use super::{ActiveRun, RUNNING, unregister};
 use crate::catalog_documents::Documents;
 
 pub(super) async fn cancel_parked_or_stale(
