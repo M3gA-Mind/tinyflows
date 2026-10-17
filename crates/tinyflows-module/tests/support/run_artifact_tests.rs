@@ -111,7 +111,21 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             )
             .await
             .unwrap();
-        panic!("alice agent never started; persisted row: {row:?}");
+        let events: runs::PollRun = runs_proxy
+            .call(
+                "PollRun",
+                (RunControlRequest {
+                    storage: alice.storage.clone(),
+                    run_id: run_id.into(),
+                    cursor: 0,
+                },),
+            )
+            .await
+            .unwrap();
+        panic!(
+            "alice agent never started; persisted row {row:?}, events {:?}",
+            events.events
+        );
     }
     let live_graph =
         poll_until_kind(&runs_proxy, &alice.storage, run_id, "graph_observation").await;

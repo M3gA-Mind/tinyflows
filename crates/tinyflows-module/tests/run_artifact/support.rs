@@ -172,6 +172,13 @@ impl AgentCallback {
         Ok(None)
     }
 
+    async fn resolve_tools(
+        &self,
+        _request: runs::ResolveToolsRequest,
+    ) -> tinybus::Result<Vec<runs::ToolDescriptor>> {
+        Ok(Vec::new())
+    }
+
     async fn agent_run(&self, _request: AgentRunRequest) -> tinybus::Result<AgentRunHandle> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.started.notify_one();
