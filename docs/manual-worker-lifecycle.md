@@ -13,12 +13,15 @@ is idempotent, while a different payload is refused.
 
 `StartManualRun` may return `Starting` while the module is obtaining the claim
 and writing the durable queue row. `Running` means that queue admission is
-durable. Hosts should wait for `Running` or a terminal refusal before treating
-the run as accepted. `WaitManualRun` returns an immediate, repeatable snapshot;
-hosts choose their own polling cadence. Cancelling a Wait request does not
-cancel the worker. A lost or ambiguous Start reply can be recovered by
-repeating the identical Start or polling Wait with the known handle. An
-ordinary caller disconnect does not cancel accepted work.
+durable. Hosts should wait for `Running` or a terminal state before deciding
+the admission outcome: `Running` and `Completed` prove durable admission,
+`Refused` denies admission, and `Failed` may follow execution effects or a
+persistence error, so it does not promise that the run never started.
+`WaitManualRun` returns an immediate, repeatable snapshot; hosts choose their
+own polling cadence. Cancelling a Wait request does not cancel the worker. A
+lost or ambiguous Start reply can be recovered by repeating the identical
+Start or polling Wait with the known handle. An ordinary caller disconnect
+does not cancel accepted work.
 
 For explicit cancellation or host shutdown, call `StopManualRun` and continue
 polling Wait until it reports `Terminal` or the typed absent result. Stop is
