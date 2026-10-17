@@ -212,25 +212,6 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         }
         Ok(completed)
     }
-    async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
-        let claimed = self.0.claim_slot(job, next).await?;
-        anyhow::ensure!(
-            claimed,
-            "schedule occurrence was removed, edited or already claimed"
-        );
-        Ok(())
-    }
-    async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {
-        self.0.record_claimed_run(&record).await
-    }
-
-    async fn complete(
-        &self,
-        job: &CronJob,
-        completion: tinyflows_schedule::runtime::Completion,
-    ) -> Result<()> {
-        self.0.complete_run(job, &completion).await
-    }
 }
 
 fn occurrence_claim(claim: ClaimedOccurrence) -> Result<OccurrenceClaim> {

@@ -83,19 +83,6 @@ pub trait JobStore: Send + Sync {
     ) -> Result<bool> {
         anyhow::bail!("job store does not support fenced occurrence completion")
     }
-    /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
-    /// Compare job.claim_generation and atomically increment it. One-shots
-    /// must be durably disabled before returning success.
-    /// Return an error on storage failure or when another writer won the claim.
-    async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()>;
-    /// Append a run outcome without changing the job's schedule. Match its
-    /// dispatch-time job_created_at; reject a replacement with the same ID.
-    async fn record_run(&self, record: RunRecord) -> Result<()>;
-    /// Apply the computed terminal mutation and last-run fields after a claim,
-    /// preserving explicit re-enables and edits made while the run executed.
-    /// Mutate only when the current generation equals job.claim_generation + 1;
-    /// a later successful claim makes this completion stale.
-    async fn complete(&self, job: &CronJob, completion: Completion) -> Result<()>;
 }
 
 /// Agent and shell execution, including host security and failure classification.

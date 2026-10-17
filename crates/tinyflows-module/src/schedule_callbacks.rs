@@ -73,9 +73,6 @@ impl JobStore for HostCallbacks {
         self.call(callbacks::DUE_JOBS_EXCLUDING, &(now, excluded))
             .await
     }
-    async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()> {
-        self.call(callbacks::CLAIM_SLOT, &(job, next_run)).await
-    }
     async fn claim_due_occurrence(
         &self,
         job: &CronJob,
@@ -146,12 +143,6 @@ impl JobStore for HostCallbacks {
             &(&claim.receipt, record, completion),
         )
         .await
-    }
-    async fn record_run(&self, record: RunRecord) -> Result<()> {
-        self.call(callbacks::RECORD_RUN, &(record,)).await
-    }
-    async fn complete(&self, job: &CronJob, completion: Completion) -> Result<()> {
-        self.call(callbacks::COMPLETE, &(job, completion)).await
     }
 }
 #[async_trait]

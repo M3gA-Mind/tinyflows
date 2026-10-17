@@ -133,9 +133,6 @@ pub mod callbacks {
     /// `(now: RFC3339, excluded: string[]) -> jobs: JSON[]`. Apply exclusions
     /// before the batch limit; required when an active job defers a due slot.
     pub const DUE_JOBS_EXCLUDING: &str = "DueJobsExcluding";
-    /// `(job: JSON, next_run: RFC3339) -> ()`: claim or return an error.
-    /// Preserve concurrent edits; disable one-shots durably before success.
-    pub const CLAIM_SLOT: &str = "ClaimSlot";
     /// `(captured_job, owner, now, lease_ms) -> Option<OccurrenceClaim>`.
     pub const CLAIM_DUE_OCCURRENCE: &str = "ClaimDueOccurrence";
     /// `(job, owner, now, lease_ms) -> Option<OccurrenceClaim>`; manual force-run.
@@ -148,10 +145,6 @@ pub mod callbacks {
     pub const QUEUE_OCCURRENCE: &str = "QueueOccurrence";
     /// `(receipt, record, completion) -> bool`; atomic terminal commit.
     pub const COMPLETE_OCCURRENCE: &str = "CompleteOccurrence";
-    /// `(record: JSON) -> ()`; fields match runtime run records.
-    pub const RECORD_RUN: &str = "RecordRun";
-    /// `(job: JSON, completion: JSON) -> ()`; apply the computed mutation.
-    pub const COMPLETE: &str = "Complete";
     /// `(job: JSON, run_id: string) -> {success, output, retryable}`.
     pub const EXECUTE: &str = "Execute";
     /// `(job: JSON, run_id: string, attempt: JSON) -> ()` after final failure.

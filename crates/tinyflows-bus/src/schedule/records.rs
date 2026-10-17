@@ -47,7 +47,10 @@ pub struct RunRecord {
 pub struct Completion {
     /// Whether a scheduled run advances or disables its saved occurrence.
     /// Manual Run Now keeps the schedule untouched.
-    #[serde(default = "advance_schedule_default")]
+    #[serde(
+        default = "advance_schedule_default",
+        skip_serializing_if = "advance_schedule_is_default"
+    )]
     pub advance_schedule: bool,
     /// Remove a successful auto-delete one-shot, including its stored history,
     /// unless a concurrent edit re-enabled or otherwise retained it.
@@ -67,4 +70,8 @@ pub struct Completion {
 
 fn advance_schedule_default() -> bool {
     true
+}
+
+fn advance_schedule_is_default(value: &bool) -> bool {
+    *value
 }
