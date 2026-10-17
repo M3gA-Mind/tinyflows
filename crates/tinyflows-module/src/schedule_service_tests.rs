@@ -427,6 +427,11 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let late_start = proxy.call::<ManualRunState>("StartManualRun", &start).await;
     assert!(late_start.is_err(), "late start cannot recreate acknowledged state");
 
+    assert_eq!(
+        documents.list_runs(&job.id, 10).await.unwrap()[0].status,
+        "queued",
+        "stopped execution leaves the queued row for storage's lease recovery"
+    );
     let released = documents
         .claim_job_now(
             &job,
@@ -440,11 +445,6 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         panic!("terminal Stopped must follow confirmed claim release")
     };
     assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
-    assert_eq!(
-        documents.list_runs(&job.id, 10).await.unwrap()[0].status,
-        "queued",
-        "stopped execution leaves the queued row for storage's lease recovery"
-    );
 
     let after_ack: tinyflows_bus::schedule::ManualRunHandle =
         proxy.call("PrepareManualRun", &prepare).await.unwrap();
