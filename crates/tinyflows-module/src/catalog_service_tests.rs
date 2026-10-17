@@ -47,7 +47,7 @@ impl HostDocuments {
         if request["collection"] == "flows.revisions"
             && self.fail_revision_put.swap(false, Ordering::SeqCst)
         {
-            return Ok(reply(Err(
+            return Ok(reply(Err::<(), _>(
                 tinystoragedrivers_core::StorageError::unavailable(
                     "injected revision migration failure",
                 ),

@@ -77,9 +77,11 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
             .is_none()
     );
 
+    let retry_args_a = (storage.clone(),);
+    let retry_args_b = (storage.clone(),);
     let (retry_a, retry_b) = tokio::join!(
-        proxy.call::<()>("MigrateStorage", &(storage.clone(),)),
-        proxy.call::<()>("MigrateStorage", &(storage.clone(),)),
+        proxy.call::<()>("MigrateStorage", &retry_args_a),
+        proxy.call::<()>("MigrateStorage", &retry_args_b),
     );
     retry_a.unwrap();
     retry_b.unwrap();
