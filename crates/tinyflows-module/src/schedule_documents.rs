@@ -104,6 +104,7 @@ impl Documents {
             "cron_runs",
             "cron_counters",
             "tsd.migrations",
+            "tsd.kv",
         ]
         .contains(&collection)
         {
@@ -118,6 +119,11 @@ impl Documents {
     /// never scan them.
     fn validate_record(collection: &str, id: &str) -> Result<()> {
         Self::validate_collection(collection)?;
+        if collection == "tsd.kv" {
+            return Err(StorageError::invalid_input(
+                "the schedule port may only ensure tsd.kv for primitive preparation",
+            ));
+        }
         if SHARED.contains(&collection) && !id.starts_with(CRON_KEY_PREFIX) {
             return Err(StorageError::invalid_input(
                 "record is outside the schedule owner's keys",
@@ -127,7 +133,7 @@ impl Documents {
     }
     fn validate_set(collection: &str) -> Result<()> {
         Self::validate_collection(collection)?;
-        if SHARED.contains(&collection) {
+        if SHARED.contains(&collection) || collection == "tsd.kv" {
             return Err(StorageError::invalid_input(
                 "set operations are outside the schedule port for shared collections",
             ));
