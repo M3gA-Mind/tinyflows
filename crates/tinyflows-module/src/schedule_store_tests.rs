@@ -116,7 +116,7 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
     let scoped = backend.for_scope(&Scope::new("lease-recovery").unwrap()).unwrap();
     let documents = CronDocuments::new(scoped.documents().clone());
     let mut job = documents
-        .add_shell_job(Some("lease-recovery"), schedule, "true")
+        .add_shell_job(Some("lease-recovery".into()), schedule, "true")
         .await
         .unwrap();
     job.next_run = now;
