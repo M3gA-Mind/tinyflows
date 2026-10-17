@@ -240,6 +240,7 @@ pub async fn retry_with_checkpointer(
         Continuation::Retry,
         None,
         &observer,
+        None,
     )
     .await?;
     Ok(outcome)
@@ -272,6 +273,7 @@ pub async fn retry_with_checkpointer_journaled_observed(
         Continuation::Retry,
         Some(journal),
         observer,
+        None,
     )
     .await?;
     Ok(JournaledRunOutcome {
@@ -304,6 +306,7 @@ pub async fn retry_with_checkpointer_observed(
         Continuation::Retry,
         None,
         observer,
+        None,
     )
     .await?;
     Ok(outcome)
