@@ -183,6 +183,17 @@ pub struct DocPutRequest {
     /// Unix epoch milliseconds from which the document reads as absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_ms: Option<i64>,
+    /// Original record creation time, used only by schema migrations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_ms: Option<i64>,
+}
+
+/// Optional abilities of the host document callback.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CatalogStorageCapabilities {
+    /// Whether `DocPut` preserves an explicitly supplied record creation time.
+    #[serde(default)]
+    pub record_metadata: bool,
 }
 
 fn is_zero(value: &u32) -> bool {
