@@ -55,18 +55,24 @@ async fn compiled_module_resumes_a_rejected_approval_over_the_runs_bus() {
         .unwrap();
     assert_eq!(response.run_id, "rejection-run");
     let terminal = poll_until_done(&runs_proxy, &owner.storage, "rejection-run").await;
-    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     let row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
             (RunIdRequest {
-                storage: owner.storage,
+                storage: owner.storage.clone(),
                 id: "rejection-run".into(),
             },),
         )
         .await
         .unwrap();
     let row = row.unwrap();
+    assert_eq!(
+        terminal.events.last().unwrap().data["status"],
+        "completed",
+        "rejection settlement: {:?}; steps: {:?}",
+        row.error,
+        row.steps
+    );
     assert!(row.steps.iter().any(|step| step.node_id == "recovery"));
     assert!(!row.steps.iter().any(|step| step.node_id == "accepted"));
 }
