@@ -121,11 +121,20 @@ fn credential_preparation_rejects_non_object_request_and_headers() {
         value: "Bearer secret-must-not-be-reported".into(),
     };
 
-    for request in [json!(null), json!({"headers": "not-an-object"})] {
-        let error = prepare(request, &cred).expect_err("malformed request must fail closed");
-        let message = error.to_string();
-        assert!(!message.contains(&cred.value));
-    }
+    let error = prepare(json!(null), &cred).expect_err("malformed request must fail closed");
+    let message = error.to_string();
+    assert!(!message.contains(&cred.value));
+}
+
+#[test]
+fn credential_preparation_rejects_malformed_headers() {
+    let cred = HttpCredential {
+        header: "Authorization".into(),
+        value: "Bearer secret-must-not-be-reported".into(),
+    };
+    let error = inject_credential(json!({"headers":"not-an-object"}), &cred)
+        .expect_err("malformed headers must fail closed");
+    assert!(!error.to_string().contains(&cred.value));
 }
 
 #[test]

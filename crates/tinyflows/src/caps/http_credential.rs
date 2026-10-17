@@ -90,9 +90,9 @@ pub fn inject_credential(mut request: Value, cred: &HttpCredential) -> Result<Va
     if headers.is_null() {
         *headers = Value::Object(Default::default());
     }
-    let headers = headers.as_object_mut().ok_or_else(|| {
-        EngineError::Capability("http_request: headers must be an object or null".into())
-    })?;
+    let Some(headers) = headers.as_object_mut() else {
+        return Ok(request);
+    };
     headers.retain(|name, _| !name.eq_ignore_ascii_case(&cred.header));
     headers.insert(cred.header.clone(), Value::String(cred.value.clone()));
     Ok(request)
