@@ -90,7 +90,9 @@ impl Clock for FrozenClock {
     fn now(&self) -> DateTime<Utc> {
         *self.0.lock().unwrap()
     }
-    async fn sleep(&self, _: Duration) {}
+    async fn sleep(&self, _: Duration) {
+        std::future::pending().await
+    }
 }
 
 struct NoDelivery;
