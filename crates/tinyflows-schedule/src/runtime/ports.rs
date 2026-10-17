@@ -31,7 +31,7 @@ pub trait JobStore: Send + Sync {
     /// fail closed; a host process mutex is never an admission substitute.
     async fn claim_due_occurrence(
         &self,
-        _job_id: &str,
+        _job: &CronJob,
         _owner: &str,
         _now: DateTime<Utc>,
         _lease: chrono::Duration,

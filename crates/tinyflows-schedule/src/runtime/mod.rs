@@ -114,7 +114,7 @@ impl Scheduler {
                     .ports
                     .store
                     .claim_due_occurrence(
-                        &job.id,
+                        &job,
                         &self.owner,
                         now,
                         OCCURRENCE_LEASE,
@@ -156,7 +156,7 @@ impl Scheduler {
                 .ports
                 .store
                 .claim_due_occurrence(
-                    &job.id,
+                    &job,
                     &self.owner,
                     self.ports.clock.now(),
                     OCCURRENCE_LEASE,

@@ -111,14 +111,14 @@ impl tinyflows_schedule::runtime::JobStore for Store {
     }
     async fn claim_due_occurrence(
         &self,
-        job_id: &str,
+        job: &CronJob,
         owner: &str,
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Option<OccurrenceClaim>> {
         let Some(claim) = self
             .0
-            .claim_due_job(job_id, owner, now, lease)
+            .claim_due_job_for(job, owner, now, lease)
             .await?
         else {
             return Ok(None);

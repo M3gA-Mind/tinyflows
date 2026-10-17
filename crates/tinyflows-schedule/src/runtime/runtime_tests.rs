@@ -2,15 +2,18 @@ use super::*;
 use crate::{DeliveryStatus, JobType};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
+use tinyflows_bus::schedule::{OccurrenceClaim, RunJobRefusal};
 
 struct Fixture {
     now: Mutex<DateTime<Utc>>,
     waits: Mutex<Vec<Duration>>,
     jobs: Mutex<Vec<CronJob>>,
+    leases: Mutex<HashMap<String, (String, DateTime<Utc>)>>,
     records: Mutex<Vec<RunRecord>>,
     completions: Mutex<Vec<Completion>>,
     calls: AtomicUsize,
@@ -28,6 +31,7 @@ impl Fixture {
             now: Mutex::new("2026-01-01T00:00:00Z".parse().unwrap()),
             waits: Mutex::new(vec![]),
             jobs: Mutex::new(vec![]),
+            leases: Mutex::new(HashMap::new()),
             records: Mutex::new(vec![]),
             completions: Mutex::new(vec![]),
             calls: AtomicUsize::new(0),
@@ -85,6 +89,9 @@ impl Clock for Fixture {
         self.waits.lock().unwrap().push(duration);
         *self.now.lock().unwrap() += chrono::Duration::from_std(duration).unwrap();
     }
+    async fn lease_wait(&self, _: Duration) {
+        std::future::pending().await
+    }
 }
 #[async_trait]
 impl JobStore for Fixture {
@@ -116,6 +123,101 @@ impl JobStore for Fixture {
     async fn claim_slot(&self, _: &CronJob, _: DateTime<Utc>) -> Result<()> {
         anyhow::ensure!(!self.claim_fails, "durable claim rejected");
         Ok(())
+    }
+    async fn claim_due_occurrence(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Option<OccurrenceClaim>> {
+        anyhow::ensure!(!self.claim_fails, "durable claim rejected");
+        let mut leases = self.leases.lock().unwrap();
+        if leases.get(&job.id).is_some_and(|(_, expires)| *expires > now) {
+            return Ok(None);
+        }
+        let token = uuid::Uuid::new_v4().to_string();
+        leases.insert(job.id.clone(), (token.clone(), now + lease));
+        Ok(Some(OccurrenceClaim {
+            receipt: token,
+            job: job.clone(),
+            occurrence: job.next_run,
+            started_at: now,
+            owner: owner.into(),
+            run_id: None,
+        }))
+    }
+    async fn claim_manual_occurrence(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
+        match self
+            .claim_due_occurrence(job, owner, now, lease)
+            .await?
+        {
+            Some(claim) => Ok(Ok(claim)),
+            None => Ok(Err(RunJobRefusal::AlreadyRunning)),
+        }
+    }
+    async fn renew_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<bool> {
+        let mut leases = self.leases.lock().unwrap();
+        let Some((token, expires)) = leases.get_mut(&claim.job.id) else {
+            return Ok(false);
+        };
+        if token != &claim.receipt || *expires <= now {
+            return Ok(false);
+        }
+        *expires = (*expires).max(now + lease);
+        Ok(true)
+    }
+    async fn release_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        _: DateTime<Utc>,
+    ) -> Result<bool> {
+        let mut leases = self.leases.lock().unwrap();
+        if leases
+            .get(&claim.job.id)
+            .is_some_and(|(token, _)| token == &claim.receipt)
+        {
+            leases.remove(&claim.job.id);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    async fn queue_occurrence(
+        &self,
+        _: &OccurrenceClaim,
+        record: RunRecord,
+    ) -> Result<bool> {
+        self.records.lock().unwrap().push(record);
+        Ok(true)
+    }
+    async fn complete_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        record: RunRecord,
+        completion: Completion,
+    ) -> Result<bool> {
+        let mut leases = self.leases.lock().unwrap();
+        if !leases
+            .get(&claim.job.id)
+            .is_some_and(|(token, expires)| token == &claim.receipt && *expires > record.finished_at)
+        {
+            return Ok(false);
+        }
+        leases.remove(&claim.job.id);
+        self.records.lock().unwrap().push(record);
+        self.completions.lock().unwrap().push(completion);
+        Ok(true)
     }
     async fn record_run(&self, record: RunRecord) -> Result<()> {
         self.records.lock().unwrap().push(record);
@@ -171,7 +273,7 @@ impl TriggerSink for Fixture {
 async fn retries_use_clock_and_zero_override_is_one_attempt() {
     let mut f = Fixture::new();
     Arc::get_mut(&mut f).unwrap().fail_count = 2;
-    let job = f.job();
+    let mut job = f.job();
     let result = execute_with_retry(&f.ports(), &SchedulerConfig::default(), &job, "stable")
         .await
         .unwrap();
@@ -259,27 +361,27 @@ async fn required_delivery_failure_disables_failed_one_shot_without_deleting() {
 }
 
 #[tokio::test]
-async fn claimed_recurring_single_flight_records_skipped_slot() {
+async fn durable_claim_blocks_a_second_dispatch_without_advancing_the_occurrence() {
     let f = Fixture::new();
-    let mut job = f.job();
+    let job = f.job();
     job.policy.single_flight = true;
     let scope = job.id.clone();
-    let _claim = RunClaim::acquire(&scope, &job.id).unwrap();
+    let held = f
+        .claim_due_occurrence(&job, "first-owner", f.now(), chrono::Duration::hours(1))
+        .await
+        .unwrap()
+        .unwrap();
     let mut scheduler = Scheduler::new(scope, SchedulerConfig::default(), f.ports());
     assert_eq!(scheduler.dispatch(vec![job]).await.unwrap(), 0);
-    assert_eq!(f.records.lock().unwrap()[0].status, "skipped");
+    assert!(f.records.lock().unwrap().is_empty());
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(held.occurrence, f.job().next_run);
 }
 
 #[test]
 fn claims_are_scoped_and_release_on_drop() {
     let a = uuid::Uuid::new_v4().to_string();
     let b = uuid::Uuid::new_v4().to_string();
-    let claim = RunClaim::acquire(&a, "shared-id").unwrap();
-    assert!(RunClaim::acquire(&a, "shared-id").is_none());
-    assert!(RunClaim::acquire(&b, "shared-id").is_some());
-    drop(claim);
-    assert!(!RunClaim::is_running(&a, "shared-id"));
     let slot = SchedulerSlot::acquire(&a).unwrap();
     assert!(SchedulerSlot::acquire(&a).is_none());
     drop(slot);
@@ -363,9 +465,9 @@ async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
     );
     scheduler.dispatch(jobs).await.unwrap();
     executor.started.acquire().await.unwrap().forget();
-    assert!(ids.iter().all(|id| RunClaim::is_running(&scope, id)));
+    assert!(ids.iter().all(|id| fixture.leases.lock().unwrap().contains_key(id)));
     scheduler.shutdown().await;
-    assert!(ids.iter().all(|id| !RunClaim::is_running(&scope, id)));
+    assert!(ids.iter().all(|id| !fixture.leases.lock().unwrap().contains_key(id)));
     assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
 }
 
@@ -379,7 +481,7 @@ async fn rejected_durable_claim_never_dispatches_and_releases_local_claim() {
     assert!(scheduler.dispatch(vec![job.clone()]).await.is_err());
     scheduler.drain().await.unwrap();
     assert_eq!(f.calls.load(Ordering::SeqCst), 0);
-    assert!(!RunClaim::is_running(&scope, &job.id));
+    assert!(!f.leases.lock().unwrap().contains_key(&job.id));
 }
 
 #[tokio::test]
@@ -461,12 +563,16 @@ async fn deferred_active_head_does_not_starve_later_due_jobs_in_a_limited_batch(
     let second = fixture.job();
     *fixture.jobs.lock().unwrap() = vec![first.clone(), second.clone()];
     let scope = uuid::Uuid::new_v4().to_string();
-    let held = RunClaim::acquire(&scope, &first.id).unwrap();
+    let held = fixture
+        .claim_due_occurrence(&first, "held", fixture.now(), chrono::Duration::hours(1))
+        .await
+        .unwrap()
+        .unwrap();
     let mut scheduler = Scheduler::new(scope, SchedulerConfig::default(), fixture.ports());
     assert_eq!(scheduler.tick().await.unwrap(), 1);
     scheduler.drain().await.unwrap();
     assert_eq!(fixture.records.lock().unwrap()[0].job_id, second.id);
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.jobs.lock().unwrap()[0].next_run, first.next_run);
-    drop(held);
+    assert_eq!(held.job.id, first.id);
 }

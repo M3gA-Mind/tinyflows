@@ -117,6 +117,25 @@ impl CronDocuments {
         self.claim_occurrence(job_id, None, owner, now, duration, false).await
     }
 
+    /// Due-only claim that also verifies the caller's captured definition.
+    pub async fn claim_due_job_for(
+        &self,
+        expected: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+    ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(
+            &expected.id,
+            Some(expected),
+            owner,
+            now,
+            duration,
+            false,
+        )
+        .await
+    }
+
     /// Atomically claims a saved definition for an explicit manual run,
     /// including disabled jobs and jobs scheduled in the future.
     pub async fn claim_job_now(

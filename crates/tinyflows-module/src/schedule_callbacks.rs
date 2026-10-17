@@ -78,14 +78,14 @@ impl JobStore for HostCallbacks {
     }
     async fn claim_due_occurrence(
         &self,
-        job_id: &str,
+        job: &CronJob,
         owner: &str,
         now: DateTime<Utc>,
         lease: chrono::Duration,
     ) -> Result<Option<OccurrenceClaim>> {
         self.call(
             callbacks::CLAIM_DUE_OCCURRENCE,
-            &(job_id, owner, now, lease.num_milliseconds()),
+            &(job, owner, now, lease.num_milliseconds()),
         )
         .await
     }
