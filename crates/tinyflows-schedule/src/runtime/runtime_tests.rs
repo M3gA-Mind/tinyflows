@@ -274,7 +274,9 @@ impl TriggerSink for Fixture {
     }
 }
 
-#[tokio::test]
+#[cfg(test)]
+#[path = "runtime_concurrency_tests.rs"]
+mod concurrency;
 async fn retries_use_clock_and_zero_override_is_one_attempt() {
     let mut f = Fixture::new();
     Arc::get_mut(&mut f).unwrap().fail_count = 2;
