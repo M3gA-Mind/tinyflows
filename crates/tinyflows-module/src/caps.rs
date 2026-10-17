@@ -50,11 +50,11 @@ pub struct RunScope {
 }
 
 impl CapsHostPorts {
-    /// Builds one run's engine bundle. The host callback address must already
-    /// be bound to that run's flow, run id, approval policy and owner scope.
-    /// Builds engine capabilities for one run. The supplied callback and
-    /// storage handles must be the ones created for this run by the trusted
-    /// host; graph and trigger data must never fill these fields.
+    /// Builds one run's engine bundle from handles created by the trusted
+    /// run manager. `host.callback` must be bound to that run's flow, run id,
+    /// approval policy and owner scope; `scope.storage` must be bound to the
+    /// same owner scope, and `scope.flow_id` is the trusted flow id used for
+    /// durable state. Graph and trigger JSON never supply these values.
     pub async fn capabilities(
         connection: Connection,
         host: CapsHost,
@@ -87,9 +87,9 @@ impl CapsHostPorts {
             tasks: None,
             approvals: Some(ports),
         };
-        // The executor sees the same host capabilities but no task runner, so
-        // child workflows can still execute their spawn specs inline without
-        // creating a runner -> capabilities -> runner reference cycle.
+        // Capture a taskless base bundle and reattach the shared runner to child
+        // workflows through a weak link. This preserves nested spawn/gate
+        // execution without a runner -> capabilities -> runner Arc cycle.
         let task_runner = Arc::new(TaskRunnerLink::default());
         let executor = Arc::new(CapabilityTaskExecutor::new(
             capabilities.clone(),
