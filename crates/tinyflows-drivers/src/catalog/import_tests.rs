@@ -13,9 +13,9 @@ fn flow(id: &str) -> Flow {
         name: format!("flow {id}"),
         graph: trigger_graph(),
         enabled: true,
-        created_at: "2025-03-01T10:00:00+00:00".to_string(),
-        updated_at: "2025-03-02T10:00:00+00:00".to_string(),
-        last_run_at: Some("2025-03-02T11:00:00+00:00".to_string()),
+        created_at: "2025-03-01T10:00:00.000+00:00".to_string(),
+        updated_at: "2025-03-02T10:00:00.000+00:00".to_string(),
+        last_run_at: Some("2025-03-02T11:00:00.000+00:00".to_string()),
         last_status: Some("completed".to_string()),
         require_approval: true,
     }
@@ -28,7 +28,7 @@ fn revision(id: &str, flow_id: &str) -> FlowRevision {
         graph: serde_json::to_value(trigger_graph()).unwrap(),
         name: "older name".to_string(),
         require_approval: false,
-        created_at: "2025-03-01T12:00:00+00:00".to_string(),
+        created_at: "2025-03-01T12:00:00.000+00:00".to_string(),
     }
 }
 
@@ -119,8 +119,8 @@ fn run(id: &str, flow_id: &str, status: &str) -> FlowRun {
         flow_id: flow_id.to_string(),
         thread_id: format!("thread-{id}"),
         status: status.to_string(),
-        started_at: "2025-03-02T11:00:00+00:00".to_string(),
-        finished_at: Some("2025-03-02T11:00:05+00:00".to_string()),
+        started_at: "2025-03-02T11:00:00.000+00:00".to_string(),
+        finished_at: Some("2025-03-02T11:00:05.000+00:00".to_string()),
         steps: vec![FlowRunStep {
             node_id: "t".to_string(),
             output: json!([{ "a": 1 }]),
@@ -180,7 +180,7 @@ async fn imported_revisions_are_visible_newest_first() {
     store.import_flow(&flow("f")).await.unwrap();
     let older = revision("r-old", "f");
     let mut newer = revision("r-new", "f");
-    newer.created_at = "2025-03-01T13:00:00+00:00".to_string();
+    newer.created_at = "2025-03-01T13:00:00.000+00:00".to_string();
     assert!(store.import_revision(&older).await.unwrap());
     assert!(store.import_revision(&newer).await.unwrap());
     assert!(!store.import_revision(&older).await.unwrap());
@@ -248,7 +248,7 @@ async fn an_imported_unfinished_run_stays_live_and_can_settle() {
             .finish_flow_run(
                 "run-live",
                 "completed",
-                "2025-03-03T00:00:00+00:00",
+                "2025-03-03T00:00:00.000+00:00",
                 &[],
                 &[],
                 None,
@@ -295,7 +295,7 @@ async fn an_imported_suggestion_keeps_its_status_and_creation_time() {
         build_prompt: "build it".to_string(),
         confidence: 0.75,
         status: SuggestionStatus::Dismissed,
-        created_at: "2025-03-01T10:00:00+00:00".to_string(),
+        created_at: "2025-03-01T10:00:00.000+00:00".to_string(),
         source_run_id: Some("run-1".to_string()),
     };
     assert!(store.import_suggestion(&suggestion).await.unwrap());
@@ -313,8 +313,8 @@ async fn an_imported_draft_keeps_its_id_and_timestamps() {
         name: "wip".to_string(),
         graph: json!({ "nodes": [] }),
         origin: DraftOrigin::Import,
-        created_at: "2025-03-01T10:00:00+00:00".to_string(),
-        updated_at: "2025-03-01T11:00:00+00:00".to_string(),
+        created_at: "2025-03-01T10:00:00.000+00:00".to_string(),
+        updated_at: "2025-03-01T11:00:00.000+00:00".to_string(),
     };
     assert!(store.import_draft(&draft).await.unwrap());
     assert!(!store.import_draft(&draft).await.unwrap());
@@ -330,8 +330,8 @@ async fn a_draft_with_an_unsafe_id_is_refused() {
         name: "x".to_string(),
         graph: json!({}),
         origin: DraftOrigin::Chat,
-        created_at: "2025-03-01T10:00:00+00:00".to_string(),
-        updated_at: "2025-03-01T10:00:00+00:00".to_string(),
+        created_at: "2025-03-01T10:00:00.000+00:00".to_string(),
+        updated_at: "2025-03-01T10:00:00.000+00:00".to_string(),
     };
     assert!(store.import_draft(&draft).await.is_err());
 }

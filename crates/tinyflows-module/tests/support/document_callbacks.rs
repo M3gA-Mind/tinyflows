@@ -52,16 +52,26 @@ impl Documents {
                 Ok(Value::Null)
             }
             "get" => encode(self.docs.get(collection, id).await?),
-            "put" => encode(
-                self.docs
-                    .put(
-                        collection,
-                        id,
-                        request["doc"].clone(),
-                        decode(&request["precondition"])?,
-                    )
-                    .await?,
-            ),
+            "put" => {
+                let mut options = tinystoragedrivers_core::WriteOptions::new();
+                if let Some(schema) = request["schema"].as_u64() {
+                    options = options.schema(u32::try_from(schema).unwrap_or(0));
+                }
+                if let Some(expires_ms) = request["expires_ms"].as_i64() {
+                    options = options.expires_ms(expires_ms);
+                }
+                encode(
+                    self.docs
+                        .put_with(
+                            collection,
+                            id,
+                            request["doc"].clone(),
+                            decode(&request["precondition"])?,
+                            options,
+                        )
+                        .await?,
+                )
+            }
             "delete" => encode(
                 self.docs
                     .delete(collection, id, decode(&request["precondition"])?)
@@ -104,24 +114,28 @@ impl CommitThenFail {
             && request["ops"].as_array().is_some_and(|ops| {
                 ops.iter().any(|op| {
                     op["op"] == "put"
-                        && op["collection"] == "cron_jobs"
-                        && op["doc"].get("occurrence_lease").is_some()
+                        && op["collection"] == "cron.jobs"
+                        && op["doc"].get("claim_epoch").is_some()
+                        && op["doc"].get("claim_owner").is_some()
                 })
             });
         let release_commit = request["op"] == "atomic_batch"
             && request["ops"].as_array().is_some_and(|ops| {
                 ops.iter().any(|op| {
                     op["op"] == "put"
-                        && op["collection"] == "cron_jobs"
-                        && op["doc"].get("occurrence_lease").is_none()
+                        && op["collection"] == "cron.jobs"
+                        && op["doc"].get("claim_epoch").is_some()
                         && op["doc"].get("completed_occurrence").is_none()
-                })
+                        && op["doc"].get("queued_run").is_none()
+                }) && ops
+                    .iter()
+                    .any(|op| op["op"] == "delete" && op["collection"] == "cron.runs")
             });
         let completion_commit = request["op"] == "atomic_batch"
             && request["ops"].as_array().is_some_and(|ops| {
                 ops.iter().any(|op| {
                     op["op"] == "put"
-                        && op["collection"] == "cron_jobs"
+                        && op["collection"] == "cron.jobs"
                         && op["doc"].get("completed_occurrence").is_some()
                 })
             });

@@ -176,6 +176,17 @@ pub struct DocPutRequest {
     pub doc: Value,
     /// Storage-driver precondition in its stable JSON shape.
     pub precondition: CatalogDocumentPrecondition,
+    /// The body version the writer declares (storage schema); `0` means
+    /// undeclared and is omitted from the wire.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub schema: u32,
+    /// Unix epoch milliseconds from which the document reads as absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_ms: Option<i64>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// Request body for `DocDelete`.

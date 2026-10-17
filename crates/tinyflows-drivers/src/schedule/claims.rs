@@ -1,31 +1,72 @@
 //! Atomic occurrence leases and fenced run completion.
+//!
+//! A claim is a `tsd.leases` record (owner `cron`, key
+//! `Key::of([job_id, occurrence_ms])`) held by a random token, so one occurrence
+//! has one live holder across handles sharing the scope. The lease's epoch
+//! moves on every new tenure, which is what fences a stalled worker. The job
+//! document carries the active claim epoch and logical owner (separate from
+//! the lease token) plus the receipt of the last completed claim
+//! (`completed_occurrence`), which `remove_completed_claim` checks. While a
+//! claim holds a durable "queued" placeholder run (`queue_claimed_run`), its
+//! number is the job's `queued_run`; every end of the claim (completion,
+//! release, a new acquisition, an edit) removes the placeholder.
+//!
+//! The lease record and the job document are two writes, so the job carries
+//! the fence epoch of its current claim (`claim_epoch`): acquisition writes it
+//! (bumping the job version), every claim operation requires it to match its
+//! own epoch before it commits against that job version, and an edit drops
+//! it. A holder whose lease expired, was taken over, or whose job was edited
+//! therefore cannot commit, whatever it read earlier.
 mod completion;
 #[path = "claims/manual_claim_reconciliation.rs"]
 mod manual_claim_reconciliation;
 
-use super::codec::{INCARNATION, doc_to_job, incarnation, run_id, run_to_doc};
-use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, storage_error};
+use super::codec::{INCARNATION, doc_to_job, from_ms, incarnation, integer, run_id, run_to_doc};
+use super::{CAS_ATTEMPTS, CronDocuments, JOBS, OWNER, RUNS, storage_error};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tinyflows_schedule::CronJob;
-use tinystoragedrivers_core::{Capability, Precondition, Versioned, WriteOp};
+use tinystoragedrivers_core::{
+    Capability, ErrorKind, Key, Lease, Leases, Precondition, Versioned, WriteOp, primitives,
+};
 use uuid::Uuid;
 
-const LEASE: &str = "occurrence_lease";
 const COMPLETED: &str = "completed_occurrence";
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The job field holding the run number of the claim's queued placeholder.
+const QUEUED: &str = "queued_run";
+/// The logical owner paired with the active `claim_epoch` receipt. The lease
+/// holder is a separate random token, so ambiguous admission can identify its
+/// owner without weakening lease-token fencing.
+const CLAIM_OWNER: &str = "claim_owner";
+/// The job field holding the fence epoch of the claim that last acquired it.
+/// Every acquisition rewrites the job with it, so a stale holder's
+/// compare-and-swap on the job version fails, and an edit (which rebuilds the
+/// document without it) invalidates every claim atomically.
+const CLAIM_EPOCH: &str = "claim_epoch";
+
+/// The receipt of a completed claim, kept on the job document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Lease {
+struct Receipt {
     owner: String,
     token: String,
+    epoch: u64,
+    incarnation: String,
+    occurrence_ms: i64,
+}
+
+/// What a claim captured when it was acquired.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ClaimLease {
+    owner: String,
+    token: String,
+    epoch: u64,
     incarnation: String,
     occurrence: DateTime<Utc>,
     started_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
-    #[serde(default)]
-    queued_run: Option<i64>,
 }
 
 /// A fenced occurrence captured before dispatch. Keep this value through
@@ -33,7 +74,7 @@ struct Lease {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimedOccurrence {
     job: CronJob,
-    lease: Lease,
+    lease: ClaimLease,
 }
 impl ClaimedOccurrence {
     /// The exact job snapshot acquired for dispatch.
@@ -44,7 +85,8 @@ impl ClaimedOccurrence {
     pub fn owner(&self) -> &str {
         &self.lease.owner
     }
-    /// The random fencing token, changed on each acquisition or recovery.
+    /// The random fencing token (the lease holder), changed on each
+    /// acquisition or recovery.
     pub fn token(&self) -> &str {
         &self.lease.token
     }
@@ -52,7 +94,7 @@ impl ClaimedOccurrence {
     pub fn incarnation(&self) -> &str {
         &self.lease.incarnation
     }
-    /// The exact scheduled instant, without millisecond rounding.
+    /// The scheduled instant (millisecond precision).
     pub fn occurrence(&self) -> DateTime<Utc> {
         self.lease.occurrence
     }
@@ -73,44 +115,122 @@ fn expiry(now: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>> {
     now.checked_add_signed(duration)
         .ok_or_else(|| anyhow::anyhow!("cron store: lease expiry overflow"))
 }
-fn lease(doc: &Value) -> Result<Option<Lease>> {
-    doc.get(LEASE)
+
+/// The `tsd.leases` key of `job_id`'s occurrence at `occurrence_ms`.
+fn lease_key(job_id: &str, occurrence_ms: i64) -> Result<String> {
+    Ok(Key::of([job_id, occurrence_ms.to_string().as_str()])?
+        .as_str()
+        .to_owned())
+}
+
+/// The run number of the queued placeholder `doc` carries, if any.
+fn queued_run(doc: &Value) -> Option<i64> {
+    doc.get(QUEUED).and_then(Value::as_i64)
+}
+
+/// The write that removes the queued placeholder run `doc` carries.
+pub(super) fn queued_run_cleanup(doc: &Value) -> Result<Vec<WriteOp>> {
+    Ok(queued_run(doc)
+        .map(|seq| WriteOp::Delete {
+            collection: RUNS.into(),
+            id: run_id(seq),
+            precondition: Precondition::None,
+        })
+        .into_iter()
+        .collect())
+}
+
+fn receipt(doc: &Value) -> Result<Option<Receipt>> {
+    doc.get(COMPLETED)
         .cloned()
         .map(serde_json::from_value)
         .transpose()
         .map_err(Into::into)
 }
 
-pub(super) fn queued_run_cleanup(doc: &Value) -> Result<Vec<WriteOp>> {
-    let Some(queued_run) = lease(doc)?.and_then(|lease| lease.queued_run) else {
-        return Ok(vec![]);
-    };
-    Ok(vec![WriteOp::Delete {
-        collection: RUNS.into(),
-        id: run_id(queued_run),
-        precondition: Precondition::None,
-    }])
-}
-
-fn owns(doc: &Value, claim: &ClaimedOccurrence, now: DateTime<Utc>) -> Result<bool> {
-    let Some(current) = lease(doc)? else {
-        return Ok(false);
-    };
-    Ok(current.token == claim.lease.token
-        && current.owner == claim.lease.owner
-        && current.incarnation == claim.lease.incarnation
-        && incarnation(doc) == Some(claim.lease.incarnation.as_str())
-        && current.occurrence == claim.lease.occurrence
-        && current.expires_at > now
-        && doc_to_job(&Versioned {
-            id: claim.job.id.clone(),
-            version: tinystoragedrivers_core::Version(0),
-            doc: doc.clone(),
-        })?
-        .next_run
-            == claim.lease.occurrence)
-}
 impl CronDocuments {
+    /// Leases whose clock is the host-supplied `now`, as the claim API always
+    /// took the time from its caller.
+    fn leases_at(&self, now: DateTime<Utc>) -> Leases {
+        let ms = u64::try_from(now.timestamp_millis()).unwrap_or_default();
+        Leases::new(&self.docs).with_clock(std::sync::Arc::new(move || ms))
+    }
+
+    /// Whether `claim` still holds the live lease of its occurrence on the
+    /// current, same-incarnation job whose next run is that occurrence.
+    async fn owns(
+        &self,
+        stored: &Versioned<Value>,
+        claim: &ClaimedOccurrence,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        if incarnation(&stored.doc) != Some(claim.lease.incarnation.as_str())
+            || stored.doc.get(CLAIM_EPOCH).and_then(Value::as_u64) != Some(claim.lease.epoch)
+            || doc_to_job(stored)?.next_run != claim.lease.occurrence
+        {
+            return Ok(false);
+        }
+        let key = lease_key(&claim.job.id, claim.lease.occurrence.timestamp_millis())?;
+        let held = self
+            .leases_at(now)
+            .current(OWNER, &key)
+            .await
+            .map_err(storage_error)?;
+        Ok(held.is_some_and(|held| {
+            held.holder == claim.lease.token && held.epoch == claim.lease.epoch
+        }))
+    }
+
+    /// Frees the live lease of the occurrence `job_doc` is due at, whoever
+    /// holds it, so a job that was edited, removed or re-created can claim it
+    /// again at once instead of waiting for the lease to expire. Correctness
+    /// does not depend on it (the edit's own job write already invalidated
+    /// every claim through `claim_epoch`), so a failure is logged, not fatal.
+    /// A write that loses to the holder's renewal is retried.
+    pub(super) async fn fence_claims(&self, job_id: &str, job_doc: &Value) {
+        let Some(occurrence) = job_doc.get("next_run_ms").and_then(Value::as_i64) else {
+            return;
+        };
+        let Ok(key) = lease_key(job_id, occurrence) else {
+            return;
+        };
+        let Ok(id) = Key::of([OWNER, key.as_str()]) else {
+            return;
+        };
+        for _ in 0..CAS_ATTEMPTS {
+            let found = match self.docs.get(primitives::LEASES, id.as_str()).await {
+                Ok(Some(found)) => found,
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(job_id, %error, "[cron-claims] reading a lease to free it failed");
+                    return;
+                }
+            };
+            let mut body = found.doc.clone();
+            if body.get("expires_ms").and_then(Value::as_i64) == Some(0) {
+                return;
+            }
+            body["expires_ms"] = json!(0);
+            match self
+                .docs
+                .put(primitives::LEASES, id.as_str(), body, found.unchanged())
+                .await
+            {
+                Ok(_) => return,
+                // The holder renewed (or another writer moved the lease): read it again.
+                Err(error) if error.kind() == ErrorKind::Conflict => {}
+                Err(error) => {
+                    tracing::warn!(job_id, %error, "[cron-claims] freeing a lease failed");
+                    return;
+                }
+            }
+        }
+        tracing::warn!(
+            job_id,
+            "[cron-claims] a lease kept changing while it was freed"
+        );
+    }
+
     /// Acquires one enabled, due occurrence, or recovers its expired lease.
     /// Only one worker succeeds across handles sharing this scope. The host
     /// supplies now; clocks must agree within its lease tolerance.
@@ -132,6 +252,9 @@ impl CronDocuments {
     }
 
     /// Due-only claim that also verifies the caller's captured definition.
+    ///
+    /// # Errors
+    /// As [`Self::claim_due_job`].
     pub async fn claim_due_job_for(
         &self,
         expected: &CronJob,
@@ -145,6 +268,9 @@ impl CronDocuments {
 
     /// Atomically claims a saved definition for an explicit manual run,
     /// including disabled jobs and jobs scheduled in the future.
+    ///
+    /// # Errors
+    /// As [`Self::claim_due_job`].
     pub async fn claim_job_now(
         &self,
         expected: &CronJob,
@@ -174,6 +300,8 @@ impl CronDocuments {
             .require(Capability::Transactions)
             .map_err(storage_error)?;
         self.ensure().await?;
+        let leases = self.leases_at(now);
+        let ttl_ms = duration.num_milliseconds().max(1);
         for _ in 0..CAS_ATTEMPTS {
             let Some(stored) = self.docs.get(JOBS, job_id).await.map_err(storage_error)? else {
                 return Ok(None);
@@ -191,58 +319,76 @@ impl CronDocuments {
             if !force && (!job.enabled || job.next_run > now) {
                 return Ok(None);
             }
-            let previous_lease = lease(&stored.doc)?;
-            if previous_lease
-                .as_ref()
-                .is_some_and(|lease| lease.expires_at > now)
-            {
-                return Ok(None);
-            }
-            let mut doc = stored.doc.clone();
-            let incarnation = incarnation(&doc)
+            // Everything fallible that does not need the lease is done before
+            // acquiring it, so no error path can leak one.
+            let key = lease_key(job_id, job.next_run.timestamp_millis())?;
+            let occurrence = from_ms(job_occurrence_ms(&stored.doc)?)?;
+            let incarnation = incarnation(&stored.doc)
                 .map(str::to_owned)
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
-            doc[INCARNATION] = Value::String(incarnation.clone());
-            doc.as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
-                .remove(COMPLETED);
-            let acquired = Lease {
-                owner: owner.into(),
-                token: Uuid::new_v4().to_string(),
-                incarnation,
-                occurrence: job.next_run,
-                started_at: now,
-                expires_at,
-                queued_run: None,
+            let mut doc = stored.doc.clone();
+            let body = doc
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?;
+            body.insert(INCARNATION.into(), Value::String(incarnation.clone()));
+            body.insert(CLAIM_OWNER.into(), Value::String(owner.to_owned()));
+            body.remove(COMPLETED);
+            body.remove(QUEUED);
+            let stale_queued = queued_run_cleanup(&stored.doc)?;
+            let token = Uuid::new_v4().to_string();
+            let Some(lease) = leases
+                .acquire(OWNER, &key, &token, ttl_ms)
+                .await
+                .map_err(storage_error)?
+            else {
+                return Ok(None);
             };
-            doc[LEASE] = serde_json::to_value(&acquired)?;
-            let mut extra = vec![];
-            if let Some(queued_run) = previous_lease.and_then(|lease| lease.queued_run) {
-                extra.push(WriteOp::Delete {
-                    collection: RUNS.into(),
-                    id: run_id(queued_run),
-                    precondition: Precondition::None,
-                });
-            }
+            // Always write the job: its new version is what fences a stalled
+            // earlier holder, and the epoch it carries is what every claim
+            // operation checks. The lease is given back on any failure.
+            doc[CLAIM_EPOCH] = json!(lease.epoch);
             match self
-                .commit_job(job_id, Some(&stored), Some(doc), extra)
+                .commit_job(job_id, Some(&stored), Some(doc), stale_queued)
                 .await
             {
-                Ok(_) => {
-                    return Ok(Some(ClaimedOccurrence {
-                        job,
-                        lease: acquired,
-                    }));
+                Ok(_) => {}
+                Err(error) if super::admission::conflict(&error) => {
+                    self.give_back(&leases, &key, &lease).await;
+                    continue;
                 }
-                Err(error) if super::admission::conflict(&error) => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    self.give_back(&leases, &key, &lease).await;
+                    return Err(error);
+                }
             }
+            return Ok(Some(ClaimedOccurrence {
+                job,
+                lease: ClaimLease {
+                    owner: owner.into(),
+                    token,
+                    epoch: lease.epoch,
+                    incarnation,
+                    occurrence,
+                    started_at: now,
+                    expires_at,
+                },
+            }));
         }
         bail!("cron store: occurrence kept changing during acquisition")
     }
 
-    /// Appends a durable queued placeholder while preserving the lease. The
-    /// scheduler replaces this row with terminal history when it completes.
+    async fn give_back(&self, leases: &Leases, key: &str, lease: &Lease) {
+        if let Err(error) = leases.release(OWNER, key, &lease.holder, lease.epoch).await {
+            tracing::warn!(%key, epoch = lease.epoch, %error, "[cron-claims] giving back an unused lease failed");
+        }
+    }
+
+    /// Appends a durable queued placeholder run while preserving the lease.
+    /// The scheduler replaces this row with terminal history when it
+    /// completes. `false` when the claim is no longer owned.
+    ///
+    /// # Errors
+    /// Malformed state, unavailable transactions, exhausted retries, or backend failure.
     pub async fn queue_claimed_run(
         &self,
         claim: &ClaimedOccurrence,
@@ -262,15 +408,15 @@ impl CronDocuments {
             else {
                 return Ok(false);
             };
-            if !owns(&stored.doc, claim, queued_at)? {
+            if !self.owns(&stored, claim, queued_at).await? {
                 return Ok(false);
             }
-            let mut doc = stored.doc.clone();
-            if lease(&stored.doc)?.is_some_and(|lease| lease.queued_run.is_some()) {
+            if queued_run(&stored.doc).is_some() {
                 return Ok(true);
             }
             let seq = self.next_run_number().await?;
-            doc[LEASE]["queued_run"] = serde_json::json!(seq);
+            let mut doc = stored.doc.clone();
+            doc[QUEUED] = json!(seq);
             let run = run_to_doc(
                 seq,
                 &claim.job.id,
@@ -337,6 +483,8 @@ impl CronDocuments {
             .require(Capability::Transactions)
             .map_err(storage_error)?;
         self.ensure().await?;
+        let key = lease_key(&claim.job.id, claim.lease.occurrence.timestamp_millis())?;
+        let leases = self.leases_at(now);
         for _ in 0..CAS_ATTEMPTS {
             let Some(stored) = self
                 .docs
@@ -346,43 +494,63 @@ impl CronDocuments {
             else {
                 return Ok(false);
             };
-            if !owns(&stored.doc, claim, now)? {
+            if !self.owns(&stored, claim, now).await? {
                 return Ok(false);
             }
-            let mut doc = stored.doc.clone();
-            let mut extra = vec![];
-            match expires_at {
-                Some(expires_at) => {
-                    let current_expiry = lease(&stored.doc)?
-                        .ok_or_else(|| anyhow::anyhow!("cron store: missing lease"))?
-                        .expires_at;
-                    doc[LEASE]["expires_at"] =
-                        serde_json::to_value(expires_at.max(current_expiry))?;
-                }
-                None => {
-                    if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run)
-                    {
-                        extra.push(WriteOp::Delete {
-                            collection: RUNS.into(),
-                            id: run_id(queued_run),
-                            precondition: Precondition::None,
-                        });
-                    }
-                    doc.as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
-                        .remove(LEASE);
+            // Releasing ends the claim: its queued placeholder goes with it,
+            // while the lease is still held.
+            if expires_at.is_none() && queued_run(&stored.doc).is_some() {
+                let mut doc = stored.doc.clone();
+                doc.as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
+                    .remove(QUEUED);
+                let extra = queued_run_cleanup(&stored.doc)?;
+                match self
+                    .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(error) if super::admission::conflict(&error) => continue,
+                    Err(error) => return Err(error),
                 }
             }
-            match self
-                .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
-                .await
-            {
-                Ok(_) => return Ok(true),
-                Err(error) if super::admission::conflict(&error) => {}
-                Err(error) => return Err(error),
-            }
+            return self
+                .change_lease(&leases, &key, claim, now, expires_at)
+                .await;
         }
-        bail!("cron store: occurrence kept changing during lease update")
+        bail!("cron store: occurrence kept changing during lease change")
+    }
+
+    /// Renews (`Some`) or releases (`None`) the claim's lease.
+    async fn change_lease(
+        &self,
+        leases: &Leases,
+        key: &str,
+        claim: &ClaimedOccurrence,
+        now: DateTime<Utc>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<bool> {
+        match expires_at {
+            Some(expires_at) => {
+                // Renewal never shortens an existing lease.
+                let current = leases
+                    .current(OWNER, key)
+                    .await
+                    .map_err(storage_error)?
+                    .map_or(0, |held| held.expires_ms);
+                let wanted = expires_at.timestamp_millis().max(current);
+                let ttl_ms = (wanted - now.timestamp_millis()).max(1);
+                Ok(leases
+                    .renew(OWNER, key, &claim.lease.token, claim.lease.epoch, ttl_ms)
+                    .await
+                    .map_err(storage_error)?
+                    .is_some())
+            }
+            None => leases
+                .release(OWNER, key, &claim.lease.token, claim.lease.epoch)
+                .await
+                .map_err(storage_error),
+        }
     }
 
     /// Deletes the job completed by this receipt only while its incarnation
@@ -411,21 +579,15 @@ impl CronDocuments {
             else {
                 return Ok(false);
             };
-            let completed: Option<Lease> = stored
-                .doc
-                .get(COMPLETED)
-                .cloned()
-                .map(serde_json::from_value)
-                .transpose()?;
-            let Some(completed) = completed else {
+            let Some(completed) = receipt(&stored.doc)? else {
                 return Ok(false);
             };
             if completed.token != claim.lease.token
                 || completed.owner != claim.lease.owner
                 || completed.incarnation != claim.lease.incarnation
-                || completed.occurrence != claim.lease.occurrence
+                || completed.epoch != claim.lease.epoch
+                || completed.occurrence_ms != claim.lease.occurrence.timestamp_millis()
                 || incarnation(&stored.doc) != Some(claim.lease.incarnation.as_str())
-                || lease(&stored.doc)?.is_some()
             {
                 return Ok(false);
             }
@@ -435,4 +597,10 @@ impl CronDocuments {
         }
         bail!("cron store: completed occurrence kept changing during removal")
     }
+}
+
+/// The scheduled occurrence stored on a job document, in epoch milliseconds.
+fn job_occurrence_ms(doc: &Value) -> Result<i64> {
+    integer(doc, "next_run_ms")?
+        .ok_or_else(|| anyhow::anyhow!("cron store: document has no `next_run_ms`"))
 }

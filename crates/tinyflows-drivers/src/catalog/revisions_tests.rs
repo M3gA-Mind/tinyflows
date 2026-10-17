@@ -264,7 +264,7 @@ async fn a_corrupt_revision_is_an_error() {
     let docs = store.docs().await.unwrap();
     compare_and_swap(docs, REVISIONS, &revision.id, |doc| {
         let mut next = doc.clone();
-        next["graph_json"] = json!("{broken");
+        next["graph"] = json!("{broken");
         Some(next)
     })
     .await
@@ -293,11 +293,13 @@ async fn rapid_updates_always_advance_updated_at() {
             )
             .await
             .unwrap();
-        assert!(crate::catalog::instant_before(&seen, &updated.updated_at));
+        assert!(
+            crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&updated.updated_at)
+        );
         seen = updated.updated_at;
     }
     let toggled = store.set_enabled(&flow.id, false).await.unwrap();
-    assert!(crate::catalog::instant_before(&seen, &toggled.updated_at));
+    assert!(crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&toggled.updated_at));
     let names: Vec<String> = store
         .list_revisions(&flow.id, 3)
         .await
@@ -321,7 +323,7 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
         REVISIONS,
         "orphan",
         json!({ "flow_id": flow.id, "graph_json": "{}", "name": "ghost",
-                "require_approval": false, "created_at": "2026-01-01T00:00:00Z",
+                "require_approval": false, "created_at": "2026-01-01T00:00:00.000+00:00",
                 "created_ns": 1, "pending": true }),
         Precondition::Absent,
     )

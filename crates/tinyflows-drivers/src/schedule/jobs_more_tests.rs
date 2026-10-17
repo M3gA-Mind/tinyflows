@@ -34,27 +34,18 @@ async fn a_flow_jobs_command_cannot_be_retargeted() {
 }
 
 #[tokio::test]
-async fn due_jobs_order_within_a_millisecond_and_read_legacy_documents() {
+async fn due_jobs_order_by_time_then_id() {
     let store = store();
     let first = store.add_job("0 9 * * *", "first").await.unwrap();
     let second = store.add_job("0 9 * * *", "second").await.unwrap();
     let legacy = store.add_job("0 9 * * *", "legacy").await.unwrap();
     let base = Utc::now() - Duration::minutes(1);
-    // `second` is due 1µs before `first`, within the same millisecond.
+    // Due in the same millisecond, jobs order by id (creation order).
     let ms_floor =
         base - Duration::nanoseconds(i64::from(base.timestamp_subsec_nanos() % 1_000_000));
     set_due_at(&store, &first.id, ms_floor + Duration::microseconds(2)).await;
     set_due_at(&store, &second.id, ms_floor + Duration::microseconds(1)).await;
-    // A document written before `next_run_ns` existed is still due.
     set_due_at(&store, &legacy.id, ms_floor - Duration::seconds(1)).await;
-    let stored = store.docs.get(JOBS, &legacy.id).await.unwrap().unwrap();
-    let mut doc = stored.doc.clone();
-    doc.as_object_mut().unwrap().remove("next_run_ns");
-    store
-        .docs
-        .put(JOBS, &legacy.id, doc, stored.unchanged())
-        .await
-        .unwrap();
 
     let due: Vec<String> = store
         .due_jobs(Utc::now())
@@ -63,7 +54,7 @@ async fn due_jobs_order_within_a_millisecond_and_read_legacy_documents() {
         .into_iter()
         .map(|job| job.command)
         .collect();
-    assert_eq!(due, ["legacy", "second", "first"]);
+    assert_eq!(due, ["legacy", "first", "second"]);
     let capped = store
         .clone()
         .with_limits(50, 2)

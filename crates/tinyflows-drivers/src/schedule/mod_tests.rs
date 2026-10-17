@@ -22,7 +22,7 @@ async fn ensure_is_idempotent_and_declares_every_collection() {
         .into_iter()
         .map(|spec| spec.name)
         .collect();
-    assert_eq!(names, [JOBS, RUNS, COUNTERS]);
+    assert_eq!(names, [JOBS, RUNS, ADMISSION]);
 }
 
 #[tokio::test]

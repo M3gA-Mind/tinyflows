@@ -6,10 +6,19 @@ use std::time::Duration;
 
 use serde_json::json;
 use tinyflows::store::WorkflowStore;
-use tinystoragedrivers_core::{MemoryStorage, Precondition};
+use tinystoragedrivers_core::{Key, MemoryStorage, Precondition, primitives};
 
+use super::DriverWorkflowStore;
+use super::locks::{LEASE_OWNER, lease_key};
 use super::test_support::{block_on, docs_in, store_over};
-use super::{DriverWorkflowStore, LOCKS};
+
+/// The `tsd.leases` document id of `workflow_id`'s decision lease.
+fn lease_id(workflow_id: &str) -> String {
+    Key::of([LEASE_OWNER, lease_key(workflow_id).as_str()])
+        .unwrap()
+        .as_str()
+        .to_owned()
+}
 
 #[test]
 fn separate_store_instances_serialize_proposal_decisions() {
@@ -71,49 +80,64 @@ fn an_expired_lease_is_taken_over() {
     // claimant takes it instead of waiting forever.
     let storage = MemoryStorage::new();
     let docs = docs_in(&storage, "local");
+    let store = DriverWorkflowStore::new(docs.clone());
+    store.ensure().unwrap();
     block_on(docs.put(
-        LOCKS,
-        "orphaned",
-        json!({ "workflow_id": "orphaned", "owner": "a-crashed-holder", "expires_at": 1 }),
+        primitives::LEASES,
+        &lease_id("orphaned"),
+        json!({ "holder": "a-crashed-holder", "epoch": 4, "expires_ms": 1 }),
         Precondition::None,
     ))
     .unwrap();
-    let store = DriverWorkflowStore::new(docs);
     let _claim = store.lock_proposal_decision("orphaned").unwrap();
+    let taken = block_on(docs.get(primitives::LEASES, &lease_id("orphaned")))
+        .unwrap()
+        .expect("lease record");
+    assert_eq!(taken.doc["epoch"], 5, "a takeover bumps the epoch");
+    assert_ne!(taken.doc["holder"], "a-crashed-holder");
 }
 
 #[test]
-fn a_lease_without_an_expiry_counts_as_expired() {
+fn the_decision_lock_is_a_tsd_lease_of_owner_flows() {
     let storage = MemoryStorage::new();
     let docs = docs_in(&storage, "local");
-    block_on(docs.put(
-        LOCKS,
-        "odd",
-        json!({ "workflow_id": "odd", "owner": "someone" }),
-        Precondition::None,
-    ))
-    .unwrap();
-    let store = DriverWorkflowStore::new(docs);
-    let _claim = store.lock_proposal_decision("odd").unwrap();
+    let store = DriverWorkflowStore::new(docs.clone());
+    let claim = store.lock_proposal_decision("w").unwrap();
+    let held = block_on(docs.get(primitives::LEASES, &lease_id("w")))
+        .unwrap()
+        .expect("lease record");
+    assert_eq!(held.doc["epoch"], 1);
+    assert!(held.doc["expires_ms"].as_i64().unwrap() > 0);
+    drop(claim);
+    let released = block_on(docs.get(primitives::LEASES, &lease_id("w")))
+        .unwrap()
+        .expect("the record stays so the epoch continues");
+    assert!(
+        released.doc["expires_ms"].as_i64().unwrap() <= super::now_ms() as i64,
+        "released at once"
+    );
 }
 
 #[test]
-fn releasing_never_deletes_a_lease_someone_else_took_over() {
+fn releasing_never_ends_a_lease_someone_else_took_over() {
     let storage = MemoryStorage::new();
     let docs = docs_in(&storage, "local");
     let store = DriverWorkflowStore::new(docs.clone());
     let claim = store.lock_proposal_decision("w").unwrap();
     // The lease is taken over (as after an expiry) while the first holder runs on.
     block_on(docs.put(
-        LOCKS,
-        "w",
-        json!({ "workflow_id": "w", "owner": "the-new-holder", "expires_at": i64::MAX }),
+        primitives::LEASES,
+        &lease_id("w"),
+        json!({ "holder": "the-new-holder", "epoch": 9, "expires_ms": i64::MAX }),
         Precondition::None,
     ))
     .unwrap();
     drop(claim);
-    let remaining = block_on(docs.get(LOCKS, "w")).unwrap().expect("still held");
-    assert_eq!(remaining.doc["owner"], "the-new-holder");
+    let remaining = block_on(docs.get(primitives::LEASES, &lease_id("w")))
+        .unwrap()
+        .expect("still held");
+    assert_eq!(remaining.doc["holder"], "the-new-holder");
+    assert_eq!(remaining.doc["expires_ms"], i64::MAX);
 }
 
 #[test]

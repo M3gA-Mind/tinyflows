@@ -54,12 +54,10 @@ async fn old_run_history_does_not_attach_to_a_recreated_flow_job() {
         .unwrap();
     let due_at = Utc::now() - chrono::Duration::seconds(1);
     let docs = scoped.documents().clone();
-    let stored = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run"] = serde_json::json!(due_at.to_rfc3339());
     body["next_run_ms"] = serde_json::json!(due_at.timestamp_millis());
-    body["next_run_ns"] = serde_json::json!(due_at.timestamp_nanos_opt().unwrap());
-    docs.put("cron_jobs", &job.id, body, stored.unchanged())
+    docs.put("cron.jobs", &job.id, body, stored.unchanged())
         .await
         .unwrap();
     job = documents.get_job(&job.id).await.unwrap();
@@ -171,7 +169,11 @@ impl JobStore for LegacyClaimSlotStore {
 }
 
 async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool) -> usize {
-    let now = Utc::now() - chrono::Duration::seconds(60);
+    // Stored instants have millisecond precision, so the in-memory job must too.
+    let now = DateTime::from_timestamp_millis(
+        (Utc::now() - chrono::Duration::seconds(60)).timestamp_millis(),
+    )
+    .unwrap();
     let backend = MemoryStorage::new();
     let scoped = backend
         .for_scope(&Scope::new("lease-recovery").unwrap())
@@ -183,12 +185,10 @@ async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool)
         .unwrap();
     job.next_run = now;
     let docs = scoped.documents().clone();
-    let stored = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run"] = serde_json::json!(now.to_rfc3339());
     body["next_run_ms"] = serde_json::json!(now.timestamp_millis());
-    body["next_run_ns"] = serde_json::json!(now.timestamp_nanos_opt().unwrap());
-    docs.put("cron_jobs", &job.id, body, stored.unchanged())
+    docs.put("cron.jobs", &job.id, body, stored.unchanged())
         .await
         .unwrap();
     let frozen = Arc::new(FrozenClock(std::sync::Mutex::new(now)));

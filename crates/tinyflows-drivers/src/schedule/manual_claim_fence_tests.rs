@@ -99,18 +99,18 @@ impl DocumentStore for HeldClaimWrite {
         let late_claim = ops.iter().any(|op| match op {
             WriteOp::Put {
                 collection, doc, ..
-            } => collection == "cron_jobs" && doc["occurrence_lease"]["owner"] == "late-owner",
+            } => collection == "cron.jobs" && doc["claim_owner"] == "late-owner",
             _ => false,
         });
         let fence = ops.iter().any(|op| match op {
             WriteOp::Put {
                 collection, doc, ..
             } => {
-                collection == "cron_jobs"
+                collection == "cron.jobs"
                     && doc["claim_generation"]
                         .as_u64()
                         .is_some_and(|generation| generation > 0)
-                    && doc.get("occurrence_lease").is_none()
+                    && doc.get("claim_epoch").is_none()
             }
             _ => false,
         });
@@ -180,6 +180,14 @@ async fn admission_fence_rejects_claim_transaction_that_commits_after_reconcilia
 
     let current = store.get_job(&job.id).await.unwrap();
     assert_eq!(current.claim_generation, job.claim_generation + 1);
+    let current_doc = held_docs
+        .inner
+        .get("cron.jobs", &job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(current_doc.doc.get("claim_epoch").is_none());
+    assert!(store.list_runs(&job.id, 10).await.unwrap().is_empty());
     assert!(
         store
             .claim_job_now(&job, "late-owner", now, Duration::hours(2))

@@ -26,12 +26,25 @@ async fn reconciles_manual_claim_receipt_after_an_ambiguous_claim_reply() {
         .await
         .unwrap()
         .unwrap();
+    assert_ne!(committed.owner(), committed.token());
+    let committed_doc = store.docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
+    assert_eq!(committed_doc.doc["claim_owner"], "ambiguous-owner");
+    assert!(committed_doc.doc.get("claim_epoch").is_some());
     assert!(
         store
             .reconcile_manual_claim_admission(&job, "other-owner", now + Duration::seconds(1))
             .await
             .unwrap()
             .is_none()
+    );
+    let after_other_owner_reconcile = store.docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
+    assert_eq!(
+        after_other_owner_reconcile.doc["claim_epoch"], committed_doc.doc["claim_epoch"],
+        "a different owner cannot change a committed lease receipt"
+    );
+    assert_eq!(
+        after_other_owner_reconcile.doc["claim_owner"],
+        "ambiguous-owner"
     );
     assert_eq!(
         store.get_job(&job.id).await.unwrap().claim_generation,
@@ -212,6 +225,9 @@ async fn expired_manual_recovery_removes_the_old_queued_placeholder() {
             .await
             .unwrap()
     );
+    let completed_doc = store.docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
+    assert!(completed_doc.doc.get("claim_epoch").is_none());
+    assert!(completed_doc.doc.get("claim_owner").is_none());
     let history = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "ok");

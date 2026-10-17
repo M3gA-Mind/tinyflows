@@ -28,29 +28,20 @@ pub async fn verify(
         )
         .await
         .unwrap();
-    let due_at = Utc::now() - Duration::minutes(1);
-    let stored = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
+    let due_at = Utc::now() - Duration::hours(4);
+    let stored = docs.get("cron.jobs", &job.id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run"] = json!(due_at.to_rfc3339());
     body["next_run_ms"] = json!(due_at.timestamp_millis());
-    body["next_run_ns"] = json!(due_at.timestamp_nanos_opt().unwrap());
-    docs.put("cron_jobs", &job.id, body, stored.unchanged())
+    docs.put("cron.jobs", &job.id, body, stored.unchanged())
         .await
         .unwrap();
     let job = store.get_job(&job.id).await.unwrap();
-    let acquired_at = Utc::now();
+    // Acquired three hours ago for two hours: the lease expired an hour ago.
+    let acquired_at = Utc::now() - Duration::hours(3);
     let old_owner = store
         .claim_due_job(&job.id, "pre-crash-owner", acquired_at, Duration::hours(2))
         .await
         .unwrap()
-        .unwrap();
-
-    let lease_doc = docs.get("cron_jobs", &job.id).await.unwrap().unwrap();
-    let mut expired = lease_doc.doc.clone();
-    expired["occurrence_lease"]["expires_at"] =
-        json!((acquired_at - Duration::seconds(1)).to_rfc3339());
-    docs.put("cron_jobs", &job.id, expired, lease_doc.unchanged())
-        .await
         .unwrap();
 
     let storage: StoreConfig = serde_json::from_value(storage).unwrap();

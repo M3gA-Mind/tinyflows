@@ -400,13 +400,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(listed.as_array().unwrap().len(), 1);
     let id = flow["id"].as_str().unwrap();
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
     let due_at = chrono::Utc::now() - chrono::Duration::minutes(1);
-    body["next_run"] = json!(due_at.to_rfc3339());
     body["next_run_ms"] = json!(due_at.timestamp_millis());
-    body["next_run_ns"] = json!(due_at.timestamp_nanos_opt().unwrap());
-    docs.put("cron_jobs", id, body, stored.unchanged())
+    docs.put("cron.jobs", id, body, stored.unchanged())
         .await
         .unwrap();
     let request = tinyflows_bus::schedule::StartScheduler {
@@ -444,7 +442,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     assert!(
         stored.doc["next_run_ms"].as_i64().unwrap() > due_at.timestamp_millis(),
         "compiled scheduler advances the occurrence only at terminal completion"

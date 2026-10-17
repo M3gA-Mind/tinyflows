@@ -1,4 +1,5 @@
-//! Cursor-addressable run events stored atomically on the run row.
+//! Cursor-addressable run events stored atomically on the run row, as the
+//! `events` array of the `flows.runs` document.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -6,6 +7,16 @@ use serde_json::{Value, json};
 use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict};
 
 const EVENT_ATTEMPTS: usize = 128;
+
+/// The run's stored event list; empty when none was appended yet and `None`
+/// when the field is not an array.
+fn events_of(doc: &Value) -> Option<Vec<Value>> {
+    match doc.get("events") {
+        None => Some(Vec::new()),
+        Some(Value::Array(events)) => Some(events.clone()),
+        Some(_) => None,
+    }
+}
 
 impl FlowCatalogDocuments {
     /// Removes only the untouched initial row from an admission attempt that
@@ -17,7 +28,7 @@ impl FlowCatalogDocuments {
         };
         if stored.doc.get("status").and_then(Value::as_str) != Some("running")
             || stored.doc.get("execution_snapshot").is_some()
-            || stored.doc.get("events_json").is_some()
+            || stored.doc.get("events").is_some()
         {
             return Ok(false);
         }
@@ -36,12 +47,7 @@ impl FlowCatalogDocuments {
             ) {
                 return None;
             }
-            let events: Vec<Value> = serde_json::from_str(
-                doc.get("events_json")
-                    .and_then(Value::as_str)
-                    .unwrap_or("[]"),
-            )
-            .ok()?;
+            let events = events_of(doc)?;
             let last = events.last().and_then(|event| event["seq"].as_u64())?;
             if last < seq {
                 return None;
@@ -119,12 +125,7 @@ impl FlowCatalogDocuments {
             .context("run event has no unsigned sequence")?;
         for _ in 0..EVENT_ATTEMPTS {
             let append = compare_and_swap(self.docs().await?, RUNS, id, |doc| {
-                let mut events: Vec<Value> = serde_json::from_str(
-                    doc.get("events_json")
-                        .and_then(Value::as_str)
-                        .unwrap_or("[]"),
-                )
-                .ok()?;
+                let mut events = events_of(doc)?;
                 let last = events
                     .last()
                     .and_then(|event| event["seq"].as_u64())
@@ -134,7 +135,7 @@ impl FlowCatalogDocuments {
                 }
                 events.push(event.clone());
                 let mut next = doc.clone();
-                next["events_json"] = json!(serde_json::to_string(&events).ok()?);
+                next["events"] = Value::Array(events);
                 Some(next)
             })
             .await;
@@ -147,14 +148,7 @@ impl FlowCatalogDocuments {
                         .get(RUNS, id)
                         .await?
                         .context("flow run does not exist")?;
-                    let events: Vec<Value> = serde_json::from_str(
-                        stored
-                            .doc
-                            .get("events_json")
-                            .and_then(Value::as_str)
-                            .unwrap_or("[]"),
-                    )
-                    .context("flow run events are corrupt")?;
+                    let events = events_of(&stored.doc).context("flow run events are corrupt")?;
                     let last = events
                         .last()
                         .and_then(|event| event["seq"].as_u64())
@@ -190,14 +184,7 @@ impl FlowCatalogDocuments {
             .get(RUNS, id)
             .await?
             .context("flow run does not exist")?;
-        let events: Vec<Value> = serde_json::from_str(
-            stored
-                .doc
-                .get("events_json")
-                .and_then(Value::as_str)
-                .unwrap_or("[]"),
-        )
-        .context("flow run events are corrupt")?;
+        let events = events_of(&stored.doc).context("flow run events are corrupt")?;
         let mut page = Vec::new();
         let mut expected = cursor;
         for event in events.into_iter().filter(|event| {
@@ -232,14 +219,7 @@ impl FlowCatalogDocuments {
             .get(RUNS, id)
             .await?
             .context("flow run does not exist")?;
-        let events: Vec<Value> = serde_json::from_str(
-            stored
-                .doc
-                .get("events_json")
-                .and_then(Value::as_str)
-                .unwrap_or("[]"),
-        )
-        .context("flow run events are corrupt")?;
+        let events = events_of(&stored.doc).context("flow run events are corrupt")?;
         Ok(events
             .last()
             .and_then(|event| event.get("seq").and_then(Value::as_u64))

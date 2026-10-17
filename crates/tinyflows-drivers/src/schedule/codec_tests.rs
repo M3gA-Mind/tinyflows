@@ -1,12 +1,17 @@
 use super::*;
 
-use tinystoragedrivers_core::Version;
+use serde_json::json;
+use tinystoragedrivers_core::{Meta, Version};
 
 fn stored(doc: Value) -> Versioned<Value> {
     Versioned {
         id: "x".into(),
         version: Version::FIRST,
         doc,
+        meta: Meta {
+            created_ms: 1_000,
+            ..Meta::unknown()
+        },
     }
 }
 
@@ -44,10 +49,18 @@ fn job() -> CronJob {
 #[test]
 fn absent_optionals_are_left_out_not_null() {
     let doc = job_to_doc(&job()).unwrap();
-    for field in ["prompt", "name", "model", "agent_id", "origin", "last_run"] {
+    for field in [
+        "prompt",
+        "name",
+        "model",
+        "agent_id",
+        "origin",
+        "last_run_ms",
+    ] {
         assert!(doc.get(field).is_none(), "{field}");
     }
-    assert!(doc["schedule"].is_string() && doc["delivery"].is_string());
+    assert!(doc["schedule"].is_object() && doc["delivery"].is_object());
+    assert!(doc.get("created_ms").is_none() && doc.get("created_at").is_none());
     let read = doc_to_job(&stored(doc)).unwrap();
     assert_eq!(read.command, "ls");
     assert_eq!(read.delivery, DeliveryConfig::default());
@@ -69,7 +82,7 @@ fn malformed_fields_are_errors() {
     doc["origin"] = json!("{not json");
     assert!(doc_to_job(&stored(doc)).is_err());
     let mut doc = job_to_doc(&job()).unwrap();
-    doc["next_run"] = json!("yesterday");
+    doc["next_run_ms"] = json!("yesterday");
     assert!(doc_to_job(&stored(doc)).is_err());
     let run = run_to_doc(1, "j", None, Utc::now(), Utc::now(), "ok", None, 1, None);
     let mut broken = run.clone();
@@ -88,7 +101,7 @@ fn run_ids_sort_as_numbers() {
 fn wrong_types_and_unknown_job_types_are_errors() {
     for (field, value) in [
         ("job_type", json!("bogus")),
-        ("delivery", json!({})),
+        ("delivery", json!(7)),
         ("origin", json!(7)),
         ("name", json!(1)),
         ("enabled", json!("yes")),
@@ -105,22 +118,35 @@ fn wrong_types_and_unknown_job_types_are_errors() {
 }
 
 #[test]
-fn creation_time_keeps_sub_millisecond_precision() {
-    let mut early = job();
-    early.created_at = "2026-01-01T00:00:00.000100Z".parse().unwrap();
-    let mut late = job();
-    late.created_at = "2026-01-01T00:00:00.000900Z".parse().unwrap();
-    let early_doc = job_to_doc(&early).unwrap();
-    let late_doc = job_to_doc(&late).unwrap();
-    assert_eq!(early_doc["created_ms"], late_doc["created_ms"]);
-    assert!(created_at(&early_doc) < created_at(&late_doc));
+fn creation_time_is_the_records_metadata_not_a_body_field() {
+    let doc = job_to_doc(&job()).unwrap();
+    let read = doc_to_job(&stored(doc)).unwrap();
+    assert_eq!(read.created_at.timestamp_millis(), 1_000);
+}
+
+#[test]
+fn a_one_shot_schedule_stores_its_instant_as_milliseconds() {
+    let at = DateTime::parse_from_rfc3339("2030-01-02T03:04:05.678Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let mut value = job();
+    value.schedule = Schedule::At { at };
+    let doc = job_to_doc(&value).unwrap();
+    assert_eq!(
+        doc["schedule"],
+        json!({"kind": "at", "at_ms": at.timestamp_millis()})
+    );
+    assert!(matches!(
+        doc_to_job(&stored(doc)).unwrap().schedule,
+        Schedule::At { at: read } if read == at
+    ));
 }
 
 #[test]
 fn wrong_typed_run_fields_are_errors() {
     let good = json!({
-        "seq": 1, "job_id": "j", "started_at": "2026-01-01T00:00:00Z",
-        "finished_at": "2026-01-01T00:00:01Z", "status": "ok",
+        "seq": 1, "job_id": "j", "started_ms": 1_767_225_600_000_i64,
+        "finished_ms": 1_767_225_601_000_i64, "status": "ok",
     });
     assert!(doc_to_run(&stored(good.clone())).is_ok());
     for (field, bad) in [
@@ -145,30 +171,14 @@ fn wrong_typed_run_fields_are_errors() {
 }
 
 #[test]
-fn next_run_is_written_at_both_precisions() {
+fn next_run_is_written_as_one_millisecond_field() {
     let mut doc = serde_json::Map::new();
-    let at = DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000000123Z")
+    let at = DateTime::parse_from_rfc3339("2026-01-01T00:00:00.123456789Z")
         .unwrap()
         .with_timezone(&Utc);
     set_next_run(&mut doc, at);
     assert_eq!(doc["next_run_ms"], json!(at.timestamp_millis()));
-    assert_eq!(
-        doc["next_run_ns"],
-        json!(at.timestamp_millis() * 1_000_000 + 123)
-    );
-}
-
-#[test]
-fn nanoseconds_saturate_toward_the_side_they_overflow() {
-    let early = DateTime::parse_from_rfc3339("1600-01-01T00:00:00Z")
-        .unwrap()
-        .with_timezone(&Utc);
-    let late = DateTime::parse_from_rfc3339("2300-01-01T00:00:00Z")
-        .unwrap()
-        .with_timezone(&Utc);
-    assert_eq!(nanos(early), i64::MIN);
-    assert_eq!(nanos(late), i64::MAX);
-    assert!(nanos(early) < nanos(Utc::now()));
+    assert_eq!(doc.len(), 1, "no ns or RFC 3339 copy");
 }
 
 #[test]

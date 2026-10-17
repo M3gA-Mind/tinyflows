@@ -101,9 +101,10 @@ async fn claim_reply_lost_after_commit_is_reconciled_and_released_before_termina
     ));
     assert!(state.executions.lock().await.is_empty());
     assert!(documents.list_runs(&job.id, 10).await.unwrap().is_empty());
+    let fresh_job = documents.get_job(&job.id).await.unwrap();
     let released = documents
         .claim_job_now(
-            &job,
+            &fresh_job,
             "verify-reconciled-release",
             chrono::Utc::now(),
             chrono::Duration::minutes(1),

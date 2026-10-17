@@ -48,6 +48,34 @@ pub(super) struct FaultDocuments {
     pub transactions: bool,
     pub fail_batch: std::sync::atomic::AtomicBool,
     pub batch_barrier: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
+    pub faults: Faults,
+}
+
+/// Failures a test arms on a [`FaultDocuments`].
+#[derive(Debug, Default)]
+pub(super) struct Faults {
+    /// Writes (`put` and `delete`) to `tsd.leases` fail while set.
+    pub lease_writes: std::sync::atomic::AtomicBool,
+    /// Reads of `cron.jobs` are counted; the one numbered like this (from 1)
+    /// fails. `0` fails none.
+    pub fail_job_read: std::sync::atomic::AtomicUsize,
+    pub job_reads: std::sync::atomic::AtomicUsize,
+}
+
+impl FaultDocuments {
+    fn lease_write_fault(&self, collection: &str) -> tinystoragedrivers_core::Result<()> {
+        if collection == "tsd.leases"
+            && self
+                .faults
+                .lease_writes
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(tinystoragedrivers_core::StorageError::unavailable(
+                "fixture refuses lease writes",
+            ));
+        }
+        Ok(())
+    }
 }
 #[async_trait::async_trait]
 impl DocumentStore for FaultDocuments {
@@ -73,6 +101,23 @@ impl DocumentStore for FaultDocuments {
     ) -> tinystoragedrivers_core::Result<
         Option<tinystoragedrivers_core::Versioned<serde_json::Value>>,
     > {
+        if c == "cron.jobs" {
+            let read = self
+                .faults
+                .job_reads
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if read
+                == self
+                    .faults
+                    .fail_job_read
+                    .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(tinystoragedrivers_core::StorageError::unavailable(
+                    "fixture refuses this job read",
+                ));
+            }
+        }
         self.inner.get(c, id).await
     }
     async fn put(
@@ -82,7 +127,19 @@ impl DocumentStore for FaultDocuments {
         doc: serde_json::Value,
         p: tinystoragedrivers_core::Precondition,
     ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
+        self.lease_write_fault(c)?;
         self.inner.put(c, id, doc, p).await
+    }
+    async fn put_with(
+        &self,
+        c: &str,
+        id: &str,
+        doc: serde_json::Value,
+        p: tinystoragedrivers_core::Precondition,
+        options: tinystoragedrivers_core::WriteOptions,
+    ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
+        self.lease_write_fault(c)?;
+        self.inner.put_with(c, id, doc, p, options).await
     }
     async fn delete(
         &self,
@@ -90,6 +147,7 @@ impl DocumentStore for FaultDocuments {
         id: &str,
         p: tinystoragedrivers_core::Precondition,
     ) -> tinystoragedrivers_core::Result<bool> {
+        self.lease_write_fault(c)?;
         self.inner.delete(c, id, p).await
     }
     async fn query(

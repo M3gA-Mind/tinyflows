@@ -1,36 +1,25 @@
-//! `wf_runs`: run records, one document each.
+//! `flows.workflow_runs`: run records, one document each.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinyflows::store::types::{RunRecord, WorkflowError};
 use tinystoragedrivers_core::{DocumentStoreExt, Filter, Precondition, Query, Sort, Versioned};
 
-use super::{Inner, RUNS, doc_id, malformed, stamp, storage};
+use super::codec::{run_body, run_from_body};
+use super::{Inner, RUNS, doc_id, put_doc, storage};
 
 fn decode(stored: &Versioned<Value>) -> Result<RunRecord, String> {
-    let raw = stored
-        .doc
-        .get("run_json")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "run has no `run_json`".to_string())?;
-    serde_json::from_str(raw).map_err(|error| error.to_string())
+    run_from_body(&stored.doc)
 }
 
 /// The run as its document keeps it.
 pub(super) fn to_doc(run: &RunRecord) -> Result<Value, WorkflowError> {
-    let run_json =
-        serde_json::to_string(run).map_err(|error| malformed("serializing run", error))?;
-    Ok(json!({
-        "workflow_id": run.workflow_id,
-        "started_at": stamp(run.started_at),
-        "settled": run.status.is_settled(),
-        "run_json": run_json,
-    }))
+    run_body(run)
 }
 
 /// Newest first, ties to the later id.
 fn newest_first(filter: Filter) -> Query {
     Query::filter(filter)
-        .sort(Sort::desc("started_at"))
+        .sort(Sort::desc("started_ms"))
         .sort(Sort::desc("_id"))
 }
 
@@ -39,10 +28,15 @@ impl Inner {
     pub(super) async fn record_run(&self, run: &RunRecord) -> Result<(), WorkflowError> {
         self.ensure().await?;
         let doc = to_doc(run)?;
-        self.docs
-            .put(RUNS, &doc_id(&run.id)?, doc, Precondition::None)
-            .await
-            .map_err(storage)?;
+        put_doc(
+            self.docs.as_ref(),
+            RUNS,
+            &doc_id(&run.id)?,
+            doc,
+            Precondition::None,
+        )
+        .await
+        .map_err(storage)?;
         Ok(())
     }
 

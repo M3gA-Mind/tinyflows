@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 use super::super::test_support::{daily, store};
 use chrono::Duration;
@@ -63,9 +64,9 @@ async fn a_malformed_run_counter_is_an_error() {
     store
         .docs
         .put(
-            COUNTERS,
-            "runs",
-            json!({ "next": "seven" }),
+            "tsd.counters",
+            "cron/runs",
+            json!({ "value": "seven" }),
             Precondition::None,
         )
         .await
@@ -74,7 +75,7 @@ async fn a_malformed_run_counter_is_an_error() {
         .record_run(&job.id, Utc::now(), Utc::now(), "ok", None, 1)
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("next"), "{error}");
+    assert!(format!("{error:#}").contains("string"), "{error:#}");
 }
 
 #[tokio::test]
@@ -96,11 +97,12 @@ async fn removing_a_legacy_job_spares_a_replacements_runs() {
         id: job.id.clone(),
         version,
         doc,
+        meta: legacy.meta,
     };
     // A legacy database predates both incarnation and admission metadata.
     store
         .docs
-        .delete(COUNTERS, "admission", Precondition::None)
+        .delete(super::super::ADMISSION, "ledger", Precondition::None)
         .await
         .unwrap();
     orphan(&store, 9_101, &job.id, None).await;

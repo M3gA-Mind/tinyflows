@@ -6,7 +6,7 @@ use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort};
 
 use super::lineage::{belongs_in, live_flows, reclaim};
 use super::runs::{parked_before, set_finished, status};
-use super::{FlowCatalogDocuments, RUNS, compare_and_swap, instant_before, set_optional, text};
+use super::{FlowCatalogDocuments, RUNS, compare_and_swap, instant_ms, int, set_optional, text};
 
 impl FlowCatalogDocuments {
     /// Cancels every parked `pending_approval` run parked (its `finished_at`,
@@ -19,6 +19,7 @@ impl FlowCatalogDocuments {
         now: &str,
         error_msg: &str,
     ) -> Result<Vec<(String, String)>> {
+        let cutoff = instant_ms(cutoff);
         let docs = self.docs().await?;
         let parked = docs
             .query_all(
@@ -75,6 +76,7 @@ impl FlowCatalogDocuments {
         &self,
         cutoff: &str,
     ) -> Result<Vec<(String, String)>> {
+        let cutoff = instant_ms(cutoff);
         let docs = self.docs().await?;
         let parked = docs
             .query_all(
@@ -110,6 +112,7 @@ impl FlowCatalogDocuments {
         now: &str,
         error_msg: &str,
     ) -> Result<bool> {
+        let cutoff = instant_ms(cutoff);
         let docs = self.docs().await?;
         let flipped = compare_and_swap(docs, RUNS, id, |doc| {
             if status(doc) != "pending_approval" || !parked_before(doc, cutoff) {
@@ -132,11 +135,12 @@ impl FlowCatalogDocuments {
         &self,
         started_before: &str,
     ) -> Result<Vec<(String, String)>> {
+        let started_before = instant_ms(started_before);
         let docs = self.docs().await?;
         let running = docs
             .query_all(
                 RUNS,
-                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ns")),
+                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ms")),
             )
             .await?;
         let flows = live_flows(docs).await?;
@@ -146,12 +150,7 @@ impl FlowCatalogDocuments {
         reclaim(docs, RUNS, &orphans).await;
         Ok(running
             .iter()
-            .filter(|run| {
-                instant_before(
-                    text(&run.doc, "started_at").unwrap_or_default(),
-                    started_before,
-                )
-            })
+            .filter(|run| int(&run.doc, "started_ms") < started_before)
             .map(|run| {
                 (
                     run.id.clone(),

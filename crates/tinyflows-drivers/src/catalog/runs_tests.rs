@@ -22,7 +22,7 @@ fn step(node: &str) -> FlowRunStep {
 async fn insert_finish_get_round_trip() {
     let (store, flow) = with_flow().await;
     store
-        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00Z")
+        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     let running = store.get_flow_run("r").await.unwrap().unwrap();
@@ -30,13 +30,13 @@ async fn insert_finish_get_round_trip() {
     assert!(running.finished_at.is_none() && running.steps.is_empty());
     assert!(
         store
-            .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00Z")
+            .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00.000+00:00")
             .await
             .is_err()
     );
     assert!(
         store
-            .insert_flow_run("x", "no-flow", "x", "2026-01-01T00:00:00Z")
+            .insert_flow_run("x", "no-flow", "x", "2026-01-01T00:00:00.000+00:00")
             .await
             .is_err()
     );
@@ -45,7 +45,7 @@ async fn insert_finish_get_round_trip() {
         .finish_flow_run(
             "r",
             "failed",
-            "2026-01-01T00:00:01Z",
+            "2026-01-01T00:00:01.000+00:00",
             &[step("a"), step("b")],
             &["n1".into()],
             Some("boom"),
@@ -56,7 +56,10 @@ async fn insert_finish_get_round_trip() {
     assert!(finished);
     let run = store.get_flow_run("r").await.unwrap().unwrap();
     assert_eq!(run.status, "failed");
-    assert_eq!(run.finished_at.as_deref(), Some("2026-01-01T00:00:01Z"));
+    assert_eq!(
+        run.finished_at.as_deref(),
+        Some("2026-01-01T00:00:01.000+00:00")
+    );
     assert_eq!(
         run.steps
             .iter()
@@ -71,7 +74,7 @@ async fn insert_finish_get_round_trip() {
             .finish_flow_run(
                 "r",
                 "cancelled",
-                "2026-01-01T00:00:02Z",
+                "2026-01-01T00:00:02.000+00:00",
                 &[],
                 &[],
                 None,
@@ -92,14 +95,14 @@ async fn insert_finish_get_round_trip() {
 async fn parking_pins_the_graph_hash_and_settling_clears_it() {
     let (store, flow) = with_flow().await;
     store
-        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00Z")
+        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     store
         .finish_flow_run(
             "r",
             "pending_approval",
-            "2026-01-01T00:00:01Z",
+            "2026-01-01T00:00:01.000+00:00",
             &[step("a")],
             &["a".into()],
             None,
@@ -126,7 +129,7 @@ async fn parking_pins_the_graph_hash_and_settling_clears_it() {
         .finish_flow_run(
             "r",
             "completed",
-            "2026-01-01T00:00:03Z",
+            "2026-01-01T00:00:03.000+00:00",
             &[step("a"), step("b")],
             &[],
             None,
@@ -148,15 +151,15 @@ async fn runs_list_newest_first_scoped_to_the_flow() {
         .unwrap()
         .id;
     store
-        .insert_flow_run("a1", &a, "a1", "2026-01-01T00:00:00Z")
+        .insert_flow_run("a1", &a, "a1", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     store
-        .insert_flow_run("a2", &a, "a2", "2026-01-02T00:00:00Z")
+        .insert_flow_run("a2", &a, "a2", "2026-01-02T00:00:00.000+00:00")
         .await
         .unwrap();
     store
-        .insert_flow_run("b1", &b, "b1", "2026-01-01T12:00:00Z")
+        .insert_flow_run("b1", &b, "b1", "2026-01-01T12:00:00.000+00:00")
         .await
         .unwrap();
     store.upsert_flow_run_step("a1", &step("x")).await.unwrap();
@@ -178,7 +181,12 @@ async fn runs_list_newest_first_scoped_to_the_flow() {
 
 async fn seed(store: &FlowCatalogDocuments, flow: &str, id: &str, day: u32, status: &str) {
     store
-        .insert_flow_run(id, flow, id, &format!("2026-01-{day:02}T00:00:00Z"))
+        .insert_flow_run(
+            id,
+            flow,
+            id,
+            &format!("2026-01-{day:02}T00:00:00.000+00:00"),
+        )
         .await
         .unwrap();
     if status != "running" {
@@ -186,7 +194,7 @@ async fn seed(store: &FlowCatalogDocuments, flow: &str, id: &str, day: u32, stat
             .finish_flow_run(
                 id,
                 status,
-                &format!("2026-01-{day:02}T00:00:05Z"),
+                &format!("2026-01-{day:02}T00:00:05.000+00:00"),
                 &[step("t")],
                 &[],
                 None,
@@ -240,7 +248,7 @@ async fn inserting_prunes_past_the_retention_cap() {
             .finish_flow_run(
                 &id,
                 "completed",
-                "2026-01-01T01:00:00Z",
+                "2026-01-01T01:00:00.000+00:00",
                 &[],
                 &[],
                 None,
@@ -250,7 +258,7 @@ async fn inserting_prunes_past_the_retention_cap() {
             .unwrap();
     }
     store
-        .insert_flow_run("extra", &flow, "extra", "2026-01-02T00:00:00Z")
+        .insert_flow_run("extra", &flow, "extra", "2026-01-02T00:00:00.000+00:00")
         .await
         .unwrap();
     let runs = store.list_flow_runs(&flow, 1000).await.unwrap();
@@ -265,25 +273,25 @@ async fn orphans_are_listed_before_the_floor_and_interrupted_once() {
     seed(&store, &flow, "at", 2, "running").await;
     seed(&store, &flow, "done", 1, "completed").await;
     let running = store
-        .list_running_run_ids("2026-01-02T00:00:00Z")
+        .list_running_run_ids("2026-01-02T00:00:00.000+00:00")
         .await
         .unwrap();
     assert_eq!(running, [("old".to_string(), flow.clone())]);
     assert!(
         store
-            .mark_run_interrupted("old", "2026-01-03T00:00:00Z", "crash")
+            .mark_run_interrupted("old", "2026-01-03T00:00:00.000+00:00", "crash")
             .await
             .unwrap()
     );
     assert!(
         !store
-            .mark_run_interrupted("old", "2026-01-03T00:00:00Z", "crash")
+            .mark_run_interrupted("old", "2026-01-03T00:00:00.000+00:00", "crash")
             .await
             .unwrap()
     );
     assert!(
         !store
-            .mark_run_interrupted("done", "2026-01-03T00:00:00Z", "crash")
+            .mark_run_interrupted("done", "2026-01-03T00:00:00.000+00:00", "crash")
             .await
             .unwrap()
     );
@@ -301,7 +309,11 @@ async fn only_runs_parked_before_the_cutoff_expire() {
     seed(&store, &flow, "fresh", 9, "pending_approval").await;
     seed(&store, &flow, "running", 1, "running").await;
     let swept = store
-        .expire_parked_runs("2026-01-05T00:00:00Z", "2026-01-10T00:00:00Z", "ttl")
+        .expire_parked_runs(
+            "2026-01-05T00:00:00.000+00:00",
+            "2026-01-10T00:00:00.000+00:00",
+            "ttl",
+        )
         .await
         .unwrap();
     assert_eq!(swept, [("stale".to_string(), flow.clone())]);
@@ -312,7 +324,7 @@ async fn only_runs_parked_before_the_cutoff_expire() {
     );
     assert!(
         store
-            .expire_parked_runs("2026-01-05T00:00:00Z", "x", "ttl")
+            .expire_parked_runs("2026-01-05T00:00:00.000+00:00", "x", "ttl")
             .await
             .unwrap()
             .is_empty()
@@ -389,7 +401,11 @@ async fn racing_transitions_flip_a_run_exactly_once() {
                 store.mark_run_resuming("r").await.unwrap()
             } else {
                 !store
-                    .expire_parked_runs("2026-02-01T00:00:00Z", "2026-02-01T00:00:00Z", "ttl")
+                    .expire_parked_runs(
+                        "2026-02-01T00:00:00.000+00:00",
+                        "2026-02-01T00:00:00.000+00:00",
+                        "ttl",
+                    )
                     .await
                     .unwrap()
                     .is_empty()
@@ -425,7 +441,7 @@ async fn a_corrupt_run_is_an_error() {
     let docs = store.docs().await.unwrap();
     compare_and_swap(docs, RUNS, "r", |doc| {
         let mut next = doc.clone();
-        next["pending_approvals_json"] = json!("{nope");
+        next["pending_approvals"] = json!("{nope");
         Some(next)
     })
     .await
@@ -437,14 +453,14 @@ async fn a_corrupt_run_is_an_error() {
 async fn a_run_inserted_for_a_removed_flow_does_not_survive() {
     let (store, flow) = with_flow().await;
     store
-        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00Z")
+        .insert_flow_run("r", &flow, "r", "2026-01-01T00:00:00.000+00:00")
         .await
         .unwrap();
     store.remove_flow(&flow).await.unwrap();
     assert!(store.get_flow_run("r").await.unwrap().is_none());
     assert!(
         store
-            .insert_flow_run("late", &flow, "late", "2026-01-01T00:00:00Z")
+            .insert_flow_run("late", &flow, "late", "2026-01-01T00:00:00.000+00:00")
             .await
             .is_err()
     );
@@ -461,7 +477,7 @@ async fn expiry_rechecks_the_parking_time_on_the_current_run() {
         .finish_flow_run(
             "r",
             "pending_approval",
-            "2026-01-20T00:00:00Z",
+            "2026-01-20T00:00:00.000+00:00",
             &[],
             &["a".into()],
             None,
@@ -470,7 +486,11 @@ async fn expiry_rechecks_the_parking_time_on_the_current_run() {
         .await
         .unwrap();
     let swept = store
-        .expire_parked_runs("2026-01-10T00:00:00Z", "2026-01-21T00:00:00Z", "ttl")
+        .expire_parked_runs(
+            "2026-01-10T00:00:00.000+00:00",
+            "2026-01-21T00:00:00.000+00:00",
+            "ttl",
+        )
         .await
         .unwrap();
     assert!(swept.is_empty());

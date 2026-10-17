@@ -3,21 +3,23 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinyflows_schedule::{
     CronJob, CronRun, DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output,
 };
-use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort};
-
-use super::codec;
-use super::codec::{doc_to_run, incarnation, integer, nanos, run_id, run_to_doc, set_last_run};
-use super::jobs::{reschedule, runs_of};
-use super::{
-    CAS_ATTEMPTS, COUNTERS, CronDocuments, JOBS, RUNS, compare_job, job_not_found, storage_error,
+use tinystoragedrivers_core::{
+    Counters, DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort, Versioned,
 };
 
-/// The counter document run numbers are drawn from.
-pub(super) const RUN_COUNTER: &str = "runs";
+use super::codec;
+use super::codec::{
+    doc_to_run, from_ms, incarnation, run_id, run_to_doc, schedule_to_value, set_last_run,
+};
+use super::jobs::{reschedule, runs_of};
+use super::{
+    CronDocuments, JOBS, OWNER, RUN_COUNTER, RUNS, SCHEMA_VERSION, compare_job, job_not_found,
+    storage_error,
+};
 
 struct HistoryWrite<'a> {
     job_id: &'a str,
@@ -43,8 +45,8 @@ impl CronDocuments {
     ) -> Result<()> {
         self.ensure().await?;
         let output = truncate_cron_output(output);
-        compare_job(self, JOBS, job_id, |doc| {
-            let mut next = doc.as_object().cloned().unwrap_or_default();
+        compare_job(self, JOBS, job_id, |stored| {
+            let mut next = stored.doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, finished_at, success, output.clone());
             Ok(Some(Value::Object(next)))
         })
@@ -75,25 +77,15 @@ impl CronDocuments {
         let next_run = next_run_for_schedule(&job.schedule, now)?;
         let one_shot = matches!(job.schedule, Schedule::At { .. });
         let fired_ms = job.next_run.timestamp_millis();
-        let fired_ns = nanos(job.next_run);
-        let fired_schedule =
-            serde_json::to_string(&job.schedule).context("serialize cron schedule")?;
+        let fired_schedule = schedule_to_value(&job.schedule)?;
         let output = truncate_cron_output(output);
-        compare_job(self, JOBS, &job.id, |doc| {
+        compare_job(self, JOBS, &job.id, |stored| {
+            let doc = &stored.doc;
             let mut next = doc.as_object().cloned().unwrap_or_default();
             set_last_run(&mut next, now, success, output.clone());
-            // Milliseconds must match, and nanoseconds too when the document
-            // has them: past 2262 every instant saturates to the same
-            // nanosecond value, so nanoseconds alone could match two
-            // different occurrences. A document written before `next_run_ns`
-            // compares at millisecond precision.
-            let same_ms = doc.get("next_run_ms").and_then(Value::as_i64) == Some(fired_ms);
-            let same_ns = doc
-                .get("next_run_ns")
-                .is_none_or(|stored| stored.as_i64() == Some(fired_ns));
-            let same_occurrence = same_ms && same_ns;
-            let unmoved = same_occurrence
-                && doc.get("schedule").and_then(Value::as_str) == Some(fired_schedule.as_str());
+            let same_occurrence =
+                doc.get("next_run_ms").and_then(Value::as_i64) == Some(fired_ms);
+            let unmoved = same_occurrence && doc.get("schedule") == Some(&fired_schedule);
             if unmoved {
                 reschedule(&mut next, next_run, one_shot);
             } else {
@@ -201,17 +193,14 @@ impl CronDocuments {
         self.ensure().await?;
         // A run belongs to a job that exists, as the SQLite foreign key
         // enforces, and to that job's incarnation.
-        let job = self.job_doc(job_id).await?;
+        let stored = self.job_doc(job_id).await?;
         if let Some(expected) = expected_creation {
-            let created = job
-                .get("created_at")
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow::anyhow!("cron store: missing job creation identity"))?;
             anyhow::ensure!(
-                DateTime::parse_from_rfc3339(created)?.with_timezone(&Utc) == expected,
+                from_ms(stored.meta.created_ms)? == expected,
                 "cron run belongs to a removed job creation"
             );
         }
+        let job = stored.doc;
         let fired = incarnation(&job).map(str::to_string);
         let seq = self.next_run_number().await?;
         let doc = run_to_doc(
@@ -226,7 +215,13 @@ impl CronDocuments {
             delivery_status.as_ref(),
         );
         self.docs
-            .put(RUNS, &run_id(seq), doc, Precondition::Absent)
+            .put_with(
+                RUNS,
+                &run_id(seq),
+                doc,
+                Precondition::Absent,
+                tinystoragedrivers_core::WriteOptions::new().schema(SCHEMA_VERSION),
+            )
             .await
             .map_err(storage_error)
             .context("Failed to insert cron run")?;
@@ -247,50 +242,21 @@ impl CronDocuments {
     }
 
     /// The stored document of `job_id`, or the job-not-found error.
-    pub(super) async fn job_doc(&self, job_id: &str) -> Result<Value> {
+    pub(super) async fn job_doc(&self, job_id: &str) -> Result<Versioned<Value>> {
         self.docs
             .get(JOBS, job_id)
             .await
             .map_err(storage_error)?
-            .map(|stored| stored.doc)
             .ok_or_else(|| job_not_found(job_id))
     }
 
     /// Draws the next run number from the counter, under compare-and-swap.
     pub(super) async fn next_run_number(&self) -> Result<i64> {
-        for _ in 0..CAS_ATTEMPTS {
-            let stored = self
-                .docs
-                .get(COUNTERS, RUN_COUNTER)
-                .await
-                .map_err(storage_error)?;
-            // A missing counter starts at 1; a counter document without an
-            // integer `next` is corrupt, and guessing a number could reuse
-            // a run id.
-            let next = match &stored {
-                None => 1,
-                Some(stored) => integer(&stored.doc, "next")?
-                    .ok_or_else(|| anyhow::anyhow!("cron store: the run counter has no `next`"))?,
-            };
-            let precondition = stored
-                .as_ref()
-                .map_or(Precondition::Absent, |stored| stored.unchanged());
-            match self
-                .docs
-                .put(
-                    COUNTERS,
-                    RUN_COUNTER,
-                    json!({ "next": next + 1 }),
-                    precondition,
-                )
-                .await
-            {
-                Ok(_) => return Ok(next),
-                Err(error) if error.kind() == ErrorKind::Conflict => {}
-                Err(error) => return Err(storage_error(error)),
-            }
-        }
-        anyhow::bail!("cron store: the run counter kept changing under {CAS_ATTEMPTS} attempts")
+        let next = Counters::new(&self.docs)
+            .next(OWNER, RUN_COUNTER)
+            .await
+            .map_err(storage_error)?;
+        i64::try_from(next).map_err(|_| anyhow::anyhow!("cron store: the run counter overflowed"))
     }
 
     /// Deletes all but the newest `max_run_history` runs of `job_id`.
@@ -398,7 +364,7 @@ impl CronDocuments {
 /// The runs `filter` selects, newest first (ties to the later run number).
 fn newest_first(filter: Filter) -> Query {
     Query::filter(filter)
-        .sort(Sort::desc("started_ns"))
+        .sort(Sort::desc("started_ms"))
         .sort(Sort::desc("seq"))
 }
 

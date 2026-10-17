@@ -455,10 +455,10 @@ async fn module_document_store_retries_policy_migration_conflicts_without_losing
     .await
     .unwrap();
     // Old job documents have no integrated policy. Remove it to exercise migration.
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
     body.as_object_mut().unwrap().remove("policy");
-    docs.put("cron_jobs", id, body, stored.unchanged())
+    docs.put("cron.jobs", id, body, stored.unchanged())
         .await
         .unwrap();
     // A new callback address injects one atomic CAS conflict.

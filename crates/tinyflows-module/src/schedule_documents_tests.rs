@@ -39,7 +39,7 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let storage = scoped.documents().clone();
     storage
-        .ensure_collection(&CollectionSpec::new("cron_jobs"))
+        .ensure_collection(&CollectionSpec::new("cron.jobs"))
         .await
         .unwrap();
     storage
@@ -71,12 +71,12 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
         precondition,
     };
     documents
-        .atomic_batch(vec![put("cron_jobs", Precondition::Absent)])
+        .atomic_batch(vec![put("cron.jobs", Precondition::Absent)])
         .await
         .unwrap();
-    assert!(storage.get("cron_jobs", "job").await.unwrap().is_some());
+    assert!(storage.get("cron.jobs", "job").await.unwrap().is_some());
     let error = documents
-        .atomic_batch(vec![put("cron_jobs", Precondition::Absent)])
+        .atomic_batch(vec![put("cron.jobs", Precondition::Absent)])
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Conflict);
@@ -89,7 +89,7 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
     let error = documents
         .atomic_batch(vec![
             WriteOp::Put {
-                collection: "cron_jobs".into(),
+                collection: "cron.jobs".into(),
                 id: "job".into(),
                 doc: json!({"enabled":false}),
                 precondition: Precondition::None,
@@ -104,7 +104,7 @@ async fn document_bridge_preserves_atomic_writes_conflicts_and_collection_scope(
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert_eq!(
-        storage.get("cron_jobs", "job").await.unwrap().unwrap().doc["enabled"],
+        storage.get("cron.jobs", "job").await.unwrap().unwrap().doc["enabled"],
         true
     );
 }
@@ -162,7 +162,7 @@ async fn document_bridge_requires_capability_report_and_never_emulates_transacti
             assert!(
                 documents
                     .atomic_batch(vec![WriteOp::Put {
-                        collection: "cron_jobs".into(),
+                        collection: "cron.jobs".into(),
                         id: "job".into(),
                         doc: json!({}),
                         precondition: Precondition::Absent,
@@ -175,4 +175,17 @@ async fn document_bridge_requires_capability_report_and_never_emulates_transacti
         }
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
+}
+
+#[test]
+fn shared_tsd_collections_admit_only_cron_keys_and_no_scans() {
+    assert!(Documents::validate_record("tsd.counters", "cron/runs").is_ok());
+    assert!(Documents::validate_record("tsd.leases", "cron/job/123").is_ok());
+    assert!(Documents::validate_record("tsd.leases", "flows/x").is_err());
+    assert!(Documents::validate_record("tsd.counters", "~hashed").is_err());
+    assert!(Documents::validate_record("cron.jobs", "anything").is_ok());
+    assert!(Documents::validate_record("tsd.migrations", "cron/x").is_err());
+    assert!(Documents::validate_set("tsd.leases").is_err());
+    assert!(Documents::validate_set("tsd.counters").is_err());
+    assert!(Documents::validate_set("cron.jobs").is_ok());
 }

@@ -13,11 +13,11 @@ of `tinyflows` itself.
 
 | Type | Implements | Layout |
 | --- | --- | --- |
-| `DriverStateStore` | `tinyflows::caps::StateStore` | one document per key in `flows_state` |
-| `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `flows_graph_checkpoints`, `_threads`, `_writes` |
-| `schedule::CronDocuments` | the cron job and run store | `cron_jobs`, `cron_runs`, `cron_counters` |
-| `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows_*` |
-| `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `wf_*` |
+| `DriverStateStore` | `tinyflows::caps::StateStore` | one `tsd.kv` entry per key (owner `flows`, namespace `state`) |
+| `DriverCheckpointer<State>` | `tinyflows::graph::Checkpointer<State>` | `graph.checkpoints`, `graph.threads`, `graph.writes` (namespace `flows`; declared by `tinyagents-graph`) |
+| `schedule::CronDocuments` | the cron job and run store | `cron.jobs`, `cron.runs`, `cron.admission`; run numbers in `tsd.counters`, claims in `tsd.leases` |
+| `catalog::FlowCatalogDocuments` | saved flows, revisions, runs, suggestions, drafts | `flows.*` |
+| `store::DriverWorkflowStore` | `tinyflows::store::WorkflowStore` | `flows.workflows`, `flows.workflow_*`; the decision lock in `tsd.leases` |
 
 ```rust
 use std::sync::Arc;
@@ -42,6 +42,23 @@ A host that runs scheduled jobs but no flows builds with
 `default-features = false, features = ["schedule"]` and pulls neither the
 engine nor its expression stack.
 
+## Storage schema v2
+
+Everything here stores on the uniform schema of `tinystoragedrivers` v1.0.0.
+`storage_schema()` (owner `flows`) and `cron_storage_schema()` (owner `cron`)
+declare the collections and carry the v1 -> v2 steps; the host composes them
+with `Registry::compose` and runs `Registry::migrate` per scope, then calls
+`import_legacy_kv` and `import_legacy_cron_counters` once per scope (a document
+step cannot write `tsd.*`). The graph checkpointer reads and writes the
+`graph.*` documents of `tinyagents-graph` under namespace `flows`. With the
+`store` feature `storage_schema()` also declares the workflow store
+(`flows.workflows`, `flows.workflow_*`). `tinyflows-adaptive` (feature
+`storage-drivers`) extends the same schema with `flows.adaptive_*` through
+`tinyflows_adaptive::drivers::extend_storage_schema`, and
+`tinyflows_adaptive::drivers::import_legacy_adaptive_counters` moves its id
+sequences into `tsd.counters`: an owner is declared once, so pass the schema
+through both.
+
 ## The flow catalog (`catalog`)
 
 `FlowCatalogDocuments` is the catalog and the authoring drafts: one `async fn`
@@ -60,17 +77,17 @@ let state = Arc::new(FlowStateDocuments::open(catalog.clone(), flow.id.clone()).
 
 | Collection | One document per |
 | --- | --- |
-| `flows_definitions` | flow |
-| `flows_revisions` | superseded graph (newest 20 kept) |
-| `flows_runs` | run, with its steps |
-| `flows_kv` | `(namespace, key)` of flow state |
-| `flows_suggestions` | discovery suggestion |
-| `flows_drafts` | authoring draft |
+| `flows.definitions` | flow |
+| `flows.revisions` | superseded graph (newest 20 kept) |
+| `flows.runs` | run, with its steps |
+| `tsd.kv` (owner `flows`, namespace `kv:<namespace>`) | `(namespace, key)` of flow state |
+| `flows.suggestions` | discovery suggestion |
+| `flows.drafts` | authoring draft |
 
 - Every guarded SQL `UPDATE … WHERE status = …` (finish, resume, interrupt,
   TTL expiry) is a compare-and-swap on the run, so a transition happens at
   most once across processes sharing one database.
-- A run's steps live on the run document (`steps_json`, as in SQLite), so a
+- A run's steps live on the run document (`steps`, a JSON array), so a
   run settles with its step list in one compare-and-swap, and a step written
   by a parallel branch retries on the winner's list rather than losing to it
   (what SQLite's `BEGIN IMMEDIATE`, R-m1, protected).
@@ -93,12 +110,13 @@ let state = Arc::new(FlowStateDocuments::open(catalog.clone(), flow.id.clone()).
 - Pruning deletes a revision only at the version it read, re-checking an
   abandoned one's age and pending state first; an update whose in-flight
   revision was pruned anyway writes it again after its swap.
-- Graphs, steps, drafts and state values are JSON strings, optional fields
-  are omitted rather than `null`, and ordering uses epoch-nanosecond fields.
+- Graphs, steps, drafts and state values are real JSON values, optional
+  fields are omitted rather than `null`, and ordering uses epoch-millisecond
+  `*_ms` fields with the id as the tie-break.
 
 `FlowStateDocuments::open` proves the catalog collections can be opened before
 returning a handle; a storage failure propagates instead of selecting an
-unscoped or process-local fallback. `FlowStateDocuments` is one flow's namespaced state over the same `flows_kv`
+unscoped or process-local fallback. `FlowStateDocuments` is one flow's namespaced state over the same `tsd.kv`
 documents as `kv_get` / `kv_set` / `kv_delete`. It is the engine's
 `StateStore` and the host's synchronous `DedupKv`; the latter runs on the
 storage crates' `Blocking` bridge (one per process, or the host's own via
@@ -115,13 +133,18 @@ inside any runtime.
 
 | Collection | One document per |
 | --- | --- |
-| `wf_definitions` | workflow |
-| `wf_revisions` | superseded copy (newest 20 per workflow kept) |
-| `wf_runs` | run record |
-| `wf_notes` | workflow's whole journal (capped at 100 notes) |
-| `wf_proposals` | proposal |
-| `wf_locks` | decision lease |
-| `wf_quarantine` | journal that could not be parsed, set aside |
+| `flows.workflows` | workflow (`Key::of([id])`) |
+| `flows.workflow_revisions` | superseded copy (newest 20 per workflow kept) |
+| `flows.workflow_runs` | run record |
+| `flows.workflow_notes` | workflow's whole journal (capped at 100 notes) |
+| `flows.workflow_proposals` | proposal |
+| `flows.workflow_quarantine` | journal that could not be parsed, set aside |
+
+The decision lock is a `tsd.leases` lease (owner `flows`, key
+`workflow_decision/<id>`). Bodies are bare snake_case objects with `*_ms`
+instants; the `workflow_` prefix keeps these records apart from the catalog's
+`flows.definitions` / `flows.revisions` / `flows.runs`, which have a different
+shape. The v1 `wf_*` collections move with the steps in `storage_schema()`.
 
 - Every definition write is a compare-and-swap on the version it read, and the
   revision of what it replaces is written first and taken back if the swap
@@ -160,8 +183,7 @@ Across processes sharing one database:
 - run numbers come from a compare-and-swap counter.
 
 `due_jobs` is a read, so two schedulers can both run the same due job (as
-with two processes on one SQLite file); it orders by `next_run_ns`, falling
-back to `next_run_ms` for documents written before that field. Recording a
+with two processes on one SQLite file); it orders by `next_run_ms`. Recording a
 run and pruning history are separate writes, and so are removing a job and
 its runs; `sweep_orphan_runs` (run by `clear_all_jobs`) collects runs whose
 job is gone or was re-created.
@@ -245,8 +267,8 @@ already exists, mutations fail closed. No local fallback is used.
   queries and walks the lineage in memory, rather than two round trips per
   ancestor.
 - Pending writes merge with `merge_writes` under compare-and-swap.
-- Key components are length-prefixed and namespaces encoded injectively; ids
-  over 400 bytes become their SHA-256.
+- Ids are `Key::of` keys: parts are escaped and joined with `/`, and a key
+  over 400 bytes becomes `~` plus the base32 SHA-256 of the escaped key.
 
 ## Why a separate crate
 
