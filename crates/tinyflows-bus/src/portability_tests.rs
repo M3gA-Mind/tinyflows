@@ -87,13 +87,14 @@ fn trigger_details_wire_preserves_typed_schedule_variants_and_absence() {
     ];
     for raw in schedules {
         let schedule: Schedule = serde_json::from_value(raw.clone()).unwrap();
+        let expected_schedule = serde_json::to_value(&schedule).unwrap();
         let details = TriggerDetails {
             kind: Some("schedule".into()),
             schedule: Some(schedule),
         };
         let wire = serde_json::to_value(&details).unwrap();
         assert_eq!(wire["kind"], "schedule");
-        assert_eq!(wire["schedule"], raw);
+        assert_eq!(wire["schedule"], expected_schedule);
         assert_eq!(serde_json::from_value::<TriggerDetails>(wire).unwrap(), details);
     }
 
