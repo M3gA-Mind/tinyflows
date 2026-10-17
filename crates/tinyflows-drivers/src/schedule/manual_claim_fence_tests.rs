@@ -1,4 +1,4 @@
-use super::CronDocuments;
+use super::*;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::Value;
