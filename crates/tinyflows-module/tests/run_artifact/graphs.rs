@@ -1,9 +1,9 @@
-use super::support::Owner;
+use super::Owner;
 use super::*;
 use serde_json::{Value, json};
 use tinyflows_bus::runs::{self, FlowRunTrigger, RunContext, StartRun};
 
-pub(super) fn dedup_graph(node_id: &str) -> Value {
+pub(crate) fn dedup_graph(node_id: &str) -> Value {
     json!({
         "inputs":[{"name":"declared","type":"string","required":true}],
         "nodes":[
@@ -20,7 +20,7 @@ pub(super) fn dedup_graph(node_id: &str) -> Value {
     })
 }
 
-pub(super) fn parked_graph() -> Value {
+pub(crate) fn parked_graph() -> Value {
     json!({
         "inputs":[{"name":"declared","type":"string","required":true}],
         "nodes":[
@@ -35,7 +35,7 @@ pub(super) fn parked_graph() -> Value {
     })
 }
 
-pub(super) fn graph(include_agent: bool) -> Value {
+pub(crate) fn graph(include_agent: bool) -> Value {
     let mut nodes = vec![json!({"id":"trigger","name":"Trigger","kind":"trigger","config":{}})];
     let mut edges = Vec::new();
     if include_agent {
@@ -55,7 +55,7 @@ pub(super) fn graph(include_agent: bool) -> Value {
     })
 }
 
-pub(super) fn request(
+pub(crate) fn request(
     owner: &Owner,
     flow_id: String,
     run_id: &str,

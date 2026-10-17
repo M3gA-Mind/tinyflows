@@ -8,7 +8,7 @@ use std::sync::{
 use tinystoragedrivers_core::DocumentStore;
 use tokio::sync::Notify;
 
-pub(super) struct OwnerDocuments {
+pub(crate) struct OwnerDocuments {
     pub(super) docs: Arc<dyn DocumentStore>,
     pub(super) terminal_write_started: Option<Arc<Notify>>,
     pub(super) release_terminal_write: Option<Arc<Notify>>,
@@ -210,4 +210,3 @@ fn reply(value: tinystoragedrivers_core::Result<impl Serialize>) -> Value {
         }),
     }
 }
-

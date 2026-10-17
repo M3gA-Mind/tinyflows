@@ -3,11 +3,11 @@ use super::*;
 use serde_json::Value;
 use tinyflows_bus::catalog::{CatalogStorage, PutWorkflowRequest, PutWorkflowResponse};
 
-pub(super) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
+pub(crate) async fn serve_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
     serve_agent_with_failure(connection, name, false).await
 }
 
-pub(super) async fn serve_failing_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
+pub(crate) async fn serve_failing_agent(connection: &Connection, name: &str) -> Arc<AgentCallback> {
     serve_agent_with_failure(connection, name, true).await
 }
 
@@ -32,7 +32,7 @@ async fn serve_agent_with_failure(
     callback
 }
 
-pub(super) async fn create_flow(
+pub(crate) async fn create_flow(
     proxy: &tinybus::Proxy,
     storage: &CatalogStorage,
     name: &str,
@@ -40,7 +40,7 @@ pub(super) async fn create_flow(
     create_flow_with_graph(proxy, storage, name, graph(true)).await
 }
 
-pub(super) async fn create_flow_with_graph(
+pub(crate) async fn create_flow_with_graph(
     proxy: &tinybus::Proxy,
     storage: &CatalogStorage,
     name: &str,
