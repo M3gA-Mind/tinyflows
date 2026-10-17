@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 pub use tinyflows_bus::schedule::{Attempt, Completion, RunRecord};
+use tinyflows_bus::schedule::{DeliveryProjection, OccurrenceClaim, RunJobRefusal};
 
 /// Storage bound to one agent/tenant scope.
 #[async_trait]
@@ -26,19 +27,58 @@ pub trait JobStore: Send + Sync {
         );
         self.due_jobs(now).await
     }
-    /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
-    /// Compare job.claim_generation and atomically increment it. One-shots
-    /// must be durably disabled before returning success.
-    /// Return an error on storage failure or when another writer won the claim.
-    async fn claim_slot(&self, job: &CronJob, next_run: DateTime<Utc>) -> Result<()>;
-    /// Append a run outcome without changing the job's schedule. Match its
-    /// dispatch-time job_created_at; reject a replacement with the same ID.
-    async fn record_run(&self, record: RunRecord) -> Result<()>;
-    /// Apply the computed terminal mutation and last-run fields after a claim,
-    /// preserving explicit re-enables and edits made while the run executed.
-    /// Mutate only when the current generation equals job.claim_generation + 1;
-    /// a later successful claim makes this completion stale.
-    async fn complete(&self, job: &CronJob, completion: Completion) -> Result<()>;
+    /// Atomically acquire the persisted due occurrence. Unsupported backends
+    /// fail closed; a host process mutex is never an admission substitute.
+    async fn claim_due_occurrence(
+        &self,
+        _job: &CronJob,
+        _owner: &str,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<Option<OccurrenceClaim>> {
+        anyhow::bail!("job store does not support durable occurrence leases")
+    }
+    /// Force-claim the exact saved definition for Run Now, regardless of its
+    /// enabled/future schedule state.
+    async fn claim_manual_occurrence(
+        &self,
+        _job: &CronJob,
+        _owner: &str,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
+        anyhow::bail!("job store does not support durable manual admission")
+    }
+    /// Extend a live lease; false means this worker has lost its fence.
+    async fn renew_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support durable occurrence renewal")
+    }
+    /// Release an owned occurrence on cancellation without advancing it.
+    async fn release_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _now: DateTime<Utc>,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support durable occurrence release")
+    }
+    /// Persist the accepted manual run before returning its acknowledgement.
+    async fn queue_occurrence(&self, _claim: &OccurrenceClaim, _record: RunRecord) -> Result<bool> {
+        anyhow::bail!("job store does not support durable run queueing")
+    }
+    /// Atomically append terminal history and advance the claimed occurrence.
+    async fn complete_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _record: RunRecord,
+        _completion: Completion,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support fenced occurrence completion")
+    }
 }
 
 /// Agent and shell execution, including host security and failure classification.
@@ -53,20 +93,18 @@ pub trait JobExecutor: Send + Sync {
 /// Product delivery to channels, conversation origins and alerts.
 #[async_trait]
 pub trait RunDelivery: Send + Sync {
-    /// Deliver one final attempt; an error may fail required delivery.
-    async fn deliver(
-        &self,
-        job: &CronJob,
-        run_id: &str,
-        attempt: &Attempt,
-    ) -> Result<DeliveryStatus>;
+    /// Perform the one actual product send; an error may fail required delivery.
+    async fn send(&self, job: &CronJob, run_id: &str, attempt: &Attempt) -> Result<DeliveryStatus>;
+    /// Project the module's truthful terminal decision. This callback must not
+    /// send again; it receives the result only after `send` has returned.
+    async fn deliver(&self, projection: &DeliveryProjection) -> Result<()>;
 }
 
 /// Direct schedule-trigger dispatch; no host domain-event round trip.
 #[async_trait]
 pub trait TriggerSink: Send + Sync {
     /// Fire the bound flow's schedule trigger once for this attempt.
-    async fn schedule(&self, flow_id: &str, run_id: &str) -> Result<Attempt>;
+    async fn schedule(&self, job: &CronJob, run_id: &str) -> Result<Attempt>;
 }
 
 /// Injectable wall clock and wait primitive. Tests advance time without sleeping.
@@ -76,6 +114,11 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> DateTime<Utc>;
     /// Wait for a poll interval or retry delay; test clocks may advance directly.
     async fn sleep(&self, duration: Duration);
+    /// Wait before renewing an occurrence lease. Tests may control this
+    /// independently from retry backoff sleeps.
+    async fn lease_wait(&self, duration: Duration) {
+        self.sleep(duration).await;
+    }
 }
 
 /// Production wall clock.
@@ -88,6 +131,10 @@ impl Clock for SystemClock {
     }
     /// Wait for a poll interval or retry delay; test clocks may advance directly.
     async fn sleep(&self, duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+    /// Production lease heartbeat timer.
+    async fn lease_wait(&self, duration: Duration) {
         tokio::time::sleep(duration).await;
     }
 }

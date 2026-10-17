@@ -6,11 +6,11 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
-    self, CallbackAddress, CheckOriginRequest, CheckPatchRequest, NextRunRequest,
+    self, CheckOriginRequest, CheckPatchRequest, NextRunRequest, RunJobNow, RunJobReply,
     RunsCloserThanRequest, StartScheduler, TooFrequent, ValidateScheduleRequest,
 };
 use tinyflows_schedule::{
-    CronJob, DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
+    DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
 };
 use tokio::{
     sync::{Mutex, oneshot},
@@ -57,6 +57,27 @@ fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
 }
 
+async fn persist_manual_queue(
+    store: &dyn JobStore,
+    claim: &tinyflows_bus::schedule::OccurrenceClaim,
+    record: RunRecord,
+    now: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<bool> {
+    match store.queue_occurrence(claim, record).await {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            let _ = store.release_occurrence(claim, now).await;
+            Ok(false)
+        }
+        Err(error) => {
+            if let Err(release_error) = store.release_occurrence(claim, now).await {
+                tracing::warn!(%release_error, "manual admission failed to release its queue claim");
+            }
+            Err(error)
+        }
+    }
+}
+
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Schedule")]
 impl ScheduleService {
     async fn schedule_store(
@@ -91,6 +112,9 @@ impl ScheduleService {
             );
         }
         let mut scheduler = Scheduler::new(request.scope, config, ports);
+        if !scheduler.reserve_slot() {
+            return Err(Error::failed("a scheduler already owns this scope"));
+        }
         let handle = uuid::Uuid::new_v4().to_string();
         let running = if request.manual_ticks {
             Running::Manual(Arc::new(Mutex::new(scheduler)))
@@ -155,23 +179,72 @@ impl ScheduleService {
             .map_err(failure)
     }
 
-    async fn execute_job(
-        &self,
-        scope: String,
-        callback: CallbackAddress,
-        config: Value,
-        job: Value,
-        run_id: String,
-    ) -> Result<Value> {
-        let config: SchedulerConfig = serde_json::from_value(config).map_err(failure)?;
-        let job: CronJob = serde_json::from_value(job).map_err(failure)?;
-        let _claim = RunClaim::acquire(&scope, &job.id)
-            .ok_or_else(|| Error::failed("job is already running"))?;
-        let ports = HostCallbacks::ports(self.connection.clone(), callback);
-        let result = execute_with_retry(&ports, &config, &job, &run_id)
+    async fn run_job_now(&self, request: RunJobNow) -> Result<RunJobReply> {
+        let config: SchedulerConfig = serde_json::from_value(request.config).map_err(failure)?;
+        let ports = HostCallbacks::ports(self.connection.clone(), request.callback);
+        let mut ports = ports;
+        ports.store = Arc::new(
+            super::schedule_store::Store::new(self.connection.clone(), request.storage)
+                .await
+                .map_err(failure)?,
+        );
+        let now = ports.clock.now();
+        let owner = uuid::Uuid::new_v4().to_string();
+        let claim = match ports
+            .store
+            .claim_manual_occurrence(&request.job, &owner, now, chrono::Duration::hours(2))
             .await
-            .map_err(failure)?;
-        serde_json::to_value(result).map_err(failure)
+            .map_err(failure)?
+        {
+            Ok(claim) => claim,
+            Err(reason) => return Ok(RunJobReply::Refused { reason }),
+        };
+        let mut claim = claim;
+        let run_id = if request.run_id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            request.run_id
+        };
+        claim.run_id = Some(run_id.clone());
+        let queued_at = ports.clock.now();
+        let queued = tinyflows_schedule::runtime::RunRecord {
+            run_id: run_id.clone(),
+            job_id: claim.job.id.clone(),
+            job_created_at: claim.job.created_at,
+            started_at: claim.started_at,
+            finished_at: queued_at,
+            status: "queued".into(),
+            output: String::new(),
+            delivery_status: None,
+        };
+        if !persist_manual_queue(ports.store.as_ref(), &claim, queued, queued_at)
+            .await
+            .map_err(failure)?
+        {
+            return Ok(RunJobReply::Refused {
+                reason: tinyflows_bus::schedule::RunJobRefusal::DefinitionChanged,
+            });
+        }
+        let scheduler = Scheduler::new(request.scope, config, ports);
+        if request.wait {
+            let outcome = scheduler
+                .run_manual_claim(claim, request.delivery)
+                .await
+                .map_err(failure)?;
+            Ok(RunJobReply::Completed {
+                run_id,
+                attempt: outcome.attempt,
+                success: outcome.success,
+                delivery_status: outcome.delivery_status,
+            })
+        } else {
+            tokio::spawn(async move {
+                if let Err(error) = scheduler.run_manual_claim(claim, request.delivery).await {
+                    tracing::warn!(%error, "manual schedule run did not reach terminal persistence");
+                }
+            });
+            Ok(RunJobReply::Accepted { run_id })
+        }
     }
 
     async fn parse_human_delay(&self, delay: String) -> Result<i64> {

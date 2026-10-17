@@ -1,11 +1,11 @@
-# tinyflows-bus design (openhuman#7562, epic #7544, tinyflows#132)
+# tinyflows-bus design (openhuman#8055, tinyflows#3, tinyflows#4)
 
 Goal: the OpenHuman host reaches workflow behaviour only through the
 `tinyflows-bus` contract served by the compiled `tinyflows-module`. The host
 keeps config, security policy and approvals, credentials, `Outcome<T>`
 controllers and event-bus wiring. This document fixes the contract shape and
-the slice order. This slice adds only the design and a skeleton; no module
-conversion happens here.
+the slice order. Catalog CRUD and revision history are served by the module;
+run execution remains a later slice.
 
 ## Contract surfaces
 
@@ -14,10 +14,11 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 
 | Surface | Status | Members |
 | --- | --- | --- |
-| Authoring | served, v1 | `ValidateGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, graph ops gates, preflight) |
-| Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | skeleton, v1 | `StartRun`, `ResumeRun`, `CancelRun`, `PollRun` |
-| Catalog | skeleton, v1 | list/get/put/delete workflows, `ListRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
+| Authoring | served, v3 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, import, gates, preflight, advisory wiring) |
+| Schedule | served, v4 | scheduler start/stop/tick/drain, durable occurrence leases, queued `RunJobNow`, two-phase `Send`/terminal `Deliver`, captured-job `ScheduleTrigger`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
+| Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
+| CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
+| Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
 boundary as JSON; the host never links the engine. Adding a surface does not
@@ -26,33 +27,113 @@ surface's version and the registry records the pair.
 
 ### Validate / migrate / compat
 
-Already served as `ValidateGraph`. Migration, structural validation and engine
-compatibility run in the module; the result carries the migrated graph even
-when invalid so editors keep the author's work.
+`ValidateGraph` runs migration, structural validation and engine compatibility
+in the module; the result carries the migrated graph even when invalid so
+editors keep the author's work. A request may include the scope-bound
+`AuthoringHost.ResolveWorkflow` callback. When present, the shared async
+compatibility walk checks saved sub-workflow children; missing or unavailable
+children retain the engine's existing runtime-diagnostic behavior.
+
+`ImportGraph` normalizes native and n8n documents without persistence. `auto`
+detects n8n exports, while `native`/`tinyflows` and `n8n` select a format
+explicitly. Format names are trimmed and case-insensitive; an empty format is
+the same as `auto`. The module returns importer warnings separately from
+structural and engine compatibility errors; product trigger warnings remain
+host-owned.
 
 ### Run / resume / cancel
 
-`StartRun` returns a run id at once and the module drives the run on its own
-executor. `ResumeRun` supplies approvals for a parked run. `CancelRun` is
-cooperative (the engine's cancel token). Progress is not a transport stream:
-`PollRun(run_id, cursor)` returns events with a monotonic `seq`, so the host
-can republish them on its event bus and a restart resumes from its last
-cursor. Run checkpoints live in the host document port (below).
+`StartRun` accepts a required host-chosen opaque `run_id`, a trusted execution
+context, a separately bound `CapsHost` and owner-scoped `CatalogStorage`, the
+graph, a typed trigger kind plus its distinct payload, declared inputs, and a
+required nonzero `timeout_ms`. The host chooses the budget; the module enforces
+it cooperatively at engine node boundaries. There is no module default or
+unbounded value. OpenHuman continues to supply its existing 600 second policy.
+Compatibility, compilation and declared-input resolution complete before a run
+row or live cancellation token is created. After preflight, row insertion uses
+create-if-absent and the owner-scoped live token is registered before the id is
+acknowledged. The exact storage callback address is the stable owner key for
+live Poll/Cancel; owner ids never come from graph or trigger data.
+
+The module drives the run on its executor. `CancelRun` signals a live run's
+engine token; the actor persists its own terminal row and event. A parked or
+orphaned run is cancelled through the row's compare-and-swap, and its checkpoint
+is removed only if that transition wins. `PollRun(run_id, cursor)` returns a
+bounded page with a monotonic next cursor. Step writes and their events are
+queued out of synchronous observer callbacks and drained before terminal
+settlement; graph observations and live agent progress join the same event
+sequence. The final event follows the terminal row write, and `done` remains
+false for `pending_approval`. Checkpoints and the exact executed graph snapshot
+live in the owner-scoped document port. `ResumeRun` carries the expected flow
+id, owner storage callback, a fresh flow-bound `CapsHost`, approval and
+rejection ids, and a host-selected timeout. It requires a pending row for that
+flow and at least one decision matching a pending gate; a gate cannot be both
+approved and rejected. The module compares the current saved workflow hash
+with the hash pinned when the run parked, then rebuilds execution from the
+pinned graph and input snapshot. The parked-to-running transition and resumed
+actor lease are one compare-and-swap, so a concurrent resume, expiry, or boot
+sweep cannot replace the winner.
+
+The resumed observer starts with the persisted step prefix, replaces a node's
+parked observation with its resumed result, and seeds the event writer from
+the last persisted sequence. Resumed execution uses a cancellable engine entry
+point; `CancelRun` and the host-selected timeout reach the same cooperative
+token as a fresh run.
+
+`ExpireParked` changes only rows still in `pending_approval` whose parking time
+is older than the 600-second TTL. `BootSweep` reconciles old `running` rows
+only on a local backend. It is a no-op for shared backends and skips rows with
+an active owner-scoped actor lease, including when the host callback is an
+alias for the same document scope. Expiry and boot recovery emit a terminal
+event only after their status compare-and-swap wins, settle tentative dedup
+state from the stored execution snapshot, and remove the corresponding
+checkpoint best-effort.
+
+The host's CatalogStorage callback allowlist must also admit
+`flows_graph_checkpoints`, `flows_graph_threads` and `flows_graph_writes` for
+the module's DriverCheckpointer. It must apply the same owner scope to those
+collections as it does to the workflow catalog collections.
+
+`SandboxRun` accepts an unsaved inline graph and input, validates and compiles
+it inside the module, then returns the same diagnostic buckets as the builder
+dry-run. It does not admit a live actor or write run rows, events or graph
+checkpoints. The host includes the policy-classified permission manifest in
+the request; the module reports it without treating it as execution authority.
+The module uses schema-aware deterministic mocks for both named
+agent and plain LLM execution. Its only host callback is the exact
+`CapsHost.ToolInvoke` address supplied for preflight. The module discards the
+callback's return value after successful validation and produces the simulated
+tool result with its own `MockTools`; hosts must not forward the callback to a
+real integration. HTTP, code, shell, memory, state, approval and agent calls
+remain in module-local mocks.
 
 ### Node kinds, graph_ops, gates, preflight
 
-`NodeKinds` returns each kind's config schema and ports so the host stops
-mirroring the enum. `ApplyGraphOps` wraps `graph_ops` (pure, deterministic).
-Gates and mock-run preflight are `BuilderFailures` (served). The approval
-manifest splits as already landed in `tinyflows-catalog::approval_manifest`:
-the module lists candidates, the host classifies each with its security
-policy, the module assembles the wire entries.
+The canonical host-facing `NodeKindContract` data model, host-note overlay
+method, and renderers live in `tinyflows-bus::node_kinds`. The engine retains
+its source-compatible API snapshot because the bus crate is intentionally
+unpublished; an exhaustive module parity test keeps every contract and
+renderer aligned. The `NodeKinds` member returns the full ordered schema,
+including config fields, ports, examples and portable notes, without requiring
+hosts to link the engine. `ApplyGraphOps` applies
+tagged edits sequentially to a private graph copy and returns either the full
+result or the first indexed error, with no validation or persistence.
+
+The approval manifest follows `tinyflows-catalog::approval_manifest`: the
+module lists candidates in graph order, the scope-bound
+`ApprovalManifestHost.ClassifyManifestCandidates` callback classifies every
+candidate slot, and the module assembles the wire entries. A missing,
+malformed, or failed callback response fails the operation closed. Host policy
+still owns HTTP/code/native/connector classification and curated-read skips;
+dynamic and agent rows have no host classification.
 
 ## Host callbacks for caps traits
 
-Every `tinyflows::caps` trait method is one member on the host callback
-interface `CapsHost`, bound per request to the acting identity (the module
-never sees credentials; `conn` stays an opaque host reference):
+Every host-owned `tinyflows::caps` method is served by the `CapsHost`
+interface, whose exact callback address the trusted host binds to the flow,
+run, approval requirement, and owner scope before run execution. The module
+uses that address verbatim; graph and trigger JSON cannot select or replace it.
+The module never sees credentials, and `conn` stays an opaque host reference:
 
 | Trait | Members |
 | --- | --- |
@@ -61,18 +142,43 @@ never sees credentials; `conn` stays an opaque host reference):
 | `HttpClient` | `HttpRequest(request, conn)` |
 | `CodeRunner` / `ShellRunner` | `CodeRun`, `ShellRun` |
 | `MemoryProvider` | `MemoryRecall/Flavour/People/Remember/Forget` |
-| `WorkflowResolver` | `ResolveWorkflow` (shared with authoring host) |
-| `StateStore` | `StateLoad`, `StateStore` |
+| Module-owned state and catalogue reads | document port (`flows_kv`, saved workflow catalog) |
 | `ApprovalProvider` | `ApprovalDecide`, `ApprovalCancel` |
-| `TaskRunner` | `TaskStart`, `TaskPoll`, `TaskCancel` (already poll based) |
+| Module-owned tasks | Tokio task runner with the run's capability bundle |
 | `AgentRunner` | `AgentRun`, `AgentEvents` |
 
-Streaming: only `AgentRunner` streams (progress, partial output). A callback
-cannot stream over a synchronous bus, so `AgentRun` starts the turn and
-returns a handle; the module reads `AgentEvents(handle, cursor)` the same way
-the host reads `PollRun`. Calls are blocking from the module's executor
-thread. A callback failure surfaces as the node's error; approval callbacks
-fail closed (an error is a rejection, never an approval).
+The module constructs `StateStore` over the run's owner-scoped document
+callback, with the trusted namespace `flow:<flow_id>`, and resolves saved
+workflow ids through that same scoped catalog. The run manager supplies the
+flow id separately from the graph and trigger. Spawn tasks execute inside the
+module: tool and HTTP tasks call the same run capability bundle, and child
+workflow tasks retain the module task runner through a weak reference to avoid
+a runner/capabilities ownership cycle. Task start, poll, and cancel never
+bounce through the host. Saved child graphs and inline workflow-task graphs pass
+the engine compatibility guard before compilation; run-time resolution fails
+closed when a legacy saved graph has a topology the current executor cannot run.
+If a child workflow parks for approval, its task settles as a capability failure
+instead of reporting partial output as success: TaskState has no parked/resume
+state, and detached tasks are process-local rather than checkpointed run state.
+
+Only `AgentRunner` streams progress. `AgentRun` returns an opaque handle, then
+`AgentEvents(handle, cursor)` reads typed events and a typed terminal outcome.
+Cursors start at zero and pages are contiguous, one-based sequence numbers;
+replay, gaps, pages above 256 entries, and transcripts above 10,000 entries
+fail as capability errors. Empty nonterminal pages are paced by the module, and
+an empty terminal page is allowed. A terminal page has exactly one outcome;
+the host's settled transcript is authoritative, with bounded progress entries
+used only when that transcript is empty. Agent absence (`None`) and empty tool
+grants stay ordinary absence. Workdir refusal remains explicit. Transport or
+malformed-response errors are capability failures, never a pending result.
+
+Approval callbacks use the existing create-or-fetch `request_id` contract:
+`Pending` parks the node for engine resume, and a later call with the same id
+reads the same request. Callback failures fail closed. `CodeRun` forwards the
+existing source string and JSON input unchanged, including source using the
+legacy function-body `return` convention; the module does not wrap it as
+stdin/stdout script input. `ShellRun` uses the closed `sh`/`bash` interpreter
+and typed inline/path request.
 
 ## Schedule contract v3: typed records and pure members
 
@@ -103,24 +209,60 @@ that possible:
 
 Decision: the module does not own a SQLite backend. Schedule contract v2
 already removed it. The catalog and run checkpoints use the document port
-(`CatalogStorage`: get/put/delete/query over scoped collections), backed on the
+(`CatalogStorage`: ensure/get/put/delete/query/delete-where over scoped collections), backed on the
 host by `tinystoragedrivers` (sqlite, file, mongodb) selected by
 `OPENHUMAN_STORAGE_URL`. `tinyflows-drivers` keeps the document-port
 implementation of the catalog stores; `tinyflows-import` stays the one-shot
 reader of legacy `.db` files. No `tinyflows-sqlite` crate is created. Scope is
 the agent id, set by the host when it binds the callback object.
 
+The served Catalog v2 receives a `CatalogStorage` callback address on each
+request. That object is created by the host for the acting agent, so the module
+does not accept a scope string from workflow data. The module drives
+`FlowCatalogDocuments` through the callback and allowlists its catalog
+collections. `PutWorkflow` distinguishes create, update and duplicate; update
+uses the previously observed `updated_at` as its optional expected version and
+returns a structured conflict with the current workflow. Create enforces the
+generic automatic-trigger and outbound-approval safeguards and reports whether
+it born-disabled the workflow or forced approval. New and duplicated workflows
+start at revision 1; only a committed graph update advances the number. Existing
+documents without the sequence report one plus their visible retained history;
+any older, already-pruned history cannot be reconstructed. The next successful
+graph update persists the following number. Imported definitions remain
+unseeded while their history is copied, so a history import does not masquerade
+as a graph update. Once persisted, the durable counter does not reset when old
+snapshots are pruned. List rows
+include the latest revision, status, trigger kind, node count, update time and
+skipped corrupt-row count; revisions are served by id and history order. The
+CatalogStorage port advertises only ensure, get, put, delete, query and
+delete-where: the current catalog driver does not use transaction batches or
+collection counts.
+
+Catalog v3 also serves the existing draft, suggestion, and run-read behavior
+through that same scope-bound document port. Draft graphs remain raw JSON and
+draft patches preserve the difference between an unchanged `flow_id`, clearing
+it with `null`, and assigning an id. Draft promotion is generic orchestration:
+the module loads the draft and selects create or update, calls a distinct
+scope-bound `DraftPromotionHost.SavePromotedDraft` callback for the normal host
+save path, then best-effort deletes the draft. The callback carries typed
+workflow data and opaque host outcome metadata; a structured failure retains
+its code, message, and details and leaves the draft in place. The module does
+not own host validation, trigger binding, approval policy or event side effects.
+Suggestion and run DTOs are mirrored in the serde-only bus crate so clients do
+not need implementation-library dependencies.
+
 ## Slice plan
 
-1. This slice: design plus `runs`/`catalog` vocabulary skeleton.
-2. Catalog CRUD and `NodeKinds` served; core `flows` store reads move behind
+1. Catalog CRUD, enablement, revisions and scoped document callbacks are
+   served. `runs` remains vocabulary-only.
+2. `NodeKinds` served; core `flows` store reads move behind
    the bus; delete the core copies and tests.
 3. `ApplyGraphOps` and `ApprovalManifest` served (host classifies).
 4. `CapsHost` callbacks and `StartRun`/`PollRun`/`CancelRun`; core run
    manager shrinks to the host adapter and event-bus projection.
-5. `ResumeRun`, parked-run expiry, boot sweep (`run_management` pure parts
-   already in `tinyflows-catalog`).
-6. Retire remaining direct `tinyflows` links from core; update
+5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v4).
+6. `SandboxRun` and the module artifact's mock-only preflight boundary.
+7. Retire remaining direct `tinyflows` links from core; update
    `module-boundaries.json` and the boundary inventory.
 
 Known blocker (not fixed here): modules that depend on tinybus through a

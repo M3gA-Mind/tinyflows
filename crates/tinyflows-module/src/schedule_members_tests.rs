@@ -2,7 +2,7 @@
 use super::tests::{connections, document_callbacks};
 use super::*;
 use serde_json::json;
-use tinyflows_bus::schedule::{self, members};
+use tinyflows_bus::schedule::{self, CronJob, members};
 
 async fn proxy() -> (tinybus::Proxy, Connection, Connection) {
     let (server, host, _) = connections().await;

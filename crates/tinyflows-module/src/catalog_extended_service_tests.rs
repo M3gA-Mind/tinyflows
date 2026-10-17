@@ -1,0 +1,337 @@
+use super::tests::{
+    connections, graph, put_proxy, scope_with_documents, scope_with_draft_delete_failure,
+};
+use serde_json::json;
+use tinybus::Connection;
+use tinyflows_bus::catalog::{
+    self as catalog, CallbackAddress, CatalogStorage, CreateDraftRequest, DraftIdRequest,
+    DraftOrigin, DraftPromotionFailure, DraftPromotionOperation, FlowDraft, PromoteDraftRequest,
+    PromoteDraftResponse, PutWorkflowRequest, PutWorkflowResponse, SavePromotedDraftRequest,
+    SavePromotedDraftResponse, SavePromotedDraftResult, UpdateDraftRequest,
+};
+
+struct PromotionHost {
+    connection: Connection,
+    storage: CatalogStorage,
+    fail: bool,
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.DraftPromotionHost")]
+impl PromotionHost {
+    async fn save_promoted_draft(
+        &self,
+        request: SavePromotedDraftRequest,
+    ) -> tinybus::Result<SavePromotedDraftResponse> {
+        if self.fail {
+            return Ok(SavePromotedDraftResponse::Error(DraftPromotionFailure {
+                code: "invalid_graph".into(),
+                message: "host validation rejected the graph".into(),
+                details: Some(json!({"field":"nodes[0]"})),
+            }));
+        }
+        let proxy = put_proxy(&self.connection).unwrap();
+        let put = match request.operation {
+            DraftPromotionOperation::Create {
+                name,
+                graph,
+                require_approval,
+            } => PutWorkflowRequest::Create {
+                storage: self.storage.clone(),
+                name,
+                graph,
+                require_approval,
+            },
+            DraftPromotionOperation::Update {
+                id,
+                name,
+                graph,
+                require_approval,
+                expected_version,
+            } => {
+                assert_eq!(expected_version, None);
+                let current: Option<catalog::Workflow> = proxy
+                    .call("GetWorkflow", &(self.storage.clone(), id.clone()))
+                    .await
+                    .unwrap();
+                let current = current.expect("updated flow exists");
+                PutWorkflowRequest::Update {
+                    storage: self.storage.clone(),
+                    id,
+                    name,
+                    graph,
+                    require_approval: require_approval.unwrap_or(current.require_approval),
+                    expected_version: None,
+                    force_disarm_automatic: false,
+                }
+            }
+        };
+        let result: PutWorkflowResponse = proxy.call("PutWorkflow", &(put,)).await.unwrap();
+        match result {
+            PutWorkflowResponse::Ok(result) => {
+                Ok(SavePromotedDraftResponse::Ok(SavePromotedDraftResult {
+                    workflow: result.workflow,
+                    metadata: json!({"born_disabled": result.born_disabled, "approval_forced": result.approval_forced, "host_log": "saved"}),
+                }))
+            }
+            PutWorkflowResponse::Error(error) => {
+                Ok(SavePromotedDraftResponse::Error(DraftPromotionFailure {
+                    code: "catalog_save_failed".into(),
+                    message: format!("{error:?}"),
+                    details: serde_json::to_value(error).ok(),
+                }))
+            }
+        }
+    }
+}
+
+async fn promotion_host(
+    host: &Connection,
+    storage: CatalogStorage,
+    name: &str,
+    fail: bool,
+) -> CallbackAddress {
+    let path = format!("/test/promotion/{name}");
+    host.request_name("test.Promotion").await.unwrap();
+    host.serve_at(
+        path.parse().unwrap(),
+        PromotionHost {
+            connection: host.clone(),
+            storage,
+            fail,
+        },
+    )
+    .await
+    .unwrap();
+    CallbackAddress {
+        destination: "test.Promotion".into(),
+        object_path: path,
+    }
+}
+
+fn proxy(host: &Connection) -> tinybus::Proxy {
+    put_proxy(host).unwrap()
+}
+
+async fn create_draft(
+    proxy: &tinybus::Proxy,
+    storage: CatalogStorage,
+    flow_id: Option<String>,
+) -> FlowDraft {
+    proxy
+        .call(
+            "CreateDraft",
+            &(CreateDraftRequest {
+                storage,
+                flow_id,
+                name: "Draft".into(),
+                graph: json!({"incomplete":true}),
+                origin: DraftOrigin::Canvas,
+            }),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn promote_draft_calls_catalog_reentrantly_and_deletes_after_success() {
+    let (_server, host) = connections().await;
+    let (storage, _) = scope_with_documents(&host, "promote_success").await;
+    let proxy = proxy(&host);
+    let draft = create_draft(&proxy, storage.clone(), None).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: None,
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let callback = promotion_host(&host, storage.clone(), "success", false).await;
+    let result: PromoteDraftResponse = proxy
+        .call(
+            "PromoteDraft",
+            &(PromoteDraftRequest {
+                storage: storage.clone(),
+                host: callback,
+                id: draft.id.clone(),
+                require_approval: Some(true),
+            },),
+        )
+        .await
+        .unwrap();
+    let PromoteDraftResponse::Ok(result) = result else {
+        panic!("promotion failed: {result:?}")
+    };
+    assert_eq!(result.workflow.name, "Draft");
+    assert_eq!(result.metadata["host_log"], "saved");
+    assert!(result.draft_deleted);
+    let saved: Option<catalog::Workflow> = proxy
+        .call("GetWorkflow", &(storage.clone(), result.workflow.id))
+        .await
+        .unwrap();
+    assert!(saved.is_some());
+    let retained: Option<FlowDraft> = proxy
+        .call(
+            "GetDraft",
+            &(DraftIdRequest {
+                storage,
+                id: draft.id,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(retained.is_none());
+}
+
+#[tokio::test]
+async fn promote_draft_updates_the_linked_workflow_without_a_version_precondition() {
+    let (_server, host) = connections().await;
+    let (storage, _) = scope_with_documents(&host, "promote_update").await;
+    let proxy = proxy(&host);
+    let created: PutWorkflowResponse = proxy
+        .call(
+            "PutWorkflow",
+            &(PutWorkflowRequest::Create {
+                storage: storage.clone(),
+                name: "Original".into(),
+                graph: graph("manual", false),
+                require_approval: true,
+            },),
+        )
+        .await
+        .unwrap();
+    let PutWorkflowResponse::Ok(created) = created else {
+        panic!("workflow setup failed")
+    };
+    let draft = create_draft(&proxy, storage.clone(), Some(created.workflow.id.clone())).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: Some("Updated from draft".into()),
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let callback = promotion_host(&host, storage.clone(), "update", false).await;
+    let result: PromoteDraftResponse = proxy
+        .call(
+            "PromoteDraft",
+            &(PromoteDraftRequest {
+                storage: storage.clone(),
+                host: callback,
+                id: draft.id.clone(),
+                require_approval: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let PromoteDraftResponse::Ok(result) = result else {
+        panic!("promotion failed: {result:?}")
+    };
+    assert_eq!(result.workflow.id, created.workflow.id);
+    assert_eq!(result.workflow.name, "Updated from draft");
+    assert!(result.workflow.require_approval);
+    assert!(result.draft_deleted);
+}
+
+#[tokio::test]
+async fn promote_draft_preserves_host_failure_and_retains_draft() {
+    let (_server, host) = connections().await;
+    let (storage, _) = scope_with_documents(&host, "promote_failure").await;
+    let proxy = proxy(&host);
+    let draft = create_draft(&proxy, storage.clone(), None).await;
+    let callback = promotion_host(&host, storage.clone(), "failure", true).await;
+    let result: PromoteDraftResponse = proxy
+        .call(
+            "PromoteDraft",
+            &(PromoteDraftRequest {
+                storage: storage.clone(),
+                host: callback,
+                id: draft.id.clone(),
+                require_approval: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let PromoteDraftResponse::Error(error) = result else {
+        panic!("expected host error")
+    };
+    assert_eq!(error.code, "invalid_graph");
+    assert_eq!(error.details.unwrap()["field"], "nodes[0]");
+    let retained: Option<FlowDraft> = proxy
+        .call(
+            "GetDraft",
+            &(DraftIdRequest {
+                storage,
+                id: draft.id,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(retained.is_some());
+}
+
+#[tokio::test]
+async fn promote_draft_reports_cleanup_failure_after_successful_save() {
+    let (_server, host) = connections().await;
+    let (storage, _) = scope_with_draft_delete_failure(&host, "promote_delete_failure").await;
+    let proxy = proxy(&host);
+    let draft = create_draft(&proxy, storage.clone(), None).await;
+    let _: FlowDraft = proxy
+        .call(
+            "UpdateDraft",
+            &(UpdateDraftRequest {
+                storage: storage.clone(),
+                id: draft.id.clone(),
+                name: None,
+                graph: Some(graph("manual", false)),
+                flow_id: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let callback = promotion_host(&host, storage.clone(), "delete_failure", false).await;
+    let result: PromoteDraftResponse = proxy
+        .call(
+            "PromoteDraft",
+            &(PromoteDraftRequest {
+                storage: storage.clone(),
+                host: callback,
+                id: draft.id.clone(),
+                require_approval: None,
+            },),
+        )
+        .await
+        .unwrap();
+    let PromoteDraftResponse::Ok(result) = result else {
+        panic!("saved result was lost")
+    };
+    assert!(!result.draft_deleted);
+    assert!(
+        result
+            .cleanup_warning
+            .as_deref()
+            .is_some_and(|warning| !warning.is_empty())
+    );
+    let retained: Option<FlowDraft> = proxy
+        .call(
+            "GetDraft",
+            &(DraftIdRequest {
+                storage,
+                id: draft.id,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(retained.is_some());
+}

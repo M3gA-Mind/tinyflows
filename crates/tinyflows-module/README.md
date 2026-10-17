@@ -3,35 +3,79 @@
 The compiled TinyBus module serves Authoring and Schedule objects under the
 shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
 `tinyflows-bus` contract and call the compiled module. The module manifest
-advertises each interface's exact member set.
+advertises each interface's exact member set. The Runs control surface remains
+a skeleton; its v1 `CapsHost` interface is a host-served callback contract used
+by the module's run-capability adapter.
+
+### CapsHost callbacks (contract v1)
+
+The run manager supplies a `tinyflows_bus::runs::CapsHost` address and a
+separate trusted `RunScope` to `caps::CapsHostPorts::capabilities`. The host
+must create that callback object for one flow, run, approval policy and owner
+scope. The module never chooses a default callback from graph or trigger JSON.
+The adapter constructs state over `FlowStateDocuments` with namespace
+`flow:<flow_id>` and resolves saved workflows from the same owner-scoped
+catalog document port. `TaskRunner` remains module-side; spawned tool, HTTP and
+child-workflow tasks run with the bundle's capabilities, and nested workflow
+tasks reuse the runner through a weak reference.
+An approval parked inside a child workflow fails the task explicitly instead
+of returning partial output as success, because task tickets do not yet carry a
+checkpoint/resume state and detached task tickets are process-local.
+
+`AgentRun` returns an opaque handle. `AgentEvents` pages are contiguous from
+sequence one and bounded to 256 entries; the accumulated transcript is bounded
+to 10,000 entries. The typed terminal outcome may arrive on an empty final
+page. Its settled host transcript is kept when present; progress entries fill
+the transcript only when the terminal transcript is empty. Callback transport,
+decode and cursor errors surface as capability failures, and approval errors
+cannot become a pending review.
 
 Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound
 execution, delivery and direct flow-trigger callbacks through ScheduleHost.
-`StartScheduler.storage` selects module-owned persistence. Omitting it retains
-the original ScheduleHost storage callbacks. Callback stores implement
-DueJobsExcluding(now, excluded_ids), filtering identities before their batch
-limit when a running job defers its occurrence. Stores without this operation
-fail that poll rather than silently starve later due jobs. The runtime retains
-the original batch size and leaves deferred occurrences unchanged.
+`StartScheduler.storage` selects module-owned persistence. Without it, the
+ScheduleHost must implement the v5 occurrence-lease callbacks. Both paths fail
+closed when the backend lacks transactions or lease state is malformed. A
+successful claim captures the exact job snapshot and a fencing receipt. The
+runtime renews the lease while work is active, commits run history and schedule
+completion against that receipt, and recovers expired claims in a fresh
+process. Recovery is at least once: a crash after an external send can repeat
+that effect, so the contract makes no exactly-once claim.
+
+Due queries filter excluded identities before their batch limit. If a returned
+job already has a live lease, the scheduler excludes it and fetches later due
+jobs; it does not advance the occurrence or write a skipped run. Recurrences
+advance only after terminal completion. Scheduled one-shots stay enabled while
+leased and disable at terminal completion; successful `delete_after_run`
+removes the completed incarnation. Manual Run Now preserves saved schedule
+state.
+
+`RunJobNow` force-claims the captured saved definition even when disabled or
+scheduled in the future. It writes a queued history row before an accepted
+reply, and returns a typed refusal when another run owns the lease. Its
+blocking tool mode may select `delivery: "not_requested"` so the current tool
+turn does not send into itself. Manual completion records the final result
+without changing `next_run`, `enabled` or `delete_after_run`.
+
+Delivery has two callbacks: `Send` performs the one actual send and returns its
+status; `Deliver` receives a `DeliveryProjection` only after the module has
+computed final success from execution, send status and best-effort policy.
+`Deliver` is a terminal projection and must not send again. Flow triggers
+receive the captured `CronJob`, not a flow id that would require a later lookup.
+`Attempt.raw_detail` is opaque host classification data; retries preserve the
+last non-empty detail and relay it unchanged without logging it.
 
 A host-driven pass can set `StartScheduler.config.now` to an RFC3339 instant
 with `manual_ticks: true`. Due selection, run timestamps, and the next recurring
-occurrence all use that fixed instant, so a test can advance calendar time
+occurrence all use that fixed instant, so tests can advance calendar time
 without waiting or changing the machine clock. Start a new manual scheduler
 for another instant. Retry sleeps still use Tokio timers. Omitting `now` keeps
-the system clock; a fixed instant is refused for an automatic poll loop.
-This option requires Schedule contract version 4.
+the system clock; a fixed instant is refused for an automatic poll loop. This
+option requires Schedule contract version 5.
 
-RecordRun callbacks receive job_created_at, captured from the dispatched job.
-Match that creation before appending history; an ID alone can refer to a
-replacement flow job. The module-owned backends perform this check. Completion
-follows ClaimSlot, which already disables one-shots durably; an explicit
-re-enable during execution survives completion and automatic deletion. Jobs
-carry a durable claim_generation (zero for legacy records). ClaimSlot must
-compare the dispatched generation, increment it atomically, and disable the
-one-shot. Completion may mutate only generation dispatched + 1; a subsequent
-claim preserves its job and bookkeeping from an older completion.
+Run history records the captured `job_created_at` with the dispatched job,
+so a replacement job cannot receive the older run's history. The occurrence
+lease receipt fences completion against a later claim or recovered occurrence.
 
 `ScheduleStore` accepts one StoreRequest: `{storage, operation}`. Storage is
 `{backend: {kind: "documents", callback: {destination, object_path}},
@@ -66,11 +110,12 @@ existing job/run JSON; mutation-only operations return null.
 | import_run | run (CronRun JSON) | written (bool) |
 
 `tinyflows_bus::schedule::StoreOperation` is the typed form of `operation`; the
-job, run, patch, spec and callback records (`Attempt`, `RunRecord`, `Completion`)
-are in `tinyflows_bus::schedule`, so a host implements ScheduleHost and the
-document port without redeclaring them.
+job, run, patch, spec, lease and delivery records (`Attempt`, `RunRecord`,
+`Completion`, `OccurrenceClaim`, `DeliveryProjection`) are in
+`tinyflows_bus::schedule`, so a host implements ScheduleHost and the document
+port without redeclaring them.
 
-### Pure members (contract v3)
+### Pure members (retained from contract v3)
 
 Each takes one JSON argument and returns JSON; failures are bus errors carrying
 the author-facing message.
@@ -122,3 +167,11 @@ and run a stored flow through direct trigger/delivery/history persistence:
 ```bash
 bash scripts/verify-module-artifact.sh
 ```
+# Portability service
+
+The compiled module provides `ai.tinyhumans.tinyflows.Portability` from
+`tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
+case-insensitive app-event binding, and literal pinned trigger inputs. The host
+continues to resolve and authorize credentials; the module only formats the
+provided scheme and prepares the request.
+

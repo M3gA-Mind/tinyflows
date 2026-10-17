@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::caps::HttpClient;
+pub use crate::caps::http_credential::{HttpCredential, inject_credential};
 use crate::error::{EngineError, Result};
 
 /// The `connection_ref` prefix naming an HTTP credential.
@@ -44,15 +45,6 @@ const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// that follows a successful resolution — a resolver that never answers is
 /// not covered by it at all.
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// A credential the host injects into an outbound request.
-#[derive(Debug, Clone)]
-pub struct HttpCredential {
-    /// The header to set, e.g. `Authorization`.
-    pub header: String,
-    /// The header's value, e.g. `Bearer …`. Never logged.
-    pub value: String,
-}
 
 /// The credential name inside a `connection_ref`, if it names one.
 ///
@@ -78,18 +70,6 @@ pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
 ///
 /// Called last, after the request has been described for logs or approval, so
 /// the secret exists only in the value handed to the transport.
-pub fn inject_credential(mut request: Value, cred: &HttpCredential) -> Value {
-    if let Some(object) = request.as_object_mut() {
-        let headers = object
-            .entry("headers")
-            .or_insert_with(|| Value::Object(Default::default()));
-        if let Some(headers) = headers.as_object_mut() {
-            headers.insert(cred.header.clone(), Value::String(cred.value.clone()));
-        }
-    }
-    request
-}
-
 /// A description of a request safe to log or show for approval: method and URL
 /// only, never headers or body.
 pub fn redacted_summary(request: &Value) -> String {
@@ -423,7 +403,7 @@ impl HttpClient for AllowlistHttpClient {
             ));
         }
         let request = match &credential {
-            Some(cred) => inject_credential(request, cred),
+            Some(cred) => inject_credential(request, cred)?,
             None => request,
         };
 

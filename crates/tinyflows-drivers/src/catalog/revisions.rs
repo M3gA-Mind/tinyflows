@@ -77,6 +77,23 @@ impl FlowCatalogDocuments {
             return Err(FlowUpdateError::Conflict(Box::new(current)));
         }
 
+        // New definitions carry a store-owned sequence. For pre-sequence
+        // records, seed it from the currently visible retained history; the
+        // first successful graph update persists that baseline plus one.
+        // Failed validation or a lost CAS never advances the sequence.
+        let current_revision = match stored.doc.get("revision").and_then(Value::as_u64) {
+            Some(revision) => revision.max(1),
+            None => self
+                .retained_history_count(id)
+                .await
+                .map_err(FlowUpdateError::Store)?
+                .saturating_add(1),
+        };
+        let next_revision = current_revision.checked_add(1).ok_or_else(|| {
+            FlowUpdateError::Store(anyhow::anyhow!("workflow revision number overflow"))
+        })?;
+        let observed_revision = stored.doc.get("revision").and_then(Value::as_u64);
+
         // R-m2: whether it was automatic comes from the row just read, which
         // is the one the swap below is keyed on.
         let now_auto = tinyflows_catalog::graph_policy::trigger_is_automatic(&graph);
@@ -185,7 +202,9 @@ impl FlowCatalogDocuments {
         let swapped = compare_and_swap(docs, DEFINITIONS, id, |doc| {
             // Same stamp *and* same incarnation: a flow removed and created
             // again under this id is a different flow.
-            if int(doc, "updated_ms") != observed || incarnation(doc) != flow_incarnation.as_deref()
+            if int(doc, "updated_ms") != observed
+                || incarnation(doc) != flow_incarnation.as_deref()
+                || doc.get("revision").and_then(Value::as_u64) != observed_revision
             {
                 return None;
             }
@@ -196,6 +215,7 @@ impl FlowCatalogDocuments {
             next["require_approval"] = json!(require_approval);
             next["enabled"] = json!(new_enabled);
             next["last_revision_id"] = json!(revision_id);
+            next["revision"] = json!(next_revision);
             Some(next)
         })
         .await;

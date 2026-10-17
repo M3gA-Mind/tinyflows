@@ -331,6 +331,64 @@ async fn only_runs_parked_before_the_cutoff_expire() {
     );
 }
 
+#[tokio::test]
+async fn resume_claim_changes_status_and_actor_lease_in_one_cas() {
+    let (store, flow) = with_flow().await;
+    store
+        .insert_flow_run(
+            "resume-claim",
+            &flow,
+            "resume-claim",
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    store
+        .set_flow_run_snapshot(
+            "resume-claim",
+            json!({"graph":{"nodes":[],"edges":[]},"lease":"parked-lease"}),
+        )
+        .await
+        .unwrap();
+    store
+        .finish_flow_run(
+            "resume-claim",
+            "pending_approval",
+            "2026-01-01T00:00:05Z",
+            &[step("gate")],
+            &["gate".into()],
+            None,
+            Some("graph-pin"),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        store
+            .claim_parked_flow_run_for_resume("resume-claim", "resume-lease")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .claim_parked_flow_run_for_resume("resume-claim", "losing-lease")
+            .await
+            .unwrap()
+    );
+    let row = store.get_flow_run("resume-claim").await.unwrap().unwrap();
+    assert_eq!(row.status, "running");
+    assert!(row.finished_at.is_none());
+    assert_eq!(row.graph_hash.as_deref(), Some("graph-pin"));
+    assert_eq!(
+        store
+            .flow_run_snapshot("resume-claim")
+            .await
+            .unwrap()
+            .unwrap()["lease"],
+        "resume-lease"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn racing_transitions_flip_a_run_exactly_once() {
     let (store, flow) = with_flow().await;

@@ -51,20 +51,27 @@ async fn put_if_absent(
 
 impl FlowCatalogDocuments {
     /// Imports a flow under its own id, keeping its timestamps, enabled flag,
-    /// approval requirement and last-run summary.
+    /// approval requirement and last-run summary. The sequence is left
+    /// unseeded so later imported history can define its legacy baseline.
     ///
     /// # Errors
     ///
     /// When the graph cannot be serialized or the backend fails.
     pub async fn import_flow(&self, flow: &Flow) -> Result<bool> {
         let docs = self.docs().await?;
-        let wrote = put_if_absent(docs, DEFINITIONS, &flow.id, flow_doc(flow, None)?).await?;
+        let mut doc = flow_doc(flow, None)?;
+        if let Some(object) = doc.as_object_mut() {
+            object.remove("revision");
+        }
+        let wrote = put_if_absent(docs, DEFINITIONS, &flow.id, doc).await?;
         tracing::debug!(target: "flows", flow_id = %flow.id, wrote, "[flows] import: flow");
         Ok(wrote)
     }
 
     /// Imports a superseded-graph revision under its own id, visible at once.
-    /// The flow it belongs to must already exist (import flows first).
+    /// The flow it belongs to must already exist (import flows first). History
+    /// imports do not advance the current graph sequence; an unseeded imported
+    /// flow derives its baseline from visible snapshots until its first update.
     ///
     /// # Errors
     ///

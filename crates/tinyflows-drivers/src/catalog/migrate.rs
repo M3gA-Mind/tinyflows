@@ -110,6 +110,7 @@ fn definition(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
             "enabled",
             "require_approval",
             "last_revision_id",
+            "revision",
             "incarnation",
             "last_status",
         ],
@@ -165,6 +166,8 @@ fn run(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
             "error",
             "graph_hash",
             "flow_incarnation",
+            "execution_snapshot",
+            "terminal_event_seq",
         ],
     );
     let started = ms(body, "started_at", "started_ns").unwrap_or(0);
@@ -182,6 +185,10 @@ fn run(source: &SourceRecord) -> Option<(Value, Option<i64>)> {
         body.get("pending_approvals_json")
             .map_or_else(|| Value::Array(vec![]), parsed),
     );
+    // The event stream exists only on a run that appended one.
+    if let Some(events) = body.get("events_json") {
+        out.insert("events".into(), parsed(events));
+    }
     Some((Value::Object(out), Some(started)))
 }
 

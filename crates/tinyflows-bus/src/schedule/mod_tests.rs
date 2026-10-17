@@ -6,8 +6,8 @@ fn every() -> Schedule {
 }
 
 #[test]
-fn contract_is_version_four_with_the_exact_member_set() {
-    assert_eq!(CONTRACT_VERSION, 4);
+fn contract_is_version_five_with_the_exact_member_set() {
+    assert_eq!(CONTRACT_VERSION, 5);
     assert_eq!(METHODS.len(), 17);
     let mut unique: Vec<_> = METHODS.to_vec();
     unique.sort_unstable();
@@ -15,6 +15,7 @@ fn contract_is_version_four_with_the_exact_member_set() {
     assert_eq!(unique.len(), METHODS.len());
     for name in [
         "ScheduleStore",
+        "RunJobNow",
         "ParseHumanDelay",
         "ValidateDelivery",
         "NextRun",
@@ -29,6 +30,49 @@ fn contract_is_version_four_with_the_exact_member_set() {
     ] {
         assert!(METHODS.contains(&name), "{name}");
     }
+}
+
+#[test]
+fn manual_admission_and_terminal_delivery_are_explicit_wire_types() {
+    let reply: RunJobReply = serde_json::from_value(json!({
+        "kind":"refused", "reason":"already_running"
+    }))
+    .unwrap();
+    assert!(matches!(
+        reply,
+        RunJobReply::Refused {
+            reason: RunJobRefusal::AlreadyRunning
+        }
+    ));
+    let manual: ManualDelivery = serde_json::from_value(json!("not_requested")).unwrap();
+    assert_eq!(manual, ManualDelivery::NotRequested);
+    let attempt: Attempt = serde_json::from_value(json!({
+        "success":false,
+        "output":"safe summary",
+        "retryable":false,
+        "raw_detail":"opaque classifier data"
+    }))
+    .unwrap();
+    assert_eq!(
+        attempt.raw_detail.as_deref(),
+        Some("opaque classifier data")
+    );
+    let projection = DeliveryProjection {
+        job: serde_json::from_value(json!({
+            "id":"job","expression":"","schedule":{"kind":"every","every_ms":60000},
+            "command":"cmd","job_type":"shell","session_target":"isolated",
+            "enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,
+            "created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z"
+        }))
+        .unwrap(),
+        run_id: "run".into(),
+        attempt,
+        success: false,
+        delivery_status: Some(DeliveryStatus::Failed),
+    };
+    let encoded = serde_json::to_value(projection).unwrap();
+    assert_eq!(encoded["success"], false);
+    assert_eq!(encoded["attempt"]["raw_detail"], "opaque classifier data");
 }
 
 #[test]

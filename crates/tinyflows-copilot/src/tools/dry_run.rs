@@ -6,48 +6,32 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tinyflows::model::WorkflowGraph;
 
-use super::ports::{BuilderGates, DraftStore, FlowStore};
+use super::ports::{BuilderGates, DraftStore, FlowStore, SandboxRunRequest};
 use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
-
-use tinyflows::authoring_report::{self, AuthoringReport};
-use tinyflows::observability::CapturingObserver;
-
-/// Wall-clock bound on a single `dry_run_workflow` mock execution. A malformed
-/// or pathological draft graph must never hang the agent tool-loop; the mock
-/// capabilities are non-blocking echoes, so this is a generous safety net.
-const DRY_RUN_TIMEOUT_SECS: u64 = 30;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // dry_run_workflow — execute a DRAFT against MOCK capabilities (ungated, F7)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `dry_run_workflow`: compile a **draft** graph and run it against tinyflows'
-/// deterministic **mock** capabilities, returning the merged node-state output
-/// so the builder can self-verify a proposal before presenting it.
+/// `dry_run_workflow`: resolve an unsaved graph, then delegate execution to the
+/// host's `SandboxRunner` port. Production hosts route that port through the
+/// compiled module's `Runs.SandboxRun`; the report is shared with every
+/// sandbox entry point.
 ///
-/// **No real side effects:** the run is wired to
-/// [`tinyflows::caps::mock::mock_capabilities`] — the LLM / tool / HTTP / code
-/// capabilities are echo stubs, so nothing external ever fires regardless of
-/// the graph. The output is explicitly labeled `sandbox: true`.
+/// **No real side effects:** the compiled module uses deterministic mocks for
+/// LLM, agent, HTTP, code, shell, memory, state and approval capabilities. The
+/// only callback it accepts is the host-bound `ToolInvoke` preflight; its
+/// return value is ignored and the module supplies its own mock tool echo.
 ///
 /// **Not autonomy-tier gated (F7):** `permission_level()` returns
-/// [`PermissionLevel::None`], so this tool runs on EVERY tier, read-only
-/// included — a read-only agent must be able to self-verify its own proposal.
-/// This is intentional, not an oversight: the mock capabilities never touch a
-/// real integration, so there is nothing for a tier gate to protect. See
-/// `dry_run_allowed_under_readonly_tier` in the host's builder tool tests for the
-/// pinned regression (an earlier draft of this tool *was* tier-gated via an
-/// unused `SecurityPolicy` field; the field was dead code by the time it
-/// shipped and was removed rather than wired up, since side-effect-free
-/// simulation has no tier to gate against).
+/// [`PermissionLevel::None`], so a read-only agent may self-verify its proposal.
 ///
-/// **Wiring preflight:** the mock tool invoker is wrapped in the host's
-/// the host's wiring-preflight tool invoker,
-/// so a Composio `tool_call` whose required arg is missing or `=`-resolved to
-/// null fails the dry run with the same actionable, field-naming error a real
-/// run would produce — the echo mocks alone would happily accept a null `to`.
+/// **Wiring preflight:** the host callback validates required tool arguments
+/// before the module produces its deterministic mock echo. Missing or null
+/// arguments therefore fail simulation with the same actionable diagnostic as
+/// a real run.
 ///
 /// **Null-resolution check (the "produces functionally-broken workflows" fix):**
 /// a required arg can be present *and non-Composio* (a native `oh:` tool, or a
@@ -227,165 +211,21 @@ impl Tool for DryRunWorkflowTool {
         tracing::debug!(
             target: "flows",
             node_count = graph.nodes.len(),
-            "[flows] dry_run_workflow: compiling + running draft against MOCK capabilities"
+            "[flows] dry_run_workflow: delegating draft to compiled module sandbox"
         );
-
-        let compiled = match tinyflows::compiler::compile(&graph) {
-            Ok(c) => c,
-            Err(e) => {
-                return Ok(ToolResult::error(format!(
-                    "Draft graph failed to compile: {e}"
-                )));
-            }
-        };
-
-        // The host supplies the sandbox capability set: mock capabilities
-        // only (see the struct doc), however it decorates them — a schema-aware
-        // mock agent runner and LLM so `output_parser.schema` is honored, and a
-        // wiring preflight over the echo tool invoker so required Composio args
-        // must be present and non-null even in the sandbox.
-        let caps = self.gates.sandbox_capabilities();
-
-        let observer = Arc::new(CapturingObserver::default());
-        let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
-        let run = tinyflows::engine::run_with_observer(&compiled, input, &caps, &observer_dyn);
-        let outcome = match tokio::time::timeout(
-            std::time::Duration::from_secs(DRY_RUN_TIMEOUT_SECS),
-            run,
-        )
-        .await
-        {
-            Ok(Ok(outcome)) => outcome,
-            Ok(Err(e)) => {
-                // A `stop`-policy `tool_call` whose required arg resolved null
-                // aborts the WHOLE run here (via `PreflightToolInvoker`), so
-                // the honest per-field diagnostic never reaches the settled-run
-                // `null_resolutions` path below. Recover it from the observer:
-                // if the abort was caused by a required arg bound to an upstream
-                // Composio `tool_call`'s output, the echo mock simply CAN'T
-                // produce that field — so surface it as `unverifiable` rather
-                // than letting the generic "required arg missing/null" text
-                // (which sent the transcript agent re-wiring a correct binding
-                // three times) stand alone. WS6.
-                let unverifiable_bindings =
-                    authoring_report::unverifiable_bindings(&graph, &observer.steps());
-                if !unverifiable_bindings.is_empty() {
-                    tracing::debug!(
-                        target: "flows",
-                        error = %e,
-                        unverifiable_count = unverifiable_bindings.len(),
-                        "[flows] dry_run_workflow: sandbox run aborted on a Composio-upstream \
-                         binding the echo mock cannot verify — surfacing it honestly"
-                    );
-                    return Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
-                        "sandbox": true,
-                        "ok": false,
-                        "error": e.to_string(),
-                        "unverifiable_bindings": unverifiable_bindings,
-                        "note": "SANDBOX (mock) output — a tool_call node aborted because a \
-                            required arg binds to the output of an upstream Composio tool_call, \
-                            which the sandbox can only ECHO (it never produces real tool output \
-                            fields). See unverifiable_bindings: each MAY already be wired \
-                            correctly — confirm the path with get_tool_contract {{ slug }} \
-                            (output_fields / primary_array_path; Composio results nest under \
-                            .item.json.data.) or get_tool_output_sample {{ slug, args }} instead \
-                            of re-wiring blindly. No real side effects occurred.",
-                    }))?));
-                }
-                tracing::debug!(target: "flows", error = %e, "[flows] dry_run_workflow: sandbox run errored");
-                return Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
-                    "sandbox": true,
-                    "ok": false,
-                    "error": e.to_string(),
-                    "note": "SANDBOX (mock) output — a node errored during simulation. No real side effects occurred.",
-                }))?));
-            }
-            Err(_elapsed) => {
-                return Ok(ToolResult::error(format!(
-                    "Sandbox dry-run timed out after {DRY_RUN_TIMEOUT_SECS}s"
-                )));
-            }
-        };
-
-        // The bucketing and advice wording live upstream (`tinyflows::authoring_report`);
-        // this tool keeps the mock capabilities, the timeout and the JSON envelope.
-        let AuthoringReport {
-            null_resolutions,
-            agent_prompt_nulls,
-            agent_input_context_nulls,
-            node_errors,
-            routing_divergence_warnings,
-        } = AuthoringReport::build(&graph, &observer.steps(), &outcome.output);
-
         let permissions_manifest = self.gates.approval_manifest(&graph).await;
-
-        tracing::info!(
-            target: "flows",
-            node_count = graph.nodes.len(),
-            pending_approvals = outcome.pending_approvals.len(),
-            null_resolution_count = null_resolutions.len(),
-            agent_prompt_null_count = agent_prompt_nulls.len(),
-            agent_input_context_null_count = agent_input_context_nulls.len(),
-            node_error_count = node_errors.len(),
-            routing_divergence_warning_count = routing_divergence_warnings.len(),
-            permissions_manifest_count = permissions_manifest.len(),
-            "[flows] dry_run_workflow: sandbox run finished"
-        );
-
-        if !null_resolutions.is_empty()
-            || !agent_prompt_nulls.is_empty()
-            || !agent_input_context_nulls.is_empty()
-            || !node_errors.is_empty()
-        {
-            tracing::debug!(
-                target: "flows",
-                ?null_resolutions,
-                ?agent_prompt_nulls,
-                ?agent_input_context_nulls,
-                ?node_errors,
-                "[flows] dry_run_workflow: tool_call/agent-prompt/agent-input_context issue(s) \
-                 found — failing the dry run"
-            );
-            return Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
-                "sandbox": true,
-                "ok": false,
-                "null_resolutions": null_resolutions,
-                "agent_prompt_nulls": agent_prompt_nulls,
-                "agent_input_context_nulls": agent_input_context_nulls,
-                "node_errors": node_errors,
-                "routing_divergence_warnings": routing_divergence_warnings,
-                "permissions_manifest": permissions_manifest,
-                "message": "These tool_call args resolved to null, an agent node's prompt or \
-                    input_context resolved to null (an EMPTY prompt — see agent_prompt_nulls — \
-                    or no upstream data at all — see agent_input_context_nulls), or a tool_call \
-                    node failed during the sandbox run (even one recovered via on_error: \
-                    continue/route) — wire null-resolved args from an upstream node's real \
-                    output (give any agent node an output_parser.schema so its fields are \
-                    addressable), feed upstream data into a null-resolved agent prompt/ \
-                    input_context from a real upstream field instead of a jq expression inside \
-                    the prompt text, and fix or rewire whatever tool_call node_errors names. Also \
-                    check routing_divergence_warnings: any agent/tool_call node listed there \
-                    never ran in this sandbox at all because an upstream condition routed the \
-                    mock data past it — verify that wiring by hand too.",
-            }))?));
+        let result = self
+            .gates
+            .run(SandboxRunRequest {
+                graph: serde_json::to_value(&graph)?,
+                input,
+                permissions_manifest,
+            })
+            .await;
+        match result {
+            Ok(report) => Ok(ToolResult::success(serde_json::to_string_pretty(&report)?)),
+            Err(error) => Ok(ToolResult::error(error)),
         }
-
-        Ok(ToolResult::success(serde_json::to_string_pretty(&json!({
-            "sandbox": true,
-            "ok": true,
-            "output": outcome.output,
-            "pending_approvals": outcome.pending_approvals,
-            "null_resolutions": null_resolutions,
-            "agent_prompt_nulls": agent_prompt_nulls,
-            "agent_input_context_nulls": agent_input_context_nulls,
-            "node_errors": node_errors,
-            "routing_divergence_warnings": routing_divergence_warnings,
-            "permissions_manifest": permissions_manifest,
-            "note": "SANDBOX (mock) output — LLM/tool/HTTP/code nodes returned deterministic echoes; NO real side effects occurred. This checks wiring/routing only, not whether real integrations work. \
-                If routing_divergence_warnings is non-empty, an agent/tool_call node never ran in \
-                this sandbox because an upstream condition routed the mock data past it — that \
-                node's wiring is unverified; check it by hand.",
-        }))?))
     }
 }
 

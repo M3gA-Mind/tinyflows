@@ -76,6 +76,9 @@ pub mod postcondition;
 /// them.
 #[cfg(any(test, feature = "mock"))]
 pub mod preflight;
+/// Shared deterministic graph execution for dry-run surfaces.
+#[cfg(feature = "mock")]
+pub mod sandbox;
 /// Stored workflows and their run history: the durable model around a graph,
 /// the `WorkflowStore` contract and patch-based authoring. Behind the `store`
 /// feature; storage is the ports' (`tinyflows-drivers`), not this crate's.

@@ -1,14 +1,10 @@
 use super::*;
 use serde_json::json;
-use tinyflows_bus::schedule::CALLBACK_INTERFACE;
+use tinyflows_bus::schedule::{CALLBACK_INTERFACE, CallbackAddress, CronJob};
 use tokio::sync::Mutex;
 
 #[derive(Default)]
 pub(super) struct State {
-    pub(super) records: Mutex<Vec<Value>>,
-    pub(super) jobs: Mutex<Vec<Value>>,
-    pub(super) observed_times: Mutex<Vec<chrono::DateTime<chrono::Utc>>>,
-    pub(super) completions: Mutex<Vec<Value>>,
     executions: Mutex<Vec<String>>,
     triggers: Mutex<Vec<String>>,
 }
@@ -16,46 +12,16 @@ struct Callbacks(Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
 impl Callbacks {
     async fn due_jobs(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Value>> {
-        self.0.observed_times.lock().await.push(now);
-        Ok(self
-            .0
-            .jobs
-            .lock()
-            .await
-            .iter()
-            .filter(|job| {
-                job["enabled"] == true
-                    && serde_json::from_value::<chrono::DateTime<chrono::Utc>>(
-                        job["next_run"].clone(),
-                    )
-                    .unwrap()
-                        <= now
-            })
-            .cloned()
-            .collect())
+        let _ = now;
+        Ok(vec![])
     }
     async fn due_jobs_excluding(
         &self,
         now: chrono::DateTime<chrono::Utc>,
         excluded: Vec<String>,
     ) -> Result<Vec<Value>> {
-        Ok(self
-            .due_jobs(now)
-            .await?
-            .into_iter()
-            .filter(|job| !excluded.iter().any(|id| job["id"] == *id))
-            .collect())
-    }
-    async fn claim_slot(&self, _job: Value, _next_run: String) -> Result<()> {
-        Ok(())
-    }
-    async fn record_run(&self, record: Value) -> Result<()> {
-        self.0.records.lock().await.push(record);
-        Ok(())
-    }
-    async fn complete(&self, _job: Value, completion: Value) -> Result<()> {
-        self.0.completions.lock().await.push(completion);
-        Ok(())
+        let _ = excluded;
+        self.due_jobs(now).await
     }
     async fn execute(&self, _job: Value, run_id: String) -> Result<Value> {
         self.0.executions.lock().await.push(run_id);
@@ -64,11 +30,18 @@ impl Callbacks {
     async fn failed(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<()> {
         Ok(())
     }
-    async fn deliver(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
+    async fn send(&self, _job: Value, _run_id: String, _attempt: Value) -> Result<String> {
         Ok("not_requested".into())
     }
-    async fn schedule_trigger(&self, flow_id: String, _run_id: String) -> Result<Value> {
-        self.0.triggers.lock().await.push(flow_id);
+    async fn deliver(&self, _projection: Value) -> Result<()> {
+        Ok(())
+    }
+    async fn schedule_trigger(&self, job: Value, _run_id: String) -> Result<Value> {
+        self.0
+            .triggers
+            .lock()
+            .await
+            .push(job["command"].as_str().unwrap_or_default().into());
         Ok(json!({"success":true,"output":"triggered","retryable":false}))
     }
 }
@@ -99,9 +72,6 @@ pub(super) fn callback() -> CallbackAddress {
         object_path: "/test/ScheduleHost".into(),
     }
 }
-pub(super) fn job(kind: &str) -> Value {
-    json!({"id":"one","expression":"","schedule":{"kind":"every","every_ms":60000},"command":"flow-a","prompt":null,"name":null,"job_type":kind,"session_target":"isolated","model":null,"agent_id":null,"enabled":true,"delivery":{"mode":"none"},"delete_after_run":false,"created_at":"2026-01-01T00:00:00Z","next_run":"2026-01-01T00:00:00Z","last_run":null,"last_status":null,"last_output":null})
-}
 
 #[tokio::test]
 async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_delivery() {
@@ -130,8 +100,53 @@ async fn separate_schedule_object_parses_delays_and_rejects_cross_tenant_deliver
 }
 
 #[tokio::test]
-async fn manual_execution_routes_flow_directly_and_preserves_run_identity() {
+async fn run_job_now_is_a_typed_module_owned_admission_operation() {
+    use tinyflows_bus::schedule::{ManualDelivery, RunJobNow, RunJobReply, StoreConfig};
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
     let (_server, host, state) = connections().await;
+    let backend = MemoryStorage::new();
+    let scoped = backend
+        .for_scope(&Scope::new("manual-admission-scope").unwrap())
+        .unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            Some("manual-job".into()),
+            Schedule::At {
+                at: now + chrono::Duration::hours(1),
+            },
+            "echo manual",
+        )
+        .await
+        .unwrap();
+    let job = documents
+        .update_job(
+            &job.id,
+            tinyflows_schedule::CronJobPatch {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend": {"kind":"documents", "callback": {
+            "destination":"test.ScheduleHost", "object_path":"/test/Documents"
+        }}
+    }))
+    .unwrap();
     let proxy = host
         .proxy(
             schedule::BUS_NAME,
@@ -139,18 +154,127 @@ async fn manual_execution_routes_flow_directly_and_preserves_run_identity() {
             schedule::INTERFACE,
         )
         .unwrap();
-    for kind in ["shell", "flow"] {
-        let result: Value = proxy
-            .call(
-                "ExecuteJob",
-                &("scope", callback(), json!({}), job(kind), "stable-run"),
-            )
+    let result: RunJobReply = proxy
+        .call(
+            "RunJobNow",
+            &(RunJobNow {
+                scope: "manual-admission-scope".into(),
+                callback: callback(),
+                config: json!({}),
+                storage,
+                job: job.clone(),
+                run_id: "manual-run".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: true,
+            },),
+        )
+        .await
+        .unwrap();
+    let RunJobReply::Completed {
+        run_id,
+        success,
+        delivery_status,
+        ..
+    } = result
+    else {
+        panic!("blocking Run Now should return a terminal result")
+    };
+    assert_eq!(run_id, "manual-run");
+    assert!(success);
+    assert_eq!(delivery_status, None);
+    assert_eq!(*state.executions.lock().await, ["manual-run"]);
+    let after = documents.get_job(&job.id).await.unwrap();
+    assert_eq!(after.next_run, job.next_run);
+    assert!(!after.enabled);
+    assert_eq!(after.delete_after_run, job.delete_after_run);
+    let history = documents.list_runs(&job.id, 10).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].status, "ok");
+    assert_eq!(history[0].delivery_status, None);
+}
+
+#[tokio::test]
+async fn run_job_now_returns_typed_refusal_when_a_scheduled_claim_is_active() {
+    use chrono::Duration as ChronoDuration;
+    use tinyflows_bus::schedule::{
+        ManualDelivery, RunJobNow, RunJobRefusal, RunJobReply, StoreConfig,
+    };
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+    let (_server, host, _) = connections().await;
+    let backend = MemoryStorage::new();
+    let scoped = backend
+        .for_scope(&Scope::new("held-scheduled-run").unwrap())
+        .unwrap();
+    let documents = tinyflows_drivers::schedule::CronDocuments::new(scoped.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            None,
+            Schedule::At {
+                at: now + ChronoDuration::hours(1),
+            },
+            "echo held",
+        )
+        .await
+        .unwrap();
+    let active = documents
+        .claim_job_now(&job, "scheduled-owner", now, ChronoDuration::hours(2))
+        .await
+        .unwrap()
+        .unwrap();
+    host.serve_at(
+        "/test/Documents".try_into().unwrap(),
+        document_callbacks::Documents {
+            docs: scoped.documents().clone(),
+            conflict_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            atomic_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        },
+    )
+    .await
+    .unwrap();
+    let storage: StoreConfig = serde_json::from_value(json!({
+        "backend": {"kind":"documents", "callback": {
+            "destination":"test.ScheduleHost", "object_path":"/test/Documents"
+        }}
+    }))
+    .unwrap();
+    let proxy = host
+        .proxy(
+            schedule::BUS_NAME,
+            schedule::OBJECT_PATH,
+            schedule::INTERFACE,
+        )
+        .unwrap();
+    let reply: RunJobReply = proxy
+        .call(
+            "RunJobNow",
+            &(RunJobNow {
+                scope: "held-scheduled-run".into(),
+                callback: callback(),
+                config: json!({}),
+                storage,
+                job: job.clone(),
+                run_id: "refused-run".into(),
+                delivery: ManualDelivery::NotRequested,
+                wait: true,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        reply,
+        RunJobReply::Refused {
+            reason: RunJobRefusal::AlreadyRunning
+        }
+    ));
+    assert!(documents.list_runs(&job.id, 10).await.unwrap().is_empty());
+    assert!(
+        documents
+            .release_claim(&active, chrono::Utc::now())
             .await
-            .unwrap();
-        assert_eq!(result["success"], true);
-    }
-    assert_eq!(*state.executions.lock().await, ["stable-run"]);
-    assert_eq!(*state.triggers.lock().await, ["flow-a"]);
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -171,6 +295,19 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
         storage: None,
     };
     let handle: String = proxy.call("StartScheduler", &(request,)).await.unwrap();
+    let competing = StartScheduler {
+        scope: "manual-scope".into(),
+        callback: callback(),
+        config: json!({}),
+        manual_ticks: false,
+        storage: None,
+    };
+    assert!(
+        proxy
+            .call::<String>("StartScheduler", &(competing,))
+            .await
+            .is_err()
+    );
     let count: usize = proxy.call("TickScheduler", &(&handle,)).await.unwrap();
     assert_eq!(count, 0);
     proxy
@@ -187,6 +324,23 @@ async fn manual_scheduler_lifecycle_uses_module_tick_and_drain() {
             .await
             .is_err()
     );
+    let restarted: String = proxy
+        .call(
+            "StartScheduler",
+            &(StartScheduler {
+                scope: "manual-scope".into(),
+                callback: callback(),
+                config: json!({}),
+                manual_ticks: true,
+                storage: None,
+            },),
+        )
+        .await
+        .unwrap();
+    proxy
+        .call::<()>("StopScheduler", &(&restarted,))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -241,6 +395,10 @@ async fn module_job_storage_preserves_policy_updates_and_run_history() {
 
 #[path = "../tests/support/document_callbacks.rs"]
 pub(super) mod document_callbacks;
+
+#[cfg(test)]
+#[path = "schedule_queue_tests.rs"]
+mod queue_tests;
 
 #[tokio::test]
 async fn module_document_store_retries_policy_migration_conflicts_without_losing_seeded_jobs() {

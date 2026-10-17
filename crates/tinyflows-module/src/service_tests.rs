@@ -1,6 +1,18 @@
 use super::*;
 use serde_json::json;
 
+struct WorkflowCallback(Option<serde_json::Value>);
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.AuthoringHost")]
+impl WorkflowCallback {
+    async fn resolve_workflow(&self, _: String) -> Result<Option<serde_json::Value>> {
+        Ok(self.0.clone())
+    }
+    async fn lookup_tool_contract(&self, _: String) -> Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(None)
+    }
+}
+
 #[tokio::test]
 async fn standalone_authoring_checks_descend_into_inline_workflows() -> Result<()> {
     let (_server, client) = authoring_connections().await?;
@@ -128,12 +140,86 @@ async fn bus_dispatch_returns_typed_validation_report() {
     let report: GraphValidation = proxy
         .call(
             tinyflows_bus::methods::VALIDATE_GRAPH,
-            &(json!({"nodes": "invalid"}),),
+            &(tinyflows_bus::ValidateGraphRequest {
+                graph: json!({"nodes": "invalid"}),
+                host: None,
+            },),
         )
         .await
         .unwrap();
     assert_eq!(report.errors[0].code, "unparseable_graph");
     assert!(!report.is_valid());
+}
+
+#[tokio::test]
+async fn validate_graph_resolves_saved_children_and_skips_unavailable_children() -> Result<()> {
+    let (_server, client) = authoring_connections().await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let child = json!({"nodes":[
+        {"id":"start","name":"Start","kind":"trigger"},
+        {"id":"outer","name":"Outer","kind":"condition","config":{"field":"o"}},
+        {"id":"inner","name":"Inner","kind":"condition","config":{"field":"i"}},
+        {"id":"a","name":"A","kind":"output_parser"},
+        {"id":"c","name":"C","kind":"output_parser"},
+        {"id":"outer_else","name":"Outer else","kind":"output_parser"},
+        {"id":"inner_else","name":"Inner else","kind":"output_parser"},
+        {"id":"merge","name":"Merge","kind":"merge"}
+    ],"edges":[
+        {"from_node":"start","to_node":"outer"},
+        {"from_node":"start","to_node":"c"},
+        {"from_node":"outer","from_port":"true","to_node":"inner"},
+        {"from_node":"outer","from_port":"false","to_node":"outer_else"},
+        {"from_node":"inner","from_port":"true","to_node":"a"},
+        {"from_node":"inner","from_port":"false","to_node":"inner_else"},
+        {"from_node":"a","to_node":"merge"},
+        {"from_node":"c","to_node":"merge"}
+    ]});
+    client
+        .serve_at(
+            "/saved_workflows".try_into()?,
+            WorkflowCallback(Some(child)),
+        )
+        .await?;
+    client.request_name("test.AuthoringHost").await?;
+    let graph = json!({"nodes":[
+        {"id":"start","name":"Start","kind":"trigger"},
+        {"id":"child","name":"Child","kind":"sub_workflow","config":{"workflow_id":"saved-child"}}
+    ],"edges":[{"from_node":"start","to_node":"child"}]});
+    let report: GraphValidation = proxy
+        .call(
+            tinyflows_bus::methods::VALIDATE_GRAPH,
+            (tinyflows_bus::ValidateGraphRequest {
+                graph: graph.clone(),
+                host: Some(tinyflows_bus::AuthoringHost {
+                    bus_name: "test.AuthoringHost".into(),
+                    object_path: "/saved_workflows".into(),
+                }),
+            },),
+        )
+        .await?;
+    assert!(!report.errors.is_empty());
+    assert_eq!(report.errors[0].code, "incompatible_referenced_workflow");
+
+    let (_server2, client2) = authoring_connections().await?;
+    client2
+        .serve_at("/saved_workflows".try_into()?, WorkflowCallback(None))
+        .await?;
+    client2.request_name("test.AuthoringHost").await?;
+    let proxy2 = client2.proxy(BUS_NAME, OBJECT_PATH, tinyflows_bus::INTERFACE)?;
+    let skipped: GraphValidation = proxy2
+        .call(
+            tinyflows_bus::methods::VALIDATE_GRAPH,
+            (tinyflows_bus::ValidateGraphRequest {
+                graph,
+                host: Some(tinyflows_bus::AuthoringHost {
+                    bus_name: "test.AuthoringHost".into(),
+                    object_path: "/saved_workflows".into(),
+                }),
+            },),
+        )
+        .await?;
+    assert!(skipped.is_valid(), "{:?}", skipped.errors);
+    Ok(())
 }
 
 async fn authoring_connections() -> Result<(Connection, Connection)> {
@@ -242,6 +328,9 @@ impl GateCallback {
             vec![]
         })
     }
+    async fn lookup_tool_contract(&self, _: String) -> Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(None)
+    }
 }
 
 #[tokio::test]
@@ -294,3 +383,7 @@ async fn builder_gate_callback_transport_failure_is_not_a_successful_report() ->
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "copilot_service_tests.rs"]
+mod copilot_tests;

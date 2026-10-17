@@ -15,55 +15,54 @@ use tinyflows::model::{NodeKind, WorkflowGraph};
 /// One node that may prompt, as read from the graph.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ManifestCandidate {
-    /// An `http_request` node.
+    /// HTTP request node.
     Http {
         /// Node id.
         node_id: String,
         /// Configured URL, or a generic label.
         url: String,
     },
-    /// A `code` node.
+    /// Sandboxed code node.
     Code {
         /// Node id.
         node_id: String,
     },
-    /// A `tool_call` whose slug is an `=` expression: unknowable at save time.
+    /// Tool slug resolved from runtime data.
     DynamicTool {
         /// Node id.
         node_id: String,
     },
-    /// A `tool_call` of a host-native tool (slug carries the native prefix).
+    /// Host-native tool call.
     NativeTool {
         /// Node id.
         node_id: String,
-        /// Tool name with the prefix stripped.
+        /// Tool name with the native prefix stripped.
         tool_name: String,
-        /// The node's `args` (may hold unresolved bindings).
+        /// The node's args.
         args: Value,
     },
-    /// A `tool_call` of a connector action.
+    /// Connector action.
     ConnectorTool {
         /// Node id.
         node_id: String,
-        /// The action slug.
+        /// Action slug.
         slug: String,
     },
-    /// An `agent` node with an `agent_ref`: a full turn whose inner calls cannot
-    /// be enumerated.
+    /// Agent with an inner harness turn.
     Agent {
         /// Node id.
         node_id: String,
     },
 }
 
-/// The host's verdict on one gated candidate.
+/// Host policy classification for a manifest candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestClass {
-    /// Wire name of the class (e.g. `Network`), reported as `class`.
+    /// Product-defined command class name.
     pub name: String,
-    /// The policy refuses this class outright: reported as `blocked`.
+    /// Whether policy blocks the action.
     pub blocked: bool,
-    /// The runtime never gates this class (a curated read): omit the entry.
+    /// Whether a curated read action can be omitted from the manifest.
     pub skip: bool,
 }
 

@@ -1,5 +1,17 @@
 use super::*;
 
+/// Durable execution dependencies for a cancellable journaled run.
+pub struct JournaledRunOptions {
+    /// Cooperative cancellation signal owned by the host run manager.
+    pub token: CancellationToken,
+    /// Storage-backed checkpointer used by the graph runtime.
+    pub checkpointer: Arc<dyn Checkpointer<Value>>,
+    /// Stable thread id under which checkpoints are stored.
+    pub thread_id: String,
+    /// Journal that receives graph observations as they occur.
+    pub journal: Arc<dyn GraphEventJournal>,
+}
+
 /// Executes a compiled workflow with the given trigger `input` and host
 /// `capabilities`, driving it to completion.
 ///
@@ -119,6 +131,32 @@ pub async fn run_cancellable_with_observer(
     )
     .await?;
     Ok(outcome)
+}
+
+/// Runs with a durable checkpointer and graph journal while retaining the
+/// cooperative cancellation and live observer behavior of [`run_cancellable`].
+pub async fn run_cancellable_with_checkpointer_journaled_observed(
+    workflow: &CompiledWorkflow,
+    input: impl Into<RunInput>,
+    capabilities: &Capabilities,
+    options: JournaledRunOptions,
+    observer: &Arc<dyn RunObserver>,
+) -> Result<JournaledRunOutcome> {
+    let (_graph, _thread_id, outcome, graph_run_ids) = build_and_run(
+        workflow,
+        input,
+        capabilities,
+        observer,
+        RunConfig::new(workflow)?
+            .with_token(options.token)
+            .with_checkpointer(options.checkpointer, &options.thread_id)
+            .with_journal(options.journal),
+    )
+    .await?;
+    Ok(JournaledRunOutcome {
+        outcome,
+        graph_run_ids,
+    })
 }
 
 /// The maximum nesting depth for `sub_workflow` runs.
