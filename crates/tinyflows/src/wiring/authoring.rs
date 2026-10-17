@@ -5,19 +5,19 @@ use crate::{
     model::{NodeKind, WorkflowGraph},
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Contract data the host knows about one tool's output.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolContract {
     /// Known payload fields.
     pub output_fields: Vec<String>,
-    /// Output schema, when published.
+    /// Payload schema after removing `envelope_prefix`, when published.
     pub output_schema: Option<Value>,
     /// Known primary array path relative to the full output, including any
     /// envelope prefix. Empty denotes a root array.
     pub primary_array_path: Option<String>,
-    /// Payload envelope segment.
+    /// Payload envelope segment; absent or empty means the schema is unwrapped.
     pub envelope_prefix: Option<String>,
     /// Envelope metadata fields outside the payload.
     pub metadata_fields: Vec<String>,
@@ -36,16 +36,20 @@ pub async fn wiring_warnings(
     lookup: &dyn ToolContractLookup,
 ) -> Vec<String> {
     let mut contracts = HashMap::new();
+    let mut lookup_order = Vec::new();
+    let mut seen = HashSet::new();
     for node in &graph.nodes {
         if node.kind == NodeKind::ToolCall
             && let Some(slug) = node.config.get("slug").and_then(Value::as_str)
             && !slug.starts_with('=')
         {
-            contracts.entry(slug.to_string()).or_insert_with(|| None);
+            if seen.insert(slug.to_string()) {
+                lookup_order.push(slug.to_string());
+            }
         }
     }
-    for (slug, contract) in &mut contracts {
-        *contract = lookup.lookup(slug).await;
+    for slug in lookup_order {
+        contracts.insert(slug.clone(), lookup.lookup(&slug).await);
     }
 
     let mut warnings = Vec::new();
@@ -147,11 +151,7 @@ pub async fn wiring_warnings(
                     warnings.push(format!("Node '{}': split_out.path is {shown} but tool_call `{}` (`{slug}`) publishes its array at `{expected}`; set config.path to `{expected}`.", node.id, source.id));
                 }
             } else if let (Some(path), Some(schema)) = (configured, contract.output_schema.as_ref())
-                && schema_says_path_is_non_array(
-                    schema,
-                    path,
-                    contract.envelope_prefix.as_deref(),
-                )
+                && schema_says_path_is_non_array(schema, path, contract.envelope_prefix.as_deref())
                     == Some(true)
             {
                 warnings.push(format!("Node '{}': split_out.path is `{path}` but tool_call `{}` (`{slug}`) has a known non-array value there, so it fans out over one item. Check the tool's published output contract.", node.id, source.id));
@@ -198,6 +198,9 @@ pub(super) fn schema_says_path_is_non_array(
             return Some(ty != "array");
         }
         relative = relative.strip_prefix(&format!("{prefix}."))?;
+        if relative.is_empty() {
+            return None;
+        }
     }
     if relative.is_empty() {
         let ty = schema.get("type").and_then(Value::as_str)?;

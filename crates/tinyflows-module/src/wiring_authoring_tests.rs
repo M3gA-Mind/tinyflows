@@ -18,11 +18,14 @@ impl ContractCallback {
         &self,
         slug: String,
     ) -> Result<Option<tinyflows_bus::ToolContract>> {
+        if slug == "provider:error" {
+            return Err(tinybus::Error::failed("lookup unavailable"));
+        }
         Ok(
             (slug == "provider:issues").then(|| tinyflows_bus::ToolContract {
                 output_fields: vec!["issues".into()],
                 output_schema: Some(json!({"type":"object"})),
-                primary_array_path: Some("issues".into()),
+                primary_array_path: Some("data.issues".into()),
                 envelope_prefix: Some("data".into()),
                 metadata_fields: vec!["request_id".into()],
             }),
@@ -50,7 +53,9 @@ async fn wiring_warnings_authoring_member_is_dispatchable() -> Result<()> {
     let request = tinyflows_bus::WiringWarningsRequest {
         graph: json!({"nodes":[
             {"id":"tool","name":"Tool","kind":"tool_call","config":{"slug":"provider:issues"}},
-            {"id":"next","name":"Next","kind":"transform","config":{"value":"=nodes.tool.item.json.data.missing"}}
+            {"id":"next","name":"Next","kind":"transform","config":{"value":"=nodes.tool.item.json.data.missing"}},
+            {"id":"error_tool","name":"Error tool","kind":"tool_call","config":{"slug":"provider:error"}},
+            {"id":"error_next","name":"Error next","kind":"transform","config":{"value":"=nodes.error_tool.item.json.data.missing"}}
         ],"edges":[]}),
         host: tinyflows_bus::AuthoringHost {
             bus_name: "test.Contracts".into(),

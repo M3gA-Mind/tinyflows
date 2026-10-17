@@ -80,7 +80,7 @@ fn wiring_contract_wire_shapes_round_trip() {
     let contract = ToolContract {
         output_fields: vec!["issues".into()],
         output_schema: Some(serde_json::json!({"type":"object"})),
-        primary_array_path: Some("issues".into()),
+        primary_array_path: Some("data.issues".into()),
         envelope_prefix: Some("payload".into()),
         metadata_fields: vec!["request_id".into()],
     };
@@ -90,7 +90,7 @@ fn wiring_contract_wire_shapes_round_trip() {
         serde_json::json!({
             "output_fields":["issues"],
             "output_schema":{"type":"object"},
-            "primary_array_path":"issues",
+            "primary_array_path":"data.issues",
             "envelope_prefix":"payload",
             "metadata_fields":["request_id"]
         })

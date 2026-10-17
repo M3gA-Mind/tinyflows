@@ -79,12 +79,13 @@ pub mod methods {
 pub struct ToolContract {
     /// Published top-level payload fields, when known.
     pub output_fields: Vec<String>,
-    /// JSON schema describing the tool output, when known.
+    /// Payload JSON schema after removing `envelope_prefix`, when known.
     pub output_schema: Option<Value>,
     /// Dotted path of the primary array relative to the full output, including
     /// any envelope prefix. The empty string denotes a root array.
     pub primary_array_path: Option<String>,
-    /// Payload envelope prefix, such as `data` or `payload`.
+    /// Payload envelope prefix, such as `data` or `payload`; absent or empty
+    /// means the schema is unwrapped.
     pub envelope_prefix: Option<String>,
     /// Top-level metadata fields outside the payload envelope.
     pub metadata_fields: Vec<String>,

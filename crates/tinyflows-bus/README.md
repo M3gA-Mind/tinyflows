@@ -58,7 +58,10 @@ The `host` object has `bus_name` and `object_path` fields. The destination serve
   facts available for that exact slug. Return `None` when unknown or
   unavailable. `ToolContract` has `output_fields`, optional `output_schema`,
   optional `primary_array_path`, optional `envelope_prefix`, and
-  `metadata_fields`.
+  `metadata_fields`. `output_schema` describes the payload after removing the
+  envelope. `primary_array_path` is relative to the full output and includes
+  the envelope segment (for example, `data.issues`); an empty string identifies
+  an array at the output root.
 
 Bind the callback object to the acting identity and store for the request.
 The module has no credential or account lookup implementation. Hosts can apply
