@@ -19,6 +19,7 @@ struct OwnerDocuments {
     docs: Arc<dyn DocumentStore>,
     terminal_write_started: Option<Arc<Notify>>,
     release_terminal_write: Option<Arc<Notify>>,
+    terminal_write_pending: Option<Arc<AtomicBool>>,
     fail_run_insert: Option<Arc<AtomicBool>>,
     run_insert_started: Option<Arc<Notify>>,
     release_run_insert: Option<Arc<Notify>>,
@@ -68,6 +69,10 @@ impl OwnerDocuments {
                 .ok()
                 .and_then(|events| events.last().cloned())
                 .is_some_and(|event| event["kind"] == "finished")
+            && self
+                .terminal_write_pending
+                .as_ref()
+                .is_some_and(|pending| pending.swap(false, Ordering::SeqCst))
             && let (Some(started), Some(release)) =
                 (&self.terminal_write_started, &self.release_terminal_write)
         {
@@ -204,6 +209,9 @@ pub(super) async fn owner(
                 docs: scoped.documents().clone(),
                 terminal_write_started: terminal_gate.as_ref().map(|(started, _)| started.clone()),
                 release_terminal_write: terminal_gate.map(|(_, release)| release),
+                terminal_write_pending: terminal_gate
+                    .as_ref()
+                    .map(|_| Arc::new(AtomicBool::new(true))),
                 fail_run_insert: run_insert_gate.as_ref().map(|(fail, _, _)| fail.clone()),
                 run_insert_started: run_insert_gate
                     .as_ref()
