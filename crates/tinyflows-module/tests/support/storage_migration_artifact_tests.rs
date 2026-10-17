@@ -73,8 +73,12 @@ async fn published_module_migrates_legacy_schedule_records_through_owned_bus_cal
         },
         "operation": {"op":"migrate"}
     });
-    let _: Value = schedule.call("ScheduleStore", &(request,)).await.unwrap();
+    for _ in 0..2 {
+        let _: Value = schedule.call("ScheduleStore", &(request.clone(),)).await.unwrap();
+    }
 
+    let migrated = docs.get("cron.jobs", "legacy-job").await.unwrap().unwrap();
+    assert_eq!(migrated.meta.created_ms, 1_772_600_767_000_i64);
     let jobs = CronDocuments::new(docs).list_jobs().await.unwrap();
     assert_eq!(jobs.len(), 1, "the legacy job is visible after migration");
     assert_eq!(jobs[0].id, "legacy-job");
