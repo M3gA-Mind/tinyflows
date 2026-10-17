@@ -30,8 +30,8 @@ async fn terminal_event_seals_cloned_progress_sinks() {
         .insert_flow_run(&run_id, &flow.id, &run_id, "2026-01-01T00:00:00Z")
         .await
         .unwrap();
-    let writer = events::EventWriter::new(catalog.clone(), run_id.clone());
-    let observer = super::events::Observer::new(writer.clone());
+    let writer = events::EventWriter::new(catalog.clone(), run_id.clone(), 0);
+    let observer = super::events::Observer::new(writer.clone(), Vec::new());
     let late_progress = observer.progress_sink();
     let terminal_seq = writer
         .emit_terminal("finished", serde_json::json!({"status":"completed"}))

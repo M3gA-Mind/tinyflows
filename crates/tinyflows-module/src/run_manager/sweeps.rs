@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use tinyflows_bus::runs::{BootSweep, BootSweepResponse, ExpireParked, ExpireParkedResponse, RunEvent};
+use tinyflows_bus::runs::{
+    BootSweep, BootSweepResponse, ExpireParked, ExpireParkedResponse, RunEvent,
+};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
@@ -20,8 +22,9 @@ pub(super) async fn expire_parked(
 ) -> Result<ExpireParkedResponse> {
     let catalog = catalog(connection, request.storage.clone()).await?;
     let now = chrono::Utc::now();
-    let cutoff = (now - chrono::Duration::seconds(tinyflows_catalog::run_management::PARKED_RUN_TTL_SECS))
-        .to_rfc3339();
+    let cutoff = (now
+        - chrono::Duration::seconds(tinyflows_catalog::run_management::PARKED_RUN_TTL_SECS))
+    .to_rfc3339();
     let expired = catalog
         .expire_parked_runs(
             &cutoff,
@@ -58,7 +61,9 @@ pub(super) async fn boot_sweep(
     if tinyflows_catalog::run_management::boot_sweep_plan(request.shared_backend)
         == tinyflows_catalog::run_management::BootSweepPlan::Nothing
     {
-        return Ok(BootSweepResponse { interrupted: vec![] });
+        return Ok(BootSweepResponse {
+            interrupted: vec![],
+        });
     }
     let catalog = catalog(connection, request.storage.clone()).await?;
     let floor = chrono::Utc::now().to_rfc3339();
@@ -97,7 +102,10 @@ async fn settle_terminal_event(
     status: &str,
     error: &str,
 ) -> Result<()> {
-    let seq = catalog.flow_run_event_last_seq(run_id).await?.saturating_add(1);
+    let seq = catalog
+        .flow_run_event_last_seq(run_id)
+        .await?
+        .saturating_add(1);
     catalog
         .append_flow_run_event(
             run_id,

@@ -30,9 +30,16 @@ pub(super) async fn resume(
         bail!("flow run belongs to a different workflow")
     }
     if row.status != "pending_approval" {
-        bail!("flow run is not parked for approval (status: {})", row.status)
+        bail!(
+            "flow run is not parked for approval (status: {})",
+            row.status
+        )
     }
-    if let Some(gate) = request.approvals.iter().find(|gate| request.rejections.contains(gate)) {
+    if let Some(gate) = request
+        .approvals
+        .iter()
+        .find(|gate| request.rejections.contains(gate))
+    {
         bail!("gate '{gate}' cannot be both approved and rejected")
     }
     if !request
@@ -63,10 +70,8 @@ pub(super) async fn resume(
         .await?
         .context("saved workflow does not exist in this owner scope")?;
     if let Some(expected) = row.graph_hash.as_deref() {
-        let current = tinyflows_catalog::graph_hash::compute_graph_hash(
-            &flow.graph,
-            flow.require_approval,
-        );
+        let current =
+            tinyflows_catalog::graph_hash::compute_graph_hash(&flow.graph, flow.require_approval);
         if current.as_deref() != Some(expected) {
             refuse_stale_graph(connection, &request, &catalog, &row.steps).await?;
             bail!(GRAPH_CHANGED)
@@ -125,7 +130,10 @@ pub(super) async fn resume(
         bail!("parked run was claimed by another lifecycle operation")
     }
     snapshot["lease"] = Value::String(active.lease.clone());
-    if let Err(error) = catalog.set_flow_run_snapshot(&request.run_id, snapshot).await {
+    if let Err(error) = catalog
+        .set_flow_run_snapshot(&request.run_id, snapshot)
+        .await
+    {
         let now = chrono::Utc::now().to_rfc3339();
         let _ = catalog
             .finish_flow_run(
@@ -141,9 +149,8 @@ pub(super) async fn resume(
         unregister(&active);
         return Err(error).context("binding resumed run owner lease");
     }
-    let documents: Arc<dyn DocumentStore> = Arc::new(
-        Documents::new(connection.clone(), request.storage.callback.clone()).await?,
-    );
+    let documents: Arc<dyn DocumentStore> =
+        Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let prepared = Prepared {
         catalog: catalog.clone(),
         compiled,
@@ -159,7 +166,9 @@ pub(super) async fn resume(
         request,
         row.steps,
     ));
-    active.phase.store(RUNNING, std::sync::atomic::Ordering::Release);
+    active
+        .phase
+        .store(RUNNING, std::sync::atomic::Ordering::Release);
     active.admitted.notify_waiters();
     Ok(ResumeRunResponse {
         run_id: active.key.run_id.clone(),
@@ -205,7 +214,10 @@ async fn refuse_stale_graph(
     {
         return Ok(());
     }
-    let seq = catalog.flow_run_event_last_seq(run_id).await?.saturating_add(1);
+    let seq = catalog
+        .flow_run_event_last_seq(run_id)
+        .await?
+        .saturating_add(1);
     catalog
         .append_flow_run_event(
             run_id,
@@ -220,9 +232,8 @@ async fn refuse_stale_graph(
     if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
         bail!("stale-graph refusal terminal event cursor was not committed")
     }
-    let documents: Arc<dyn DocumentStore> = Arc::new(
-        Documents::new(connection.clone(), request.storage.callback.clone()).await?,
-    );
+    let documents: Arc<dyn DocumentStore> =
+        Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let checkpointer = DriverCheckpointer::<Value>::new(documents);
     if let Err(error) = checkpointer.delete_thread(run_id).await {
         tracing::warn!(%error, run_id, "stale-graph refusal checkpoint cleanup failed");

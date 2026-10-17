@@ -29,7 +29,15 @@ pub(super) async fn drive(
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
 ) {
-    drive_inner(connection, request, prepared, active, admitted, Continuation::Start).await;
+    drive_inner(
+        connection,
+        request,
+        prepared,
+        active,
+        admitted,
+        Continuation::Start,
+    )
+    .await;
 }
 
 pub(super) async fn drive_resume(
@@ -78,7 +86,11 @@ async fn drive_inner(
         .flow_run_event_last_seq(&request.run_id)
         .await
         .unwrap_or_default();
-    let writer = EventWriter::new(prepared.catalog.clone(), request.run_id.clone(), initial_seq);
+    let writer = EventWriter::new(
+        prepared.catalog.clone(),
+        request.run_id.clone(),
+        initial_seq,
+    );
     let previous_steps = match &continuation {
         Continuation::Start => Vec::new(),
         Continuation::Resume { previous_steps, .. } => previous_steps.clone(),
@@ -100,7 +112,15 @@ async fn drive_inner(
     .await;
     let (result, timed_out) = match capabilities {
         Ok(capabilities) => {
-            execute(&request, &prepared, &capabilities, &active, &observer, &continuation).await
+            execute(
+                &request,
+                &prepared,
+                &capabilities,
+                &active,
+                &observer,
+                &continuation,
+            )
+            .await
         }
         Err(error) => (
             Err(anyhow::anyhow!("building run capabilities: {error}")),
@@ -285,18 +305,20 @@ async fn execute(
                 &observer_dyn,
             )
         }
-        Continuation::Resume { approvals, rejections, .. } => {
-            resume_with_checkpointer_journaled_observed(
-                &prepared.compiled,
-                capabilities,
-                checkpointer,
-                &request.run_id,
-                approvals.clone(),
-                rejections.clone(),
-                journal,
-                &observer_dyn,
-            )
-        }
+        Continuation::Resume {
+            approvals,
+            rejections,
+            ..
+        } => resume_with_checkpointer_journaled_observed(
+            &prepared.compiled,
+            capabilities,
+            checkpointer,
+            &request.run_id,
+            approvals.clone(),
+            rejections.clone(),
+            journal,
+            &observer_dyn,
+        ),
     };
     tokio::pin!(run);
     let timeout = Duration::from_millis(request.timeout_ms);

@@ -24,7 +24,8 @@ async fn compiled_module_resumes_a_parked_approval_run() {
         .unwrap();
     let owner = owner(&connection, "resume", None, None, None, None).await;
     let graph = parked_graph();
-    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Resume flow", graph.clone()).await;
+    let flow_id =
+        create_flow_with_graph(&catalog_proxy, &owner.storage, "Resume flow", graph.clone()).await;
     let callback = serve_agent(&connection, "resume").await;
     let start = request(&owner, flow_id.clone(), "resume-run", graph, 20_000);
     let started: runs::StartRunResponse = runs_proxy.call("StartRun", (start,)).await.unwrap();
@@ -39,7 +40,9 @@ async fn compiled_module_resumes_a_parked_approval_run() {
                 run_id: "resume-run".into(),
                 flow_id,
                 storage: owner.storage.clone(),
-                caps_host: runs::CapsHost { callback: owner.caps },
+                caps_host: runs::CapsHost {
+                    callback: owner.caps,
+                },
                 approvals: vec!["approval".into()],
                 rejections: vec![],
                 timeout_ms: 20_000,

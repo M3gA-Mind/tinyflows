@@ -142,7 +142,9 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         }),
     );
     pin(
-        ResumeRunResponse { run_id: "run-1".into() },
+        ResumeRunResponse {
+            run_id: "run-1".into(),
+        },
         serde_json::json!({"run_id":"run-1"}),
     );
     pin(
@@ -150,15 +152,22 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}}}),
     );
     pin(
-        ExpireParkedResponse { expired: vec![("run-1".into(), "flow-1".into())] },
+        ExpireParkedResponse {
+            expired: vec![("run-1".into(), "flow-1".into())],
+        },
         serde_json::json!({"expired":[["run-1","flow-1"]]}),
     );
     pin(
-        BootSweep { storage: storage(), shared_backend: false },
+        BootSweep {
+            storage: storage(),
+            shared_backend: false,
+        },
         serde_json::json!({"storage":{"callback":{"destination":"host.docs","object_path":"/owner/a"}},"shared_backend":false}),
     );
     pin(
-        BootSweepResponse { interrupted: vec!["run-1".into()] },
+        BootSweepResponse {
+            interrupted: vec!["run-1".into()],
+        },
         serde_json::json!({"interrupted":["run-1"]}),
     );
     pin(

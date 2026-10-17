@@ -344,7 +344,10 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
     })
 }
 
-pub(super) async fn resume(connection: &Connection, request: ResumeRun) -> Result<ResumeRunResponse> {
+pub(super) async fn resume(
+    connection: &Connection,
+    request: ResumeRun,
+) -> Result<ResumeRunResponse> {
     resume::resume(connection, request).await
 }
 
