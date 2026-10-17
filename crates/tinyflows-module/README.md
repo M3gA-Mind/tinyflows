@@ -18,6 +18,9 @@ The adapter constructs state over `FlowStateDocuments` with namespace
 catalog document port. `TaskRunner` remains module-side; spawned tool, HTTP and
 child-workflow tasks run with the bundle's capabilities, and nested workflow
 tasks reuse the runner through a weak reference.
+An approval parked inside a child workflow fails the task explicitly instead
+of returning partial output as success, because task tickets do not yet carry a
+checkpoint/resume state; the run-resume slice must add that lifecycle.
 
 `AgentRun` returns an opaque handle. `AgentEvents` pages are contiguous from
 sequence one and bounded to 256 entries; the accumulated transcript is bounded
