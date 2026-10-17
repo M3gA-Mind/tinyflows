@@ -29,15 +29,12 @@ impl FlowCatalogDocuments {
     /// Commits the terminal cursor only after the event itself is durable.
     pub async fn mark_flow_run_terminal_event(&self, id: &str, seq: u64) -> Result<bool> {
         let marked = compare_and_swap(self.docs().await?, RUNS, id, |doc| {
+            let Some(status) = doc.get("status").and_then(Value::as_str) else {
+                return None;
+            };
             if !matches!(
-                doc.get("status").and_then(Value::as_str),
-                Some(
-                    "completed"
-                        | "completed_with_warnings"
-                        | "failed"
-                        | "cancelled"
-                        | "interrupted"
-                )
+                status,
+                "completed" | "completed_with_warnings" | "failed" | "cancelled" | "interrupted"
             ) {
                 return None;
             }
@@ -49,6 +46,18 @@ impl FlowCatalogDocuments {
             .ok()?;
             let last = events.last().and_then(|event| event["seq"].as_u64())?;
             if last < seq {
+                return None;
+            }
+            let terminal_event = events
+                .iter()
+                .find(|event| event.get("seq").and_then(Value::as_u64) == Some(seq))?;
+            if terminal_event.get("kind").and_then(Value::as_str) != Some("finished")
+                || terminal_event
+                    .get("data")
+                    .and_then(|data| data.get("status"))
+                    .and_then(Value::as_str)
+                    != Some(status)
+            {
                 return None;
             }
             if let Some(marked) = doc.get("terminal_event_seq").and_then(Value::as_u64) {
@@ -153,7 +162,12 @@ impl FlowCatalogDocuments {
                         .and_then(|event| event["seq"].as_u64())
                         .unwrap_or(0);
                     if seq <= last {
-                        return Ok(());
+                        return match events.iter().find(|event| {
+                            event.get("seq").and_then(Value::as_u64) == Some(seq)
+                        }) {
+                            Some(existing) if existing == &event => Ok(()),
+                            _ => bail!("run event sequence {seq} conflicts with persisted event"),
+                        };
                     }
                     bail!("run event sequence {seq} followed {last} with a gap");
                 }
