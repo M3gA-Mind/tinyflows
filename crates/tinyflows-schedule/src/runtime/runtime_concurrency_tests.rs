@@ -280,44 +280,68 @@ async fn dispatch_returns_before_execution_and_limits_concurrent_jobs() {
 }
 
 #[tokio::test]
-async fn shutdown_aborts_queued_and_running_jobs_and_releases_claims() {
-    let f = Fixture::new();
-    let executor = Arc::new(BlockExecutor {
-        started: Semaphore::new(0),
-        release: Semaphore::new(0),
-        active: AtomicUsize::new(0),
-        peak: AtomicUsize::new(0),
-    });
-    let mut ports = f.ports();
-    ports.executor = executor.clone();
-    let scope = uuid::Uuid::new_v4().to_string();
-    let jobs = vec![f.job(), f.job()];
-    let ids: Vec<_> = jobs.iter().map(|j| j.id.clone()).collect();
-    let mut scheduler = Scheduler::new(
-        scope.clone(),
-        SchedulerConfig {
-            max_concurrent: 1,
-            ..Default::default()
-        },
-        ports,
-    );
-    scheduler.dispatch(jobs).await.unwrap();
-    executor.started.acquire().await.unwrap().forget();
-    assert!(
-        ids.iter()
-            .all(|id| f.leases.lock().unwrap().contains_key(id))
-    );
-    scheduler.shutdown().await;
-    assert!(
-        ids.iter()
-            .all(|id| !f.leases.lock().unwrap().contains_key(id))
-    );
-    assert_eq!(
-        executor.started.available_permits(),
-        0,
-        "queued work never entered Execute after stop"
-    );
-    assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
+async fn shutdown_waits_for_inflight_job_and_releases_queued_claims() {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let f = Fixture::new();
+        let executor = Arc::new(BlockExecutor {
+            started: Semaphore::new(0),
+            release: Semaphore::new(0),
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+        });
+        let mut ports = f.ports();
+        ports.executor = executor.clone();
+        let scope = uuid::Uuid::new_v4().to_string();
+        let jobs = vec![f.job(), f.job()];
+        let ids: Vec<_> = jobs.iter().map(|j| j.id.clone()).collect();
+        let mut scheduler = Scheduler::new(
+            scope.clone(),
+            SchedulerConfig {
+                max_concurrent: 1,
+                ..Default::default()
+            },
+            ports,
+        );
+        scheduler.dispatch(jobs).await.unwrap();
+        executor.started.acquire().await.unwrap().forget();
+        assert_eq!(executor.active.load(Ordering::SeqCst), 1);
+        assert!(
+            ids.iter()
+                .all(|id| f.leases.lock().unwrap().contains_key(id))
+        );
+
+        let (shutdown_started, shutdown_ready) = tokio::sync::oneshot::channel();
+        let shutdown = tokio::spawn(async move {
+            let _ = shutdown_started.send(());
+            scheduler.shutdown().await;
+            scheduler
+        });
+        shutdown_ready.await.unwrap();
+        assert_eq!(executor.active.load(Ordering::SeqCst), 1);
+        assert!(
+            ids.iter()
+                .all(|id| f.leases.lock().unwrap().contains_key(id)),
+            "claims remain owned until the in-flight callback finishes"
+        );
+        executor.release.add_permits(1);
+        let mut scheduler = shutdown.await.unwrap();
+
+        assert_eq!(executor.active.load(Ordering::SeqCst), 0);
+        assert!(
+            ids.iter()
+                .all(|id| !f.leases.lock().unwrap().contains_key(id))
+        );
+        assert_eq!(
+            executor.started.available_permits(),
+            0,
+            "queued work never entered Execute after stop"
+        );
+        assert!(f.records.lock().unwrap().is_empty());
+        assert!(f.projections.lock().unwrap().is_empty());
+        assert!(scheduler.dispatch(vec![f.job()]).await.is_err());
+    })
+    .await
+    .expect("shutdown must quiesce after the controlled Execute callback is released");
 }
 
 #[tokio::test]
