@@ -43,7 +43,11 @@
 //! for that occurrence) before dispatch. Renewal, release and
 //! [`CronDocuments::complete_claim`] reject stale tokens, expired leases and
 //! edited/canceled/re-created jobs. Completion records the incarnation-bound
-//! run and advances the schedule atomically. Expired claims can be recovered:
+//! run and advances the schedule atomically. The job document carries the
+//! fence epoch of its current claim (`claim_epoch`), written on every
+//! acquisition and dropped by an edit, and every claim operation commits only
+//! against a job carrying its own epoch, so a holder that lost its lease (or
+//! its job to an edit) cannot commit. Expired claims can be recovered:
 //! execution is at least once, and a crash after an external HTTP send but
 //! before completion can repeat delivery.
 //!
