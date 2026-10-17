@@ -247,10 +247,14 @@ pub(super) async fn poll(connection: &Connection, request: RunControlRequest) ->
         .context("decoding flow run events")?;
     let next_cursor = events.last().map_or(request.cursor, |event| event.seq);
     let last_seq = catalog.flow_run_event_last_seq(&request.run_id).await?;
+    let terminal_seq = catalog
+        .flow_run_terminal_event_seq(&request.run_id)
+        .await?;
     Ok(PollRun {
         events,
         next_cursor,
-        done: is_terminal(&run.status) && next_cursor >= last_seq,
+        done: is_terminal(&run.status)
+            && terminal_seq.is_some_and(|seq| next_cursor >= seq && next_cursor >= last_seq),
     })
 }
 

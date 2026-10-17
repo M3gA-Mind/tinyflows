@@ -8,6 +8,56 @@ use super::{FlowCatalogDocuments, RUNS, compare_and_swap, is_conflict};
 const EVENT_ATTEMPTS: usize = 128;
 
 impl FlowCatalogDocuments {
+    /// Commits the terminal cursor only after the event itself is durable.
+    pub async fn mark_flow_run_terminal_event(&self, id: &str, seq: u64) -> Result<bool> {
+        let marked = compare_and_swap(self.docs().await?, RUNS, id, |doc| {
+            if !matches!(
+                doc.get("status").and_then(Value::as_str),
+                Some(
+                    "completed"
+                        | "completed_with_warnings"
+                        | "failed"
+                        | "cancelled"
+                        | "interrupted"
+                )
+            ) {
+                return None;
+            }
+            let events: Vec<Value> = serde_json::from_str(
+                doc.get("events_json")
+                    .and_then(Value::as_str)
+                    .unwrap_or("[]"),
+            )
+            .ok()?;
+            let last = events.last().and_then(|event| event["seq"].as_u64())?;
+            if last < seq {
+                return None;
+            }
+            if let Some(marked) = doc.get("terminal_event_seq").and_then(Value::as_u64) {
+                return (marked == seq).then(|| doc.clone());
+            }
+            let mut next = doc.clone();
+            next["terminal_event_seq"] = json!(seq);
+            Some(next)
+        })
+        .await?;
+        Ok(marked.is_some())
+    }
+
+    /// The durable cursor committed after the terminal run event.
+    pub async fn flow_run_terminal_event_seq(&self, id: &str) -> Result<Option<u64>> {
+        let stored = self
+            .docs()
+            .await?
+            .get(RUNS, id)
+            .await?
+            .context("flow run does not exist")?;
+        Ok(stored
+            .doc
+            .get("terminal_event_seq")
+            .and_then(Value::as_u64))
+    }
+
     /// Stores the exact execution snapshot used to start a run. Parked-run
     /// resume and cancellation must use this snapshot rather than a newer
     /// saved definition.
