@@ -135,6 +135,19 @@ async fn every_callback_trait_uses_the_exact_host_object_and_preserves_typed_inp
             .unwrap(),
         json!({"language":"python","source":source,"input":input})
     );
+    let javascript = "return input.value + 1";
+    let javascript_input = json!({"value": 4});
+    assert_eq!(
+        CodeRunner::run(
+            &port,
+            CodeLanguage::JavaScript,
+            javascript,
+            javascript_input.clone(),
+        )
+        .await
+        .unwrap(),
+        json!({"language":"javascript","source":javascript,"input":javascript_input})
+    );
     let shell = ShellRequest {
         interpreter: ShellInterpreter::Bash,
         script: ShellScript::Inline("printf legacy".into()),

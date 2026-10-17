@@ -133,7 +133,7 @@ pub mod caps {
     pub const TOOL_INVOKE: &str = "ToolInvoke";
     /// `HttpClient::request(request, conn) -> Value`.
     pub const HTTP_REQUEST: &str = "HttpRequest";
-    /// `CodeRunner::run(language, source, input) -> Value`.
+    /// `CodeRunner::run(CodeRunRequest) -> Value`.
     pub const CODE_RUN: &str = "CodeRun";
     /// `ShellRunner::run(request) -> ShellOutcome`.
     pub const SHELL_RUN: &str = "ShellRun";
