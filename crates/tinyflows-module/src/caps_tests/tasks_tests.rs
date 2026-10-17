@@ -103,7 +103,12 @@ async fn spawned_child_workflow_keeps_the_runner_for_its_nested_spawn_and_gate()
     let TaskState::Done(result) = result else {
         panic!("child workflow should return a real result")
     };
-    barrier.started.notified().await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        barrier.started.notified(),
+    )
+    .await
+    .expect("nested tool must start before the child workflow settles");
     let encoded = result.to_string();
     assert!(
         encoded.contains("nested.blocked"),
