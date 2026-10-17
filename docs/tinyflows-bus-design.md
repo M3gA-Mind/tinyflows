@@ -75,7 +75,9 @@ collections as it does to the workflow catalog collections.
 `SandboxRun` accepts an unsaved inline graph and input, validates and compiles
 it inside the module, then returns the same diagnostic buckets as the builder
 dry-run. It does not admit a live actor or write run rows, events or graph
-checkpoints. The module uses schema-aware deterministic mocks for both named
+checkpoints. The host includes the policy-classified permission manifest in
+the request; the module reports it without treating it as execution authority.
+The module uses schema-aware deterministic mocks for both named
 agent and plain LLM execution. Its only host callback is the exact
 `CapsHost.ToolInvoke` address supplied for preflight; hosts must bind that
 address to a validator plus deterministic echo and must not forward it to a
