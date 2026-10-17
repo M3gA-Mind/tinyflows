@@ -397,7 +397,7 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
 
     let proxy = put_proxy(&host).unwrap();
     for _ in 0..2 {
-        let _: Value = proxy
+        let _: () = proxy
             .call("MigrateStorage", &(storage.clone(),))
             .await
             .unwrap();

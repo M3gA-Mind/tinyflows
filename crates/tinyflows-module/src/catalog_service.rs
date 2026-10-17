@@ -241,7 +241,7 @@ fn map_update_error(error: tinyflows_catalog::store::FlowUpdateError) -> FlowUpd
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Catalog")]
 impl CatalogService {
-    async fn migrate_storage(&self, storage: CatalogStorage) -> tinybus::Result<Value> {
+    async fn migrate_storage(&self, storage: CatalogStorage) -> tinybus::Result<()> {
         super::catalog_migrations::migrate(self.connection.clone(), storage)
             .await
             .map_err(failure)

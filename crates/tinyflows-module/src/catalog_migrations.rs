@@ -11,7 +11,7 @@ use tinystoragedrivers_core::{MigrateOptions, Registry, Scope};
 pub(super) async fn migrate(
     connection: Connection,
     storage: CatalogStorage,
-) -> Result<serde_json::Value> {
+) -> Result<()> {
     let mut documents =
         super::catalog_documents::Documents::new(connection, storage.callback).await?;
     documents.require_record_metadata().await?;
@@ -24,9 +24,6 @@ pub(super) async fn migrate(
         .migrate(&scoped, &MigrateOptions::default())
         .await?;
     let imported_kv = import_legacy_kv(&scoped).await?;
-    Ok(serde_json::json!({
-        "steps_run": report.ran.len(),
-        "already_done": report.already_done,
-        "imported_kv": imported_kv,
-    }))
+    tracing::debug!(steps_run = report.ran.len(), already_done = report.already_done, imported_kv, "catalog migration complete");
+    Ok(())
 }
