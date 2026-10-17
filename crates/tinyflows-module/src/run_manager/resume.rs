@@ -202,6 +202,13 @@ async fn refuse_stale_graph(
     run_id: &str,
     steps: &[tinyflows_catalog::FlowRunStep],
 ) -> Result<()> {
+    let snapshot = match catalog.flow_run_snapshot(run_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::warn!(%error, run_id, "stale-graph refusal could not read execution snapshot");
+            None
+        }
+    };
     if !catalog
         .finish_parked_flow_run(
             run_id,
@@ -234,6 +241,7 @@ async fn refuse_stale_graph(
     if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
         bail!("stale-graph refusal terminal event cursor was not committed")
     }
+    super::sweeps::settle_snapshot_dedup(catalog, snapshot.as_ref(), run_id).await;
     let documents: Arc<dyn DocumentStore> =
         Arc::new(Documents::new(connection.clone(), request.storage.callback.clone()).await?);
     let checkpointer = DriverCheckpointer::<Value>::new(documents);
