@@ -157,6 +157,61 @@ pub(super) async fn owner(
     }
 }
 
+pub(super) async fn owner_with_lifecycle_gates(
+    connection: &Connection,
+    name: &str,
+    expiry_failure_id: Option<&str>,
+    cleanup_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+) -> Owner {
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new(name).unwrap())
+        .unwrap();
+    let docs = scoped.documents().clone();
+    let path = format!("/test/catalog/{}", name.replace('-', "_"));
+    let expiry_failure =
+        expiry_failure_id.map(|id| (id.to_owned(), Arc::new(AtomicBool::new(true))));
+    connection
+        .serve_at(
+            path.parse().unwrap(),
+            OwnerDocuments {
+                docs: docs.clone(),
+                terminal_write_started: None,
+                release_terminal_write: None,
+                terminal_write_pending: None,
+                fail_run_insert: None,
+                run_insert_started: None,
+                release_run_insert: None,
+                fail_snapshot: None,
+                fail_checkpoint_delete: None,
+                fail_parked_expiry: expiry_failure,
+                cleanup_started: cleanup_gate.as_ref().map(|(started, _)| started.clone()),
+                release_cleanup: cleanup_gate.as_ref().map(|(_, release)| release.clone()),
+                cleanup_pending: cleanup_gate
+                    .as_ref()
+                    .map(|_| Arc::new(AtomicBool::new(true))),
+            },
+        )
+        .await
+        .unwrap();
+    connection
+        .request_name("test.CatalogStorage")
+        .await
+        .unwrap();
+    Owner {
+        storage: CatalogStorage {
+            callback: catalog::CallbackAddress {
+                destination: "test.CatalogStorage".into(),
+                object_path: path,
+            },
+        },
+        caps: runs::CallbackAddress {
+            destination: "test.CapsHost".into(),
+            object_path: format!("/test/caps/{}", name.replace('-', "_")),
+        },
+        docs,
+    }
+}
+
 pub(super) async fn alias_owner(
     connection: &Connection,
     name: &str,
