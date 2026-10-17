@@ -112,7 +112,46 @@ impl TriggerSink for NoDelivery {
     }
 }
 
-async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
+struct LegacyClaimSlotStore(Store);
+#[async_trait]
+impl JobStore for LegacyClaimSlotStore {
+    async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
+        self.0.due_jobs(now).await
+    }
+    async fn due_jobs_excluding(
+        &self,
+        now: DateTime<Utc>,
+        excluded: &[String],
+    ) -> Result<Vec<CronJob>> {
+        self.0.due_jobs_excluding(now, excluded).await
+    }
+    async fn claim_due_occurrence(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        _: chrono::Duration,
+    ) -> Result<Option<tinyflows_bus::schedule::OccurrenceClaim>> {
+        let next_run = if matches!(job.schedule, Schedule::At { .. }) {
+            job.next_run
+        } else {
+            tinyflows_schedule::next_run_for_schedule(&job.schedule, now)?
+        };
+        if !self.0.0.claim_slot(job, next_run).await? {
+            return Ok(None);
+        }
+        Ok(Some(tinyflows_bus::schedule::OccurrenceClaim {
+            receipt: "legacy-claim-slot-control".into(),
+            job: job.clone(),
+            occurrence: job.next_run,
+            started_at: now,
+            owner: owner.into(),
+            run_id: None,
+        }))
+    }
+}
+
+async fn interrupted_occurrence_recovery_count(schedule: Schedule, legacy: bool) -> usize {
     let now = Utc::now() - chrono::Duration::seconds(60);
     let backend = MemoryStorage::new();
     let scoped = backend.for_scope(&Scope::new("lease-recovery").unwrap()).unwrap();
@@ -133,8 +172,13 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
         .unwrap();
     let frozen = Arc::new(FrozenClock(std::sync::Mutex::new(now)));
     let held = Arc::new(HeldRun { started: Notify::new() });
+    let store: Arc<dyn JobStore> = if legacy {
+        Arc::new(LegacyClaimSlotStore(Store(documents.clone())))
+    } else {
+        Arc::new(Store(documents.clone()))
+    };
     let ports = RuntimePorts {
-        store: Arc::new(Store(documents.clone())),
+        store,
         executor: held.clone(),
         delivery: Arc::new(NoDelivery),
         triggers: Arc::new(NoDelivery),
@@ -148,22 +192,62 @@ async fn assert_interrupted_occurrence_recovers(schedule: Schedule) {
 
     let mut restarted = Scheduler::new("lease-recovery", SchedulerConfig::default(), ports);
     let recovered = restarted.tick().await.unwrap();
-    assert_eq!(recovered, 1, "the interrupted occurrence must still be due");
     restarted.shutdown().await;
+    recovered
 }
 
 #[tokio::test]
 async fn interrupted_recurring_occurrence_is_recovered_before_next_recurrence() {
-    assert_interrupted_occurrence_recovers(Schedule::Every {
-        every_ms: 24 * 60 * 60 * 1_000,
-    })
-    .await;
+    assert_eq!(
+        interrupted_occurrence_recovery_count(
+            Schedule::Every {
+                every_ms: 24 * 60 * 60 * 1_000,
+            },
+            false,
+        )
+        .await,
+        1,
+        "the interrupted occurrence must still be due"
+    );
 }
 
 #[tokio::test]
 async fn interrupted_one_shot_occurrence_is_recovered_after_restart() {
-    assert_interrupted_occurrence_recovers(Schedule::At {
-        at: Utc::now() + chrono::Duration::hours(1),
-    })
-    .await;
+    assert_eq!(
+        interrupted_occurrence_recovery_count(
+            Schedule::At {
+                at: Utc::now() + chrono::Duration::hours(1),
+            },
+            false,
+        )
+        .await,
+        1,
+        "the interrupted one-shot must still be due"
+    );
+}
+
+#[tokio::test]
+async fn legacy_scheduler_advance_before_execution_fails_the_same_recovery_assertion() {
+    assert_eq!(
+        interrupted_occurrence_recovery_count(
+            Schedule::Every {
+            every_ms: 24 * 60 * 60 * 1_000,
+            },
+            true,
+        )
+        .await,
+        0,
+        "the legacy Scheduler claim_slot path advances the same recurrence away before execution"
+    );
+    assert_eq!(
+        interrupted_occurrence_recovery_count(
+            Schedule::At {
+                at: Utc::now() + chrono::Duration::hours(1),
+            },
+            true,
+        )
+        .await,
+        0,
+        "the legacy Scheduler claim_slot path disables the same one-shot before execution"
+    );
 }
