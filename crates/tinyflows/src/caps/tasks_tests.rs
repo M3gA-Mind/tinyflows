@@ -139,7 +139,7 @@ async fn executor_errors_settle_as_failures_instead_of_leaving_running_tasks() {
     let ticket = runner.start(spec()).await.unwrap();
     assert_eq!(
         settled(&runner, &ticket).await,
-        TaskState::Failed("host action refused".into())
+        TaskState::Failed("capability error: host action refused".into())
     );
 }
 
@@ -149,7 +149,7 @@ async fn executor_panics_settle_as_a_redacted_capability_failure() {
     let ticket = runner.start(spec()).await.unwrap();
     assert_eq!(
         settled(&runner, &ticket).await,
-        TaskState::Failed("task executor panicked".into())
+        TaskState::Failed("capability error: task executor panicked".into())
     );
 }
 
