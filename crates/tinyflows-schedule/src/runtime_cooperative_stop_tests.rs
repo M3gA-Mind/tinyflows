@@ -18,6 +18,16 @@ struct Fixture {
     renewals: AtomicUsize,
     renewal_entered: Notify,
     release_renewal: Notify,
+    heartbeat_tick: Notify,
+    renewal_failed: Notify,
+    terminal_commit_entered: Notify,
+    release_terminal_commit: Notify,
+    persisted_completions: AtomicUsize,
+    pause_terminal_commit: bool,
+    execution_entered: Notify,
+    release_execution: Notify,
+    pause_execution: bool,
+    claim_lost: std::sync::atomic::AtomicBool,
     executions: AtomicUsize,
     failed_callbacks: AtomicUsize,
     deliveries: AtomicUsize,
@@ -89,6 +99,14 @@ impl JobStore for Fixture {
         _: DateTime<Utc>,
         _: chrono::Duration,
     ) -> Result<bool> {
+        if self.claim_lost.load(Ordering::SeqCst) {
+            self.renewal_failed.notify_one();
+            return Ok(false);
+        }
+        if self.persisted_completions.load(Ordering::SeqCst) > 0 {
+            self.renewal_failed.notify_one();
+            return Ok(false);
+        }
         let renewal = self.renewals.fetch_add(1, Ordering::SeqCst) + 1;
         if renewal == self.block_on_renewal {
             self.renewal_entered.notify_one();
@@ -107,6 +125,11 @@ impl JobStore for Fixture {
         _: RunRecord,
         _: Completion,
     ) -> Result<bool> {
+        self.persisted_completions.fetch_add(1, Ordering::SeqCst);
+        self.terminal_commit_entered.notify_one();
+        if self.pause_terminal_commit {
+            self.release_terminal_commit.notified().await;
+        }
         Ok(true)
     }
 }
@@ -115,6 +138,10 @@ impl JobStore for Fixture {
 impl JobExecutor for Fixture {
     async fn execute(&self, _: &CronJob, _: &str) -> Result<Attempt> {
         self.executions.fetch_add(1, Ordering::SeqCst);
+        self.execution_entered.notify_one();
+        if self.pause_execution {
+            self.release_execution.notified().await;
+        }
         Ok(Attempt {
             success: !self.fail_execution,
             output: "result".into(),
@@ -165,7 +192,7 @@ impl Clock for Fixture {
     }
 
     async fn lease_wait(&self, _: Duration) {
-        std::future::pending().await
+        self.heartbeat_tick.notified().await
     }
 }
 
@@ -176,11 +203,107 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
         renewals: AtomicUsize::new(0),
         renewal_entered: Notify::new(),
         release_renewal: Notify::new(),
+        heartbeat_tick: Notify::new(),
+        renewal_failed: Notify::new(),
+        terminal_commit_entered: Notify::new(),
+        release_terminal_commit: Notify::new(),
+        persisted_completions: AtomicUsize::new(0),
+        pause_terminal_commit: false,
+        execution_entered: Notify::new(),
+        release_execution: Notify::new(),
+        pause_execution: false,
+        claim_lost: std::sync::atomic::AtomicBool::new(false),
         executions: AtomicUsize::new(0),
         failed_callbacks: AtomicUsize::new(0),
         deliveries: AtomicUsize::new(0),
         fail_execution,
     })
+}
+
+fn terminal_heartbeat_fixture() -> Arc<Fixture> {
+    Arc::new(Fixture {
+        now: "2026-01-01T00:00:00Z".parse().unwrap(),
+        block_on_renewal: usize::MAX,
+        renewals: AtomicUsize::new(0),
+        renewal_entered: Notify::new(),
+        release_renewal: Notify::new(),
+        heartbeat_tick: Notify::new(),
+        renewal_failed: Notify::new(),
+        terminal_commit_entered: Notify::new(),
+        release_terminal_commit: Notify::new(),
+        persisted_completions: AtomicUsize::new(0),
+        pause_terminal_commit: true,
+        execution_entered: Notify::new(),
+        release_execution: Notify::new(),
+        pause_execution: false,
+        claim_lost: std::sync::atomic::AtomicBool::new(false),
+        executions: AtomicUsize::new(0),
+        failed_callbacks: AtomicUsize::new(0),
+        deliveries: AtomicUsize::new(0),
+        fail_execution: false,
+    })
+}
+
+async fn trigger_terminal_heartbeat(fixture: &Fixture) {
+    fixture.terminal_commit_entered.notified().await;
+    fixture.heartbeat_tick.notify_one();
+    fixture.renewal_failed.notified().await;
+    fixture.release_terminal_commit.notify_one();
+}
+
+fn assert_persisted_success(fixture: &Fixture, outcome: &super::ManualRunOutcome) {
+    assert!(outcome.success);
+    assert_eq!(fixture.persisted_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.failed_callbacks.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cooperative_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome() {
+    let fixture = terminal_heartbeat_fixture();
+    let scheduler = Scheduler::new(
+        "completion-heartbeat-race",
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
+    let claim = fixture.claim();
+    let worker = tokio::spawn(async move {
+        scheduler
+            .run_manual_claim_cooperative(
+                claim,
+                ManualDelivery::NotRequested,
+                watch::channel(false).1,
+            )
+            .await
+    });
+    trigger_terminal_heartbeat(&fixture).await;
+
+    let outcome = worker.await.unwrap().unwrap().unwrap();
+    assert_persisted_success(&fixture, &outcome);
+}
+
+#[tokio::test]
+async fn scheduled_heartbeat_loss_during_terminal_reply_keeps_persisted_outcome() {
+    let fixture = terminal_heartbeat_fixture();
+    let ports = fixture.ports();
+    let config = SchedulerConfig::default();
+    let claim = fixture.claim();
+    let worker = tokio::spawn(async move {
+        run_claim_with_renewal(
+            &ports,
+            &config,
+            claim,
+            ManualDelivery::NotRequested,
+            false,
+            None,
+            watch::channel(false).1,
+        )
+        .await
+    });
+    trigger_terminal_heartbeat(&fixture).await;
+
+    let outcome = worker.await.unwrap().unwrap();
+    assert_persisted_success(&fixture, &outcome);
 }
 
 async fn stop_during_renewal(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
