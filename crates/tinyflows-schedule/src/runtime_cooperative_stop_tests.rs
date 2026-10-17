@@ -7,7 +7,9 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use tinyflows_bus::schedule::{Attempt, Completion, DeliveryProjection, OccurrenceClaim, RunRecord};
+use tinyflows_bus::schedule::{
+    Attempt, Completion, DeliveryProjection, OccurrenceClaim, RunRecord,
+};
 use tokio::sync::Notify;
 
 struct Fixture {
@@ -183,7 +185,11 @@ fn fixture(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
 
 async fn stop_during_renewal(block_on_renewal: usize, fail_execution: bool) -> Arc<Fixture> {
     let fixture = fixture(block_on_renewal, fail_execution);
-    let scheduler = Scheduler::new("cooperative-stop", SchedulerConfig::default(), fixture.ports());
+    let scheduler = Scheduler::new(
+        "cooperative-stop",
+        SchedulerConfig::default(),
+        fixture.ports(),
+    );
     let claim = fixture.claim();
     let (stop, receiver) = watch::channel(false);
     let worker = tokio::spawn(async move {

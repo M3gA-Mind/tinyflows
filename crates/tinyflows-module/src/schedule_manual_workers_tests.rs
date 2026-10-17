@@ -25,7 +25,10 @@ fn prepare_is_idempotent_per_scope_and_acknowledged_handles_are_never_reused() {
         let mut control = reservation.entry.control.lock().unwrap();
         control.expires_at = Instant::now() - Duration::from_secs(24 * 60 * 60);
     }
-    assert!(workers.get(&first).is_some(), "terminal results persist until Ack");
+    assert!(
+        workers.get(&first).is_some(),
+        "terminal results persist until Ack"
+    );
     assert!(workers.acknowledge(&first));
     assert!(workers.get(&first).is_none());
 
@@ -152,7 +155,9 @@ async fn supervisor_releases_a_known_claim_after_worker_panic_before_terminal() 
     };
     let claim_slot = std::sync::Arc::new(tokio::sync::Mutex::new(Some(held)));
     let entry = std::sync::Arc::new(ManualWorkerEntry::prepared());
-    entry.begin_start(serde_json::json!({"request":"panic"})).unwrap();
+    entry
+        .begin_start(serde_json::json!({"request":"panic"}))
+        .unwrap();
     let worker = async {
         panic!("injected module worker panic");
         #[allow(unreachable_code)]

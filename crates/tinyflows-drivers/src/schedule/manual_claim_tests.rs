@@ -41,7 +41,7 @@ async fn reconciles_manual_claim_receipt_after_an_ambiguous_claim_reply() {
     );
     assert!(
         store
-        .reconcile_manual_claim_admission(&job, "ambiguous-owner", now + Duration::seconds(2))
+            .reconcile_manual_claim_admission(&job, "ambiguous-owner", now + Duration::seconds(2))
             .await
             .unwrap()
             .is_none()

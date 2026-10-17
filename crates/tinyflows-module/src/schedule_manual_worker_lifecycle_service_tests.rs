@@ -355,7 +355,11 @@ async fn delivery_projection_error_releases_claim_before_failed_terminal() {
         .await
         .unwrap()
         .expect("Failed is terminal only after cleanup releases the claim");
-    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert!(
+        documents
+            .release_claim(&released, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
     assert_eq!(*state.executions.lock().await, ["deliver-fails-run"]);
 }
-

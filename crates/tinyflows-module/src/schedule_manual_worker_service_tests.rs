@@ -361,7 +361,12 @@ async fn unsupported_claim_backend_fails_before_recording_claim_intent() {
     let Some(admitted) = admitted else {
         panic!("preflight failure leaves no held claim")
     };
-    assert!(documents.release_claim(&admitted, chrono::Utc::now()).await.unwrap());
+    assert!(
+        documents
+            .release_claim(&admitted, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -472,5 +477,10 @@ async fn terminal_commit_error_releases_queued_claim_before_failed_terminal() {
         .await
         .unwrap()
         .expect("failed completion must release its occurrence before terminal");
-    assert!(documents.release_claim(&released, chrono::Utc::now()).await.unwrap());
+    assert!(
+        documents
+            .release_claim(&released, chrono::Utc::now())
+            .await
+            .unwrap()
+    );
 }

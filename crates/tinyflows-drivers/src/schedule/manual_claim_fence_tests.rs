@@ -4,11 +4,11 @@ use chrono::{Duration, Utc};
 use serde_json::Value;
 use std::sync::Arc;
 use tinyflows_schedule::Schedule;
-use tokio::sync::Notify;
 use tinystoragedrivers_core::{
     Capabilities, CollectionSpec, DocumentStore, Filter, MemoryStorage, Page, Precondition, Query,
     Scope, Sort, StorageBackend, Version, Versioned, WriteOp, WriteResult,
 };
+use tokio::sync::Notify;
 
 #[derive(Debug)]
 struct HeldClaimWrite {
@@ -23,7 +23,10 @@ impl DocumentStore for HeldClaimWrite {
         self.inner.capabilities()
     }
 
-    async fn ensure_collection(&self, spec: &CollectionSpec) -> tinystoragedrivers_core::Result<()> {
+    async fn ensure_collection(
+        &self,
+        spec: &CollectionSpec,
+    ) -> tinystoragedrivers_core::Result<()> {
         self.inner.ensure_collection(spec).await
     }
 
@@ -93,9 +96,9 @@ impl DocumentStore for HeldClaimWrite {
         ops: Vec<WriteOp>,
     ) -> tinystoragedrivers_core::Result<Vec<WriteResult>> {
         let late_claim = ops.iter().any(|op| match op {
-            WriteOp::Put { collection, doc, .. } => {
-                collection == "cron_jobs" && doc["occurrence_lease"]["owner"] == "late-owner"
-            }
+            WriteOp::Put {
+                collection, doc, ..
+            } => collection == "cron_jobs" && doc["occurrence_lease"]["owner"] == "late-owner",
             _ => false,
         });
         if late_claim {
@@ -141,21 +144,26 @@ async fn admission_fence_rejects_claim_transaction_that_commits_after_reconcilia
     });
     held_docs.entered.notified().await;
 
-    assert!(store
-        .reconcile_manual_claim_admission(&job, "late-owner", now)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        store
+            .reconcile_manual_claim_admission(&job, "late-owner", now)
+            .await
+            .unwrap()
+            .is_none()
+    );
     held_docs.release.notify_one();
     assert!(late_claim.await.unwrap().unwrap().is_none());
 
     let current = store.get_job(&job.id).await.unwrap();
     assert_eq!(current.claim_generation, job.claim_generation + 1);
-    assert!(store
-        .claim_job_now(&job, "late-owner", now, Duration::hours(2))
-        .await
-        .unwrap()
-        .is_none(), "the stale job snapshot cannot revive the delayed claim");
+    assert!(
+        store
+            .claim_job_now(&job, "late-owner", now, Duration::hours(2))
+            .await
+            .unwrap()
+            .is_none(),
+        "the stale job snapshot cannot revive the delayed claim"
+    );
     let fresh_claim = store
         .claim_job_now(&current, "fresh-owner", now, Duration::hours(2))
         .await

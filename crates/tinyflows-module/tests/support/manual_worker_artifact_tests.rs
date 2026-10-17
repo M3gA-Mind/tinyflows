@@ -1,3 +1,4 @@
+use super::{callbacks, document_callbacks};
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::{Connection, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport};
@@ -8,7 +9,6 @@ use tinyflows_bus::schedule::{
 use tinyflows_drivers::schedule::CronDocuments;
 use tinyflows_schedule::Schedule;
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
-use super::{callbacks, document_callbacks};
 
 #[tokio::test]
 #[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled module"]

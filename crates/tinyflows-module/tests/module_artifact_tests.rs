@@ -8,6 +8,8 @@ mod callbacks;
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
+#[path = "support/manual_worker_artifact_tests.rs"]
+mod manual_worker_artifact_tests;
 #[path = "support/portability_artifact.rs"]
 mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
@@ -20,8 +22,6 @@ mod schedule_v4_delivery_artifact;
 mod schedule_v4_manual_artifact;
 #[path = "support/schedule_v4_recovery_artifact.rs"]
 mod schedule_v4_recovery_artifact;
-#[path = "support/manual_worker_artifact_tests.rs"]
-mod manual_worker_artifact_tests;
 #[path = "support/wiring_warning_artifact.rs"]
 mod wiring_warning_artifact;
 use serde_json::json;

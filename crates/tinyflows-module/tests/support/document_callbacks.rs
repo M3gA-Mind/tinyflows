@@ -125,7 +125,11 @@ impl CommitThenFail {
                         && op["doc"].get("completed_occurrence").is_some()
                 })
             });
-        if completion_commit && self.fail_completion_before_commit.swap(false, Ordering::SeqCst) {
+        if completion_commit
+            && self
+                .fail_completion_before_commit
+                .swap(false, Ordering::SeqCst)
+        {
             return Err(tinybus::Error::failed("injected terminal commit failure"));
         }
         let result = Documents {
