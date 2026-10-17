@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tinyflows::model::WorkflowGraph;
 
-use super::ports::{BuilderGates, DraftStore, FlowStore, SandboxRunRequest, SandboxRunner};
+use super::ports::{BuilderGates, DraftStore, FlowStore, SandboxRunRequest};
 use super::static_schema;
 use tinyflows::authoring::validate_and_migrate_graph;
 use tinytools::{PermissionLevel, Tool, ToolResult};
