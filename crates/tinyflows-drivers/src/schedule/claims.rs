@@ -29,7 +29,7 @@ struct Lease {
 
 /// A fenced occurrence captured before dispatch. Keep this value through
 /// execution and pass it to completion; reading a fresh job loses that fence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimedOccurrence {
     job: CronJob,
     lease: Lease,

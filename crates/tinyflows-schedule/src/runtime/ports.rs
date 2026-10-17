@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use std::time::Duration;
 
 pub use tinyflows_bus::schedule::{Attempt, Completion, RunRecord};
-use tinyflows_bus::schedule::DeliveryProjection;
+use tinyflows_bus::schedule::{DeliveryProjection, OccurrenceClaim, RunJobRefusal};
 
 /// Storage bound to one agent/tenant scope.
 #[async_trait]
@@ -26,6 +26,62 @@ pub trait JobStore: Send + Sync {
             "job store does not support due-job exclusions"
         );
         self.due_jobs(now).await
+    }
+    /// Atomically acquire the persisted due occurrence. Unsupported backends
+    /// fail closed; a host process mutex is never an admission substitute.
+    async fn claim_due_occurrence(
+        &self,
+        _job_id: &str,
+        _owner: &str,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<Option<OccurrenceClaim>> {
+        anyhow::bail!("job store does not support durable occurrence leases")
+    }
+    /// Force-claim the exact saved definition for Run Now, regardless of its
+    /// enabled/future schedule state.
+    async fn claim_manual_occurrence(
+        &self,
+        _job: &CronJob,
+        _owner: &str,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
+        anyhow::bail!("job store does not support durable manual admission")
+    }
+    /// Extend a live lease; false means this worker has lost its fence.
+    async fn renew_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _now: DateTime<Utc>,
+        _lease: chrono::Duration,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support durable occurrence renewal")
+    }
+    /// Release an owned occurrence on cancellation without advancing it.
+    async fn release_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _now: DateTime<Utc>,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support durable occurrence release")
+    }
+    /// Persist the accepted manual run before returning its acknowledgement.
+    async fn queue_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _record: RunRecord,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support durable run queueing")
+    }
+    /// Atomically append terminal history and advance the claimed occurrence.
+    async fn complete_occurrence(
+        &self,
+        _claim: &OccurrenceClaim,
+        _record: RunRecord,
+        _completion: Completion,
+    ) -> Result<bool> {
+        anyhow::bail!("job store does not support fenced occurrence completion")
     }
     /// Durably claim this occurrence before dispatch. Preserve concurrent edits.
     /// Compare job.claim_generation and atomically increment it. One-shots
