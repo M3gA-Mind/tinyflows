@@ -38,6 +38,7 @@ impl Continuation {
 /// (optionally journaled), re-attaches the same `checkpointer`, and resumes
 /// `thread_id`. Returns the outcome plus the resumed execution's
 /// runtime-minted run ids.
+#[allow(clippy::too_many_arguments)]
 async fn resume_with_checkpointer_inner(
     workflow: &CompiledWorkflow,
     capabilities: &Capabilities,
