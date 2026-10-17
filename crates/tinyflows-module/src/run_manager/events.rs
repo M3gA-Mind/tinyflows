@@ -261,10 +261,7 @@ impl RunObserver for Observer {
                 .map(|diagnostic| serde_json::to_value(diagnostic).unwrap_or(Value::Null))
                 .collect(),
         };
-        self.steps
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(step.clone());
+        record_step(&self.steps, step.clone());
         self.writer.step(step);
     }
 
@@ -281,3 +278,21 @@ impl RunObserver for Observer {
         );
     }
 }
+
+fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
+    let mut steps = steps
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(existing) = steps
+        .iter_mut()
+        .find(|existing| existing.node_id == step.node_id)
+    {
+        *existing = step;
+    } else {
+        steps.push(step);
+    }
+}
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

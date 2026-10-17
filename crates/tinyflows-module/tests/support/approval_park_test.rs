@@ -57,6 +57,29 @@ async fn compiled_module_resumes_a_parked_approval_run() {
         terminal.events.last().unwrap().data["status"].as_str(),
         Some("completed" | "completed_with_warnings")
     ));
+    let row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "resume-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let row = row.expect("resumed run remains in the owner scope");
+    assert_eq!(row.status, terminal.events.last().unwrap().data["status"]);
+    assert!(row.pending_approvals.is_empty());
+    assert_eq!(row.steps.len(), 3, "the resumed gate replaces its parked step");
+    let approval = row
+        .steps
+        .iter()
+        .find(|step| step.node_id == "approval")
+        .expect("resumed approval is recorded");
+    assert_eq!(approval.status.as_deref(), Some("success"));
+    assert!(approval.diagnostics.is_empty());
+    assert!(row.steps.iter().any(|step| step.node_id == "dedup"));
+    assert!(row.steps.iter().any(|step| step.node_id == "trigger"));
 }
 
 #[tokio::test]
