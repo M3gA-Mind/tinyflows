@@ -318,6 +318,12 @@ fn catalog_and_storage_member_json_shapes_are_pinned() {
         json!({"collection":"flows.definitions","id":"flow-1","doc":{"name":"Example"},"precondition":{"kind":"absent"},"schema":2}),
         "a declared body version rides the put; an undeclared one is omitted"
     );
+    // A request from before `schema` and `expires_ms` existed still decodes,
+    // with both undeclared, and encodes back to the same shape.
+    let old_shape = json!({"collection":"flows.definitions","id":"flow-1","doc":{"name":"Example"},"precondition":{"kind":"absent"}});
+    let decoded: DocPutRequest = serde_json::from_value(old_shape.clone()).unwrap();
+    assert_eq!((decoded.schema, decoded.expires_ms), (0, None));
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), old_shape);
     assert_eq!(
         serde_json::to_value(DocQueryRequest {
             collection: "flows.definitions".into(),
