@@ -1,7 +1,7 @@
 //! Exercises portable helper calls through the actual loaded module ABI.
 
 use serde_json::{Value, json};
-use tinyflows_bus::{OBJECT_PATH, BUS_NAME, portability};
+use tinyflows_bus::{BUS_NAME, OBJECT_PATH, portability};
 
 pub async fn verify_surface(connection: &tinybus::Connection) {
     let proxy = connection
@@ -20,7 +20,10 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         )
         .await
         .unwrap();
-    assert_eq!(prepared["headers"]["Authorization"], "Basic YWxpY2U6c2VjcmV0");
+    assert_eq!(
+        prepared["headers"]["Authorization"],
+        "Basic YWxpY2U6c2VjcmV0"
+    );
     assert!(prepared["headers"].get("authorization").is_none());
 
     let graph = json!({"name":"event","nodes":[{"id":"t","name":"Trigger","kind":"trigger","config":{

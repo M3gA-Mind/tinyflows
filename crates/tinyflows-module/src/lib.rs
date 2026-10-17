@@ -16,11 +16,11 @@ mod exports;
 mod schedule_callbacks;
 mod schedule_service;
 
+mod portability_service;
 mod run_manager;
 mod runs_service;
 mod schedule_documents;
 mod schedule_store;
-mod portability_service;
 
 #[cfg(feature = "static-link")]
 pub use exports::linked_module;

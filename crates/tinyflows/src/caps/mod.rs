@@ -7,9 +7,9 @@
 
 pub mod agent;
 pub mod approval;
-pub mod http_credential;
 #[cfg(any(test, feature = "host-caps"))]
 pub mod host;
+pub mod http_credential;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 // Kept apart from `mock` because it answers a different question. `mock` echoes,

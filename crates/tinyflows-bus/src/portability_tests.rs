@@ -17,9 +17,17 @@ fn portability_wire_requests_round_trip_without_credential_diagnostics() {
         toolkit: "github".into(),
         trigger_slug: "ISSUE_CREATED".into(),
     };
-    assert_eq!(serde_json::from_value::<AppEventBinding>(serde_json::to_value(&binding).unwrap()).unwrap(), binding);
-    let pinned = PinnedInputs { graph: json!({"nodes":[]}) };
-    assert_eq!(serde_json::from_value::<PinnedInputs>(serde_json::to_value(&pinned).unwrap()).unwrap(), pinned);
+    assert_eq!(
+        serde_json::from_value::<AppEventBinding>(serde_json::to_value(&binding).unwrap()).unwrap(),
+        binding
+    );
+    let pinned = PinnedInputs {
+        graph: json!({"nodes":[]}),
+    };
+    assert_eq!(
+        serde_json::from_value::<PinnedInputs>(serde_json::to_value(&pinned).unwrap()).unwrap(),
+        pinned
+    );
 }
 
 #[test]

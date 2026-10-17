@@ -146,11 +146,8 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
     }
     .render()
     .unwrap();
-    let request = inject_credential(
-        json!({"headers":{"authorization":"inline"}}),
-        &bearer,
-    )
-    .unwrap();
+    let request =
+        inject_credential(json!({"headers":{"authorization":"inline"}}), &bearer).unwrap();
     assert_eq!(request["headers"]["Authorization"], "Bearer token");
     assert!(request["headers"].get("authorization").is_none());
 
@@ -168,7 +165,10 @@ fn credential_header_values_support_scheme_templates_and_override_inline_values(
     }
     .render()
     .unwrap();
-    assert_eq!((custom.header.as_str(), custom.value.as_str()), ("X-API-Key", "key"));
+    assert_eq!(
+        (custom.header.as_str(), custom.value.as_str()),
+        ("X-API-Key", "key")
+    );
 
     let resolved = HttpCredentialTemplate::Resolved {
         header: "X-Resolved".into(),

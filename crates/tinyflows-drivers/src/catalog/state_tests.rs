@@ -19,10 +19,15 @@ async fn engine_state_is_what_the_catalog_reads() {
 #[tokio::test]
 async fn opening_flow_state_ensures_storage_before_returning_a_handle() {
     let catalog = catalog();
-    let state = FlowStateDocuments::open(catalog.clone(), "flow-open").await.unwrap();
+    let state = FlowStateDocuments::open(catalog.clone(), "flow-open")
+        .await
+        .unwrap();
     assert_eq!(state.namespace(), "flow-open");
     state.store("key", json!("value")).await.unwrap();
-    assert_eq!(catalog.kv_get("flow-open", "key").await.unwrap(), Some(json!("value")));
+    assert_eq!(
+        catalog.kv_get("flow-open", "key").await.unwrap(),
+        Some(json!("value"))
+    );
 }
 
 /// `DedupKv` runs from inside a current-thread runtime, where `block_on`

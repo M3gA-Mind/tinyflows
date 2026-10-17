@@ -6,12 +6,12 @@ mod callbacks;
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
+#[path = "support/portability_artifact.rs"]
+mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
 #[path = "support/wiring_warning_artifact.rs"]
 mod wiring_warning_artifact;
-#[path = "support/portability_artifact.rs"]
-mod portability_artifact;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;

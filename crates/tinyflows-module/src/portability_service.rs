@@ -62,9 +62,6 @@ impl Portability {
 
 pub(super) async fn setup(connection: &Connection) -> Result<()> {
     connection
-        .serve_at(
-            tinyflows_bus::OBJECT_PATH.try_into()?,
-            Portability,
-        )
+        .serve_at(tinyflows_bus::OBJECT_PATH.try_into()?, Portability)
         .await
 }
