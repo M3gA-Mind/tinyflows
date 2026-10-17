@@ -19,9 +19,9 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Runs";
 /// Run-control object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Runs";
 /// Version of the run-control contract.
-pub const CONTRACT_VERSION: u32 = 2;
+pub const CONTRACT_VERSION: u32 = 3;
 /// Run-control members, served by the later run-management slice.
-pub const METHODS: &[&str] = &["StartRun", "CancelRun", "PollRun"];
+pub const METHODS: &[&str] = &["StartRun", "CancelRun", "PollRun", "SandboxRun"];
 
 /// Stable member names.
 pub mod methods {
@@ -33,6 +33,8 @@ pub mod methods {
     pub const CANCEL_RUN: &str = "CancelRun";
     /// Read run events after a cursor.
     pub const POLL_RUN: &str = "PollRun";
+    /// Execute an unsaved graph against deterministic sandbox capabilities.
+    pub const SANDBOX_RUN: &str = "SandboxRun";
 }
 
 /// Interface the host serves so the module can reach every host capability.
@@ -180,6 +182,29 @@ pub struct PollRun {
     pub next_cursor: u64,
     /// Whether the run reached a terminal status.
     pub done: bool,
+}
+
+/// Execute a graph without live run admission, persistence, or host effects.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct SandboxRun {
+    /// Inline, draft, or otherwise unsaved graph JSON.
+    pub graph: Value,
+    /// Initial graph input; omitted callers should send an empty object.
+    pub input: Value,
+    /// Exact host callback address that performs ToolInvoke preflight only.
+    pub tool_invoker: CallbackAddress,
+    /// Permission report precomputed by the trusted host's policy classifier.
+    /// It is included in the settled report and never authorizes execution.
+    #[serde(default)]
+    pub permissions_manifest: Vec<Value>,
+}
+
+/// Shared dry-run report envelope returned by `SandboxRun`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct SandboxRunResponse {
+    /// Existing builder dry-run JSON shape, including `sandbox`, `ok`, output,
+    /// diagnostics, advice and permission-manifest fields.
+    pub result: Value,
 }
 
 /// Exact address of a callback object created by the trusted host.

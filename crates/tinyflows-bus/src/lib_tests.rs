@@ -24,7 +24,8 @@ fn method_constants_match_advertised_members() {
         &[
             runs::methods::START_RUN,
             runs::methods::CANCEL_RUN,
-            runs::methods::POLL_RUN
+            runs::methods::POLL_RUN,
+            runs::methods::SANDBOX_RUN
         ]
     );
 }

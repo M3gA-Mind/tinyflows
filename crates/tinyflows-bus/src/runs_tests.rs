@@ -139,8 +139,31 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"callback":{"destination":"host.caps","object_path":"/run/1"}}),
     );
-    assert_eq!(CONTRACT_VERSION, 2);
-    assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun"]);
+    pin(
+        SandboxRun {
+            graph: serde_json::json!({"nodes":[],"edges":[]}),
+            input: serde_json::json!({}),
+            tool_invoker: CallbackAddress {
+                destination: "host.preflight".into(),
+                object_path: "/sandbox/1".into(),
+            },
+            permissions_manifest: vec![serde_json::json!({"node_id":"send","risk":"write"})],
+        },
+        serde_json::json!({
+            "graph":{"nodes":[],"edges":[]},
+            "input":{},
+            "tool_invoker":{"destination":"host.preflight","object_path":"/sandbox/1"},
+            "permissions_manifest":[{"node_id":"send","risk":"write"}]
+        }),
+    );
+    pin(
+        SandboxRunResponse {
+            result: serde_json::json!({"sandbox":true,"ok":true}),
+        },
+        serde_json::json!({"result":{"sandbox":true,"ok":true}}),
+    );
+    assert_eq!(CONTRACT_VERSION, 3);
+    assert_eq!(METHODS, ["StartRun", "CancelRun", "PollRun", "SandboxRun"]);
     assert_eq!(CAPS_CONTRACT_VERSION, 1);
     assert_eq!(CAPS_METHODS.len(), 19);
 }

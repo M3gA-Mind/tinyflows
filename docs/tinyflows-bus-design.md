@@ -16,7 +16,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | --- | --- | --- |
 | Authoring | served, v2 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures` (migrate, compat, import, gates, preflight) |
 | Schedule | served, v3 | scheduler start/stop/tick/drain, `ExecuteJob`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | served, v2 | `StartRun`, `CancelRun`, `PollRun` (`ResumeRun` is a later slice) |
+| Runs | served, v3 | `StartRun`, `CancelRun`, `PollRun`, `SandboxRun` (`ResumeRun` is a later slice) |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
@@ -71,6 +71,19 @@ The host's CatalogStorage callback allowlist must also admit
 `flows_graph_checkpoints`, `flows_graph_threads` and `flows_graph_writes` for
 the module's DriverCheckpointer. It must apply the same owner scope to those
 collections as it does to the workflow catalog collections.
+
+`SandboxRun` accepts an unsaved inline graph and input, validates and compiles
+it inside the module, then returns the same diagnostic buckets as the builder
+dry-run. It does not admit a live actor or write run rows, events or graph
+checkpoints. The host includes the policy-classified permission manifest in
+the request; the module reports it without treating it as execution authority.
+The module uses schema-aware deterministic mocks for both named
+agent and plain LLM execution. Its only host callback is the exact
+`CapsHost.ToolInvoke` address supplied for preflight. The module discards the
+callback's return value after successful validation and produces the simulated
+tool result with its own `MockTools`; hosts must not forward the callback to a
+real integration. HTTP, code, shell, memory, state, approval and agent calls
+remain in module-local mocks.
 
 ### Node kinds, graph_ops, gates, preflight
 
@@ -227,7 +240,8 @@ not need implementation-library dependencies.
    manager shrinks to the host adapter and event-bus projection.
 5. `ResumeRun`, parked-run expiry, boot sweep (`run_management` pure parts
    already in `tinyflows-catalog`).
-6. Retire remaining direct `tinyflows` links from core; update
+6. `SandboxRun` and the module artifact's mock-only preflight boundary.
+7. Retire remaining direct `tinyflows` links from core; update
    `module-boundaries.json` and the boundary inventory.
 
 Known blocker (not fixed here): modules that depend on tinybus through a
