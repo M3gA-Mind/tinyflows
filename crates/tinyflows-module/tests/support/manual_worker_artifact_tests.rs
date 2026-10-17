@@ -270,15 +270,18 @@ async fn wait_terminal(
     handle: &tinyflows_bus::schedule::ManualRunHandle,
 ) -> ManualRunState {
     for _ in 0..10_000 {
-        let state: ManualRunState = schedule
-            .call(
+        let Some(state) = schedule
+            .call::<Option<ManualRunState>>(
                 "WaitManualRun",
                 &(WaitManualRun {
                     handle: handle.clone(),
                 },),
             )
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("live manual worker handle unexpectedly became absent")
+        };
         if matches!(state, ManualRunState::Terminal { .. }) {
             return state;
         }
