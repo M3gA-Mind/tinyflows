@@ -223,7 +223,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
         .defer_execute
         .store(false, std::sync::atomic::Ordering::SeqCst);
     let completed_handle: tinyflows_bus::schedule::ManualRunHandle = schedule
-        .call(
+        .call::<tinyflows_bus::schedule::ManualRunHandle>(
             "PrepareManualRun",
             &(PrepareManualRun {
                 scope: "artifact-manual-scope".into(),
@@ -231,8 +231,7 @@ async fn compiled_module_serves_manual_worker_lifecycle_through_schedule_abi() {
             },),
         )
         .await
-        .unwrap()
-        .expect("known worker handle remains observable");
+        .unwrap();
     let completed_start = StartManualRun {
         handle: completed_handle.clone(),
         request: ManualRunRequest {
