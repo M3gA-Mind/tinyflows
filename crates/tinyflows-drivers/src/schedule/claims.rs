@@ -23,6 +23,8 @@ struct Lease {
     occurrence: DateTime<Utc>,
     started_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    #[serde(default)]
+    queued_run: Option<i64>,
 }
 
 /// A fenced occurrence captured before dispatch. Keep this value through
@@ -108,6 +110,29 @@ impl CronDocuments {
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(job_id, owner, now, duration, false).await
+    }
+
+    /// Atomically claims a saved definition for an explicit manual run,
+    /// including disabled jobs and jobs scheduled in the future.
+    pub async fn claim_job_now(
+        &self,
+        job_id: &str,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+    ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(job_id, owner, now, duration, true).await
+    }
+
+    async fn claim_occurrence(
+        &self,
+        job_id: &str,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+        force: bool,
+    ) -> Result<Option<ClaimedOccurrence>> {
         if owner.trim().is_empty() {
             bail!("cron store: lease owner must not be empty");
         }
@@ -122,7 +147,7 @@ impl CronDocuments {
                 return Ok(None);
             };
             let job = doc_to_job(&stored)?;
-            if !job.enabled || job.next_run > now {
+            if !force && (!job.enabled || job.next_run > now) {
                 return Ok(None);
             }
             if lease(&stored.doc)?.is_some_and(|lease| lease.expires_at > now) {
@@ -143,6 +168,7 @@ impl CronDocuments {
                 occurrence: job.next_run,
                 started_at: now,
                 expires_at,
+                queued_run: None,
             };
             doc[LEASE] = serde_json::to_value(&acquired)?;
             match self
@@ -160,6 +186,72 @@ impl CronDocuments {
             }
         }
         bail!("cron store: occurrence kept changing during acquisition")
+    }
+
+    /// Appends a durable queued placeholder while preserving the lease. The
+    /// scheduler replaces this row with terminal history when it completes.
+    pub async fn queue_claimed_run(
+        &self,
+        claim: &ClaimedOccurrence,
+        queued_at: DateTime<Utc>,
+    ) -> Result<bool> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
+        self.ensure().await?;
+        for _ in 0..CAS_ATTEMPTS {
+            let Some(stored) = self
+                .docs
+                .get(JOBS, &claim.job.id)
+                .await
+                .map_err(storage_error)?
+            else {
+                return Ok(false);
+            };
+            if !owns(&stored.doc, claim, queued_at)? {
+                return Ok(false);
+            }
+            let mut doc = stored.doc.clone();
+            if lease(&stored.doc)?.is_some_and(|lease| lease.queued_run.is_some()) {
+                return Ok(true);
+            }
+            let seq = self.next_run_number().await?;
+            doc[LEASE]["queued_run"] = serde_json::json!(seq);
+            let run = run_to_doc(
+                seq,
+                &claim.job.id,
+                Some(&claim.lease.incarnation),
+                queued_at,
+                queued_at,
+                "queued",
+                None,
+                0,
+                None,
+            );
+            let mut extra = vec![WriteOp::Put {
+                collection: RUNS.into(),
+                id: run_id(seq),
+                doc: run,
+                precondition: Precondition::Absent,
+            }];
+            if let Some(queued_run) = claim.lease.queued_run {
+                extra.push(WriteOp::Delete {
+                    collection: RUNS.into(),
+                    id: run_id(queued_run),
+                    precondition: Precondition::None,
+                });
+            }
+            match self
+                .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
+                .await
+            {
+                Ok(_) => return Ok(true),
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        bail!("cron store: occurrence changed while queueing run")
     }
 
     /// Extends an unexpired, still-owned occurrence. A stale worker receives
