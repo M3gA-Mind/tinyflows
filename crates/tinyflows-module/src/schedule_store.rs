@@ -102,6 +102,10 @@ impl Store {
 
 #[async_trait::async_trait]
 impl tinyflows_schedule::runtime::JobStore for Store {
+    async fn validate_manual_claim_support(&self) -> Result<()> {
+        self.0.require_manual_claim_support()
+    }
+
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
         self.0.due_jobs(now).await
     }

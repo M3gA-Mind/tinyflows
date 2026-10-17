@@ -136,3 +136,29 @@ impl CommitThenFail {
         Ok(result)
     }
 }
+
+/// Presents a backend without transaction capability while retaining its
+/// ordinary document behavior for fail-closed admission tests.
+#[allow(dead_code)]
+pub struct NoTransactions {
+    pub docs: Arc<dyn DocumentStore>,
+}
+
+#[allow(dead_code)]
+#[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleDocuments")]
+impl NoTransactions {
+    async fn document(&self, request: Value) -> tinybus::Result<Value> {
+        let capabilities = request["op"] == "capabilities";
+        let mut result = Documents {
+            docs: self.docs.clone(),
+            conflict_once: Arc::new(AtomicBool::new(false)),
+            atomic_calls: Arc::new(AtomicUsize::new(0)),
+        }
+        .document(request)
+        .await?;
+        if capabilities {
+            result["value"]["transactions"] = Value::Bool(false);
+        }
+        Ok(result)
+    }
+}

@@ -11,6 +11,11 @@ use tinyflows_bus::schedule::{DeliveryProjection, OccurrenceClaim, RunJobRefusal
 /// Storage bound to one agent/tenant scope.
 #[async_trait]
 pub trait JobStore: Send + Sync {
+    /// Validate capabilities needed before starting a manual claim operation.
+    /// The module uses this before it must retain ambiguous claim ownership.
+    async fn validate_manual_claim_support(&self) -> Result<()> {
+        Ok(())
+    }
     /// Read enabled jobs due at `now` within the store's configured batch limit.
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>>;
     /// Read due jobs after excluding examined identities, before applying the

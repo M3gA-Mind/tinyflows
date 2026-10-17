@@ -255,6 +255,7 @@ async fn run_manual_worker_body(
     let config: SchedulerConfig = serde_json::from_value(request.config)?;
     let mut ports = HostCallbacks::ports(connection.clone(), request.callback);
     ports.store = std::sync::Arc::new(Store::new(connection, request.storage).await?);
+    ports.store.validate_manual_claim_support().await?;
     if entry.stopped() {
         return Ok(ManualRunOutcome::Stopped { run_id: None });
     }

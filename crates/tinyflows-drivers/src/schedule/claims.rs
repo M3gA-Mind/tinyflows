@@ -109,6 +109,15 @@ fn owns(doc: &Value, claim: &ClaimedOccurrence, now: DateTime<Utc>) -> Result<bo
             == claim.lease.occurrence)
 }
 impl CronDocuments {
+    /// Verify that manual occurrence admission is available before a host
+    /// starts an operation whose callback response may be ambiguous.
+    pub fn require_manual_claim_support(&self) -> Result<()> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)
+    }
+
     /// Acquires one enabled, due occurrence, or recovers its expired lease.
     /// Only one worker succeeds across handles sharing this scope. The host
     /// supplies now; clocks must agree within its lease tolerance.
@@ -164,6 +173,7 @@ impl CronDocuments {
         owner: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<ClaimedOccurrence>> {
+        self.require_manual_claim_support()?;
         if owner.trim().is_empty() {
             bail!("cron store: lease owner must not be empty");
         }
