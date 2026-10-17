@@ -14,6 +14,10 @@ pub struct Attempt {
     pub output: String,
     /// False for host-classified permanent failures; stops retry immediately.
     pub retryable: bool,
+    /// Opaque host-classification detail. The module retains the last
+    /// non-empty value across retries and relays it unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_detail: Option<String>,
 }
 
 /// Persisted outcome after execution and delivery.
