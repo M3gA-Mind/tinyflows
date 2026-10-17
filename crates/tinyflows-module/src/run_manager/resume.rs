@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use tinyflows::compiler;
+use tinyflows::engine::Checkpointer as _;
 use tinyflows_bus::runs::{FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, StartRun};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
@@ -73,7 +74,7 @@ pub(super) async fn resume(
         let current =
             tinyflows_catalog::graph_hash::compute_graph_hash(&flow.graph, flow.require_approval);
         if current.as_deref() != Some(expected) {
-            refuse_stale_graph(connection, &request, &catalog, &row.steps).await?;
+            refuse_stale_graph(connection, &request, &catalog, &request.run_id, &row.steps).await?;
             bail!(GRAPH_CHANGED)
         }
     }
@@ -182,11 +183,19 @@ fn validate(request: &ResumeRun) -> Result<()> {
     if request.timeout_ms == 0 {
         bail!("run timeout_ms must be greater than zero")
     }
-    for (name, address) in [
-        ("CatalogStorage", &request.storage.callback),
-        ("CapsHost", &request.caps_host.callback),
+    for (name, destination, object_path) in [
+        (
+            "CatalogStorage",
+            request.storage.callback.destination.as_str(),
+            request.storage.callback.object_path.as_str(),
+        ),
+        (
+            "CapsHost",
+            request.caps_host.callback.destination.as_str(),
+            request.caps_host.callback.object_path.as_str(),
+        ),
     ] {
-        if address.destination.trim().is_empty() || address.object_path.trim().is_empty() {
+        if destination.trim().is_empty() || object_path.trim().is_empty() {
             bail!("{name} callback address must not be empty")
         }
     }

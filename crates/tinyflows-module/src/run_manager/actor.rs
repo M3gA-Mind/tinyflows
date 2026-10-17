@@ -286,39 +286,45 @@ async fn execute(
     let observer_dyn: Arc<dyn tinyflows::observability::RunObserver> = observer.clone();
     let journal = observer.graph_journal();
     let checkpointer = Arc::new(prepared.checkpointer.clone());
-    let run = match continuation {
-        Continuation::Start => {
-            let input = RunInput::new(request.trigger_data.clone())
-                .with_inputs(prepared.inputs.clone())
-                .with_run_id(request.run_id.clone())
-                .with_approvals(Vec::new());
-            run_cancellable_with_checkpointer_journaled_observed(
-                &prepared.compiled,
-                input,
-                capabilities,
-                tinyflows::engine::JournaledRunOptions {
-                    token: active.token.clone(),
+    let run = async {
+        match continuation {
+            Continuation::Start => {
+                let input = RunInput::new(request.trigger_data.clone())
+                    .with_inputs(prepared.inputs.clone())
+                    .with_run_id(request.run_id.clone())
+                    .with_approvals(Vec::new());
+                run_cancellable_with_checkpointer_journaled_observed(
+                    &prepared.compiled,
+                    input,
+                    capabilities,
+                    tinyflows::engine::JournaledRunOptions {
+                        token: active.token.clone(),
+                        checkpointer,
+                        thread_id: request.run_id.clone(),
+                        journal,
+                    },
+                    &observer_dyn,
+                )
+                .await
+            }
+            Continuation::Resume {
+                approvals,
+                rejections,
+                ..
+            } => {
+                resume_with_checkpointer_journaled_observed(
+                    &prepared.compiled,
+                    capabilities,
                     checkpointer,
-                    thread_id: request.run_id.clone(),
+                    &request.run_id,
+                    approvals.clone(),
+                    rejections.clone(),
                     journal,
-                },
-                &observer_dyn,
-            )
+                    &observer_dyn,
+                )
+                .await
+            }
         }
-        Continuation::Resume {
-            approvals,
-            rejections,
-            ..
-        } => resume_with_checkpointer_journaled_observed(
-            &prepared.compiled,
-            capabilities,
-            checkpointer,
-            &request.run_id,
-            approvals.clone(),
-            rejections.clone(),
-            journal,
-            &observer_dyn,
-        ),
     };
     tokio::pin!(run);
     let timeout = Duration::from_millis(request.timeout_ms);

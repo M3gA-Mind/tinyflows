@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
+use tinyflows::engine::Checkpointer as _;
 use tinyflows_bus::runs::{
     BootSweep, BootSweepResponse, ExpireParked, ExpireParkedResponse, RunEvent,
 };
