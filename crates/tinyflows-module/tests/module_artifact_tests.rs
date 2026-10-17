@@ -106,6 +106,26 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .map(|method| method.to_string())
         .collect();
     assert_eq!(actual_copilot_methods, expected_copilot_methods);
+    let portability_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| {
+            provided.version.interface.as_str() == tinyflows_bus::portability::INTERFACE
+        })
+        .expect("portability interface is provided by the compiled module");
+    let mut actual_portability: Vec<_> = portability_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut expected_portability: Vec<_> = tinyflows_bus::portability::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
+    actual_portability.sort();
+    expected_portability.sort();
+    assert_eq!(actual_portability, expected_portability);
     assert!(info.manifest.requires.iter().any(|dependency| {
         dependency.optional
             && dependency.interface.interface.as_str()
