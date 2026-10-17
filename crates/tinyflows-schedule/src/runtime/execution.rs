@@ -134,7 +134,7 @@ pub(super) async fn execute_and_persist(
         .ok_or_else(|| anyhow::anyhow!("non-cooperative execution was stopped"))
 }
 
-async fn execute_and_persist_inner(
+pub(super) async fn execute_and_persist_inner(
     ports: &RuntimePorts,
     config: &SchedulerConfig,
     claim: &tinyflows_bus::schedule::OccurrenceClaim,
