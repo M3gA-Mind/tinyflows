@@ -1,6 +1,6 @@
 //! Retry and persistence independent of providers, policy, delivery transports.
 use super::*;
-use crate::{DeliveryStatus, JobType, Schedule};
+use crate::{DeliveryStatus, JobType, Schedule, next_run_for_schedule};
 use anyhow::Result;
 
 /// Run with one stable id across retries and delivery. Admission is a separate
