@@ -100,10 +100,10 @@ async fn drive_inner(
         if matches!(&continuation, Continuation::Start) { "started" } else { "resumed" },
         json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
     );
-    if matches!(&continuation, Continuation::Resume { .. }) {
-        if let Some(error) = writer.flush().await {
-            tracing::error!(%error, run_id = %request.run_id, "resume event did not persist");
-        }
+    if matches!(&continuation, Continuation::Resume { .. })
+        && let Some(error) = writer.flush().await
+    {
+        tracing::error!(%error, run_id = %request.run_id, "resume event did not persist");
     }
     let observer = Arc::new(Observer::new(writer.clone(), previous_steps));
     let capabilities = CapsHostPorts::capabilities_with_progress(
