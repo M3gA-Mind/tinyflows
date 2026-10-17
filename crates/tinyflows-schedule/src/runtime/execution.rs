@@ -122,18 +122,6 @@ async fn ensure_claim_owned(
     Ok(())
 }
 
-pub(super) async fn execute_and_persist(
-    ports: &RuntimePorts,
-    config: &SchedulerConfig,
-    claim: &tinyflows_bus::schedule::OccurrenceClaim,
-    delivery: tinyflows_bus::schedule::ManualDelivery,
-    advance_schedule: bool,
-) -> Result<super::ManualRunOutcome> {
-    execute_and_persist_inner(ports, config, claim, delivery, advance_schedule, None)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("non-cooperative execution was stopped"))
-}
-
 pub(super) async fn execute_and_persist_inner(
     ports: &RuntimePorts,
     config: &SchedulerConfig,
