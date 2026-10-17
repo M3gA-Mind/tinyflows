@@ -177,3 +177,20 @@ async fn a_corrupt_v1_graph_string_stays_a_string_and_migrating_twice_changes_no
     let (flows, skipped) = catalog.list_flows().await.unwrap();
     assert_eq!((flows.len(), skipped), (0, 1), "still skipped as corrupt");
 }
+
+#[tokio::test]
+async fn v1_records_missing_their_json_field_are_carried_not_dropped() {
+    let storage = scoped();
+    seed(&storage, "flows_definitions", "d", json!({"name": "no graph"})).await;
+    seed(&storage, "flows_revisions", "r", json!({"flow_id": "d"})).await;
+    seed(&storage, "flows_drafts", "x", json!({"updated_ns": 5})).await;
+    migrate(&storage).await;
+    for (collection, id) in [
+        ("flows.definitions", "d"),
+        ("flows.revisions", "r"),
+        ("flows.drafts", "x"),
+    ] {
+        let row = storage.documents().get(collection, id).await.unwrap();
+        assert!(row.is_some(), "{collection}/{id} must survive the migration");
+    }
+}

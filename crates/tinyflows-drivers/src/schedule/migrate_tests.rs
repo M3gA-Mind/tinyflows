@@ -181,3 +181,15 @@ async fn migrating_twice_changes_nothing() {
         .unwrap();
     assert_eq!(rows.len(), 1);
 }
+
+#[tokio::test]
+async fn unconvertible_v1_jobs_and_runs_are_carried_not_dropped() {
+    let storage = scoped();
+    seed(&storage, "cron_jobs", "bad", json!({"name": "no schedule"})).await;
+    seed(&storage, "cron_runs", "badrun", json!({"job_id": "bad"})).await;
+    migrate(&storage).await;
+    for (collection, id) in [("cron.jobs", "bad"), ("cron.runs", "badrun")] {
+        let row = storage.documents().get(collection, id).await.unwrap();
+        assert!(row.is_some(), "{collection}/{id} must survive the migration");
+    }
+}
