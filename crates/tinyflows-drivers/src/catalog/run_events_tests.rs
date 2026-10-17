@@ -71,3 +71,62 @@ async fn run_event_retry_is_idempotent_and_sequence_gaps_are_rejected() {
         1
     );
 }
+
+#[tokio::test]
+async fn terminal_cursor_is_marked_only_after_terminal_event_is_durable() {
+    let catalog = catalog();
+    let flow = catalog
+        .create_flow("Events".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    catalog
+        .insert_flow_run("event-run", &flow.id, "event-run", "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    catalog
+        .finish_flow_run(
+            "event-run",
+            "completed",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &[],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog
+            .flow_run_terminal_event_seq("event-run")
+            .await
+            .unwrap(),
+        None
+    );
+
+    catalog
+        .append_flow_run_event(
+            "event-run",
+            json!({"seq":1,"kind":"finished","data":{"status":"completed"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog
+            .flow_run_terminal_event_seq("event-run")
+            .await
+            .unwrap(),
+        None,
+        "the event itself must be durable before its terminal marker"
+    );
+    assert!(catalog
+        .mark_flow_run_terminal_event("event-run", 1)
+        .await
+        .unwrap());
+    assert_eq!(
+        catalog
+            .flow_run_terminal_event_seq("event-run")
+            .await
+            .unwrap(),
+        Some(1)
+    );
+}
