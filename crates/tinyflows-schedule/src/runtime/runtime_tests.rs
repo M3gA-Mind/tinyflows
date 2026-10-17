@@ -23,6 +23,7 @@ struct Fixture {
     calls: AtomicUsize,
     triggers: AtomicUsize,
     trigger_jobs: Mutex<Vec<CronJob>>,
+    trigger_fail_count: usize,
     fail_count: usize,
     permanent: bool,
     delivery_fails: bool,
@@ -56,6 +57,7 @@ impl Fixture {
             calls: AtomicUsize::new(0),
             triggers: AtomicUsize::new(0),
             trigger_jobs: Mutex::new(vec![]),
+            trigger_fail_count: 0,
             fail_count: 0,
             permanent: false,
             delivery_fails: false,
@@ -311,12 +313,12 @@ impl RunDelivery for Fixture {
 #[async_trait]
 impl TriggerSink for Fixture {
     async fn schedule(&self, job: &CronJob, _: &str) -> Result<Attempt> {
-        self.triggers.fetch_add(1, Ordering::SeqCst);
+        let call = self.triggers.fetch_add(1, Ordering::SeqCst);
         self.trigger_jobs.lock().unwrap().push(job.clone());
         Ok(Attempt {
-            success: true,
+            success: call >= self.trigger_fail_count,
             output: "triggered".into(),
-            retryable: false,
+            retryable: true,
             raw_detail: None,
         })
     }

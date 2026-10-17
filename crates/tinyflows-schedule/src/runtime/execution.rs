@@ -25,15 +25,7 @@ async fn execute_with_retry_guard(
     let mut backoff_ms = config.backoff_ms.max(200);
     let mut last_raw_detail = None;
     for attempt in 0..=retries {
-        if let Some(claim) = claim {
-            anyhow::ensure!(
-                ports
-                    .store
-                    .renew_occurrence(claim, ports.clock.now(), super::OCCURRENCE_LEASE)
-                    .await?,
-                "scheduler lost the occurrence before retry attempt"
-            );
-        }
+        ensure_claim_owned(ports, claim, "retry attempt").await?;
         let result = if matches!(job.job_type, JobType::Flow) {
             ports.triggers.schedule(job, run_id).await
         } else {
@@ -60,6 +52,7 @@ async fn execute_with_retry_guard(
             return Ok(result);
         }
         if !result.retryable || attempt == retries {
+            ensure_claim_owned(ports, claim, "final failure callback").await?;
             ports.executor.failed(job, run_id, &result).await;
             return Ok(result);
         }
@@ -71,6 +64,23 @@ async fn execute_with_retry_guard(
         backoff_ms = backoff_ms.saturating_mul(2).min(30_000);
     }
     unreachable!("inclusive attempts always execute at least once")
+}
+
+async fn ensure_claim_owned(
+    ports: &RuntimePorts,
+    claim: Option<&tinyflows_bus::schedule::OccurrenceClaim>,
+    callback: &str,
+) -> Result<()> {
+    if let Some(claim) = claim {
+        anyhow::ensure!(
+            ports
+                .store
+                .renew_occurrence(claim, ports.clock.now(), super::OCCURRENCE_LEASE)
+                .await?,
+            "scheduler lost the occurrence before {callback}"
+        );
+    }
+    Ok(())
 }
 
 async fn execute_with_retry_claimed(
