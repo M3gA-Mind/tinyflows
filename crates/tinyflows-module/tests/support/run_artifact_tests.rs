@@ -8,6 +8,8 @@ mod dedup_snapshot_test;
 mod failed_run_test;
 #[path = "run_lifecycle_tests.rs"]
 mod run_lifecycle_tests;
+#[path = "run_resume_tests.rs"]
+mod run_resume_tests;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},

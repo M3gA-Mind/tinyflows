@@ -2,17 +2,14 @@ use super::*;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tokio::sync::Notify;
 
-async fn module_proxies() -> (
-    ModuleHost,
-    Connection,
-    tinybus::Proxy,
-    tinybus::Proxy,
-) {
+pub(super) async fn module_proxies() -> (ModuleHost, Connection, tinybus::Proxy, tinybus::Proxy) {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
     let module_host = ModuleHost::new(broker.clone());
-    module_host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    module_host
+        .load_file(std::path::PathBuf::from(artifact))
+        .unwrap();
     let (client, transport) = MemoryTransport::pair();
     broker.attach(Arc::new(transport));
     let connection = Connection::connect(Box::new(client)).await.unwrap();
@@ -135,8 +132,8 @@ async fn compiled_module_expires_parked_runs_and_sweeps_only_local_orphans() {
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn expiry_keeps_processing_rows_after_one_row_write_fails() {
     let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
-    let owner = owner_with_lifecycle_gates(&connection, "expiry-batch", Some("b-expired"), None)
-        .await;
+    let owner =
+        owner_with_lifecycle_gates(&connection, "expiry-batch", Some("b-expired"), None).await;
     let flow_id = create_flow(&catalog_proxy, &owner.storage, "Expiry batch").await;
     let documents = FlowCatalogDocuments::new(owner.docs.clone());
     for run_id in ["a-expired", "b-expired"] {
@@ -158,15 +155,17 @@ async fn expiry_keeps_processing_rows_after_one_row_write_fails() {
             .unwrap();
     }
 
-    assert!(runs_proxy
-        .call::<runs::ExpireParkedResponse>(
-            "ExpireParked",
-            (runs::ExpireParked {
-                storage: owner.storage.clone(),
-            },),
-        )
-        .await
-        .is_err());
+    assert!(
+        runs_proxy
+            .call::<runs::ExpireParkedResponse>(
+                "ExpireParked",
+                (runs::ExpireParked {
+                    storage: owner.storage.clone(),
+                },),
+            )
+            .await
+            .is_err()
+    );
     let first: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -232,30 +231,50 @@ async fn expiry_via_an_alias_retires_the_parked_actor_lease() {
     let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
     let owner = owner(&connection, "expiry-owner", None, None, None, None).await;
     let graph = parked_graph();
-    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Alias expiry", graph.clone()).await;
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Alias expiry",
+        graph.clone(),
+    )
+    .await;
     let callback = serve_agent(&connection, "expiry-owner").await;
     let mut start = request(&owner, flow_id.clone(), "alias-expiry", graph, 20_000);
     start.trigger_data = json!({"id":"alias-expiry-item","payload":"review"});
-    runs_proxy.call::<runs::StartRunResponse>("StartRun", (start,)).await.unwrap();
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
     wait_notify(&callback.approval_started, "approval callback").await;
     poll_until_kind(&runs_proxy, &owner.storage, "alias-expiry", "parked").await;
     let documents = FlowCatalogDocuments::new(owner.docs.clone());
-    let row = documents.get_flow_run("alias-expiry").await.unwrap().unwrap();
-    assert!(documents
-        .finish_flow_run(
-            "alias-expiry",
-            "pending_approval",
-            "2020-01-01T00:01:00Z",
-            &row.steps,
-            &row.pending_approvals,
-            None,
-            row.graph_hash.as_deref(),
-        )
+    let row = documents
+        .get_flow_run("alias-expiry")
         .await
-        .unwrap());
+        .unwrap()
+        .unwrap();
+    assert!(
+        documents
+            .finish_flow_run(
+                "alias-expiry",
+                "pending_approval",
+                "2020-01-01T00:01:00Z",
+                &row.steps,
+                &row.pending_approvals,
+                None,
+                row.graph_hash.as_deref(),
+            )
+            .await
+            .unwrap()
+    );
     let alias = alias_owner(&connection, "expiry-owner-alias", owner.docs.clone()).await;
     let expiry: runs::ExpireParkedResponse = runs_proxy
-        .call("ExpireParked", (runs::ExpireParked { storage: alias.storage.clone() },))
+        .call(
+            "ExpireParked",
+            (runs::ExpireParked {
+                storage: alias.storage.clone(),
+            },),
+        )
         .await
         .unwrap();
     assert_eq!(expiry.expired, [("alias-expiry".into(), flow_id)]);
@@ -288,11 +307,26 @@ async fn stale_refusal_does_not_mark_the_run_done_until_dedup_cleanup_finishes()
     )
     .await;
     let graph = parked_graph();
-    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Blocked cleanup", graph.clone()).await;
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Blocked cleanup",
+        graph.clone(),
+    )
+    .await;
     let callback = serve_agent(&connection, "blocked-cleanup").await;
-    let mut start = request(&owner, flow_id.clone(), "blocked-cleanup", graph.clone(), 20_000);
+    let mut start = request(
+        &owner,
+        flow_id.clone(),
+        "blocked-cleanup",
+        graph.clone(),
+        20_000,
+    );
     start.trigger_data = json!({"id":"blocked-item","payload":"review"});
-    runs_proxy.call::<runs::StartRunResponse>("StartRun", (start,)).await.unwrap();
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
     wait_notify(&callback.approval_started, "approval callback").await;
     poll_until_kind(&runs_proxy, &owner.storage, "blocked-cleanup", "parked").await;
     graph["nodes"][2]["config"]["request_id"] = json!("changed");
@@ -345,7 +379,12 @@ async fn stale_refusal_does_not_mark_the_run_done_until_dedup_cleanup_finishes()
         .await
         .unwrap();
     assert!(!during_cleanup.done);
-    assert!(during_cleanup.events.iter().all(|event| event.kind != "finished"));
+    assert!(
+        during_cleanup
+            .events
+            .iter()
+            .all(|event| event.kind != "finished")
+    );
     release_cleanup.notify_one();
     assert!(resume.await.unwrap().is_err());
     let terminal = poll_until_done(&runs_proxy, &owner.storage, "blocked-cleanup").await;

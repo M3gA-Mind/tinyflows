@@ -88,7 +88,9 @@ pub(super) async fn expire_parked(
                         tracing::warn!(%error, run_id, "expired run checkpoint cleanup failed");
                     }
                 }
-                Err(error) => tracing::warn!(%error, run_id, "opening expired run checkpoint scope failed"),
+                Err(error) => {
+                    tracing::warn!(%error, run_id, "opening expired run checkpoint scope failed")
+                }
             }
         }
         if let Err(error) =
