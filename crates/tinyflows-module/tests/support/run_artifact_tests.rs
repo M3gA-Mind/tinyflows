@@ -46,9 +46,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
             release_terminal_write.clone(),
         )),
         None,
+        None,
     )
     .await;
-    let bob = owner(&connection, "bob", None, None).await;
+    let bob = owner(&connection, "bob", None, None, None).await;
     let alice_flow = create_flow(&catalog_proxy, &alice.storage, "Alice").await;
     let bob_flow = create_flow(&catalog_proxy, &bob.storage, "Bob").await;
     let alice_agent = serve_agent(&connection, "alice").await;
@@ -112,7 +113,9 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
 
     let wrong_owner = RunControlRequest {
-        storage: owner(&connection, "mallory", None, None).await.storage,
+        storage: owner(&connection, "mallory", None, None, None)
+            .await
+            .storage,
         run_id: run_id.into(),
         cursor: 0,
     };
@@ -232,6 +235,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         "retry",
         None,
         Some((fail_insert, insert_started.clone(), release_insert.clone())),
+        None,
     )
     .await;
     let retry_flow = create_flow(&catalog_proxy, &retry_owner.storage, "Retry").await;
@@ -268,4 +272,50 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     retry_agent.started.notified().await;
     retry_agent.release.notify_one();
     let _ = poll_until_done(&runs_proxy, &retry_owner.storage, "rollback-id").await;
+
+    let snapshot_owner = owner(
+        &connection,
+        "snapshot",
+        None,
+        None,
+        Some(Arc::new(AtomicBool::new(true))),
+    )
+    .await;
+    let snapshot_flow = create_flow(&catalog_proxy, &snapshot_owner.storage, "Snapshot").await;
+    let snapshot_agent = serve_agent(&connection, "snapshot").await;
+    let snapshot_start = request(
+        &snapshot_owner,
+        snapshot_flow,
+        "snapshot-id",
+        graph(true),
+        20_000,
+    );
+    assert!(
+        runs_proxy
+            .call::<runs::StartRunResponse>("StartRun", (snapshot_start.clone(),))
+            .await
+            .is_err()
+    );
+    let snapshot_row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: snapshot_owner.storage.clone(),
+                id: "snapshot-id".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        snapshot_row, None,
+        "failed snapshot admission rolls back its row"
+    );
+    let admitted: runs::StartRunResponse = runs_proxy
+        .call("StartRun", (snapshot_start,))
+        .await
+        .unwrap();
+    assert!(!admitted.already_running);
+    snapshot_agent.started.notified().await;
+    snapshot_agent.release.notify_one();
+    let _ = poll_until_done(&runs_proxy, &snapshot_owner.storage, "snapshot-id").await;
 }

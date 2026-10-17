@@ -84,6 +84,7 @@ fn register(key: ScopedRunId) -> std::result::Result<Arc<ActiveRun>, Arc<ActiveR
 }
 
 fn unregister(run: &Arc<ActiveRun>) {
+    run.phase.store(TERMINAL, Ordering::Release);
     let mut active = ACTIVE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -152,12 +153,9 @@ pub(super) async fn start(connection: &Connection, request: StartRun) -> Result<
         {
             Ok(true) => {}
             Ok(false) | Err(_) => {
-                if let Err(settle_error) = finish_admission_failure(
-                    &prepared.catalog,
-                    &request.run_id,
-                    &error.to_string(),
-                )
-                .await
+                if let Err(settle_error) =
+                    finish_admission_failure(&prepared.catalog, &request.run_id, &error.to_string())
+                        .await
                 {
                     tracing::error!(%settle_error, run_id = %request.run_id, "settling failed run admission");
                 }
@@ -221,10 +219,7 @@ async fn finish_admission_failure(
             })?,
         )
         .await?;
-    if !catalog
-        .mark_flow_run_terminal_event(run_id, seq)
-        .await?
-    {
+    if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
         anyhow::bail!("failed admission terminal cursor was not committed")
     }
     Ok(())
