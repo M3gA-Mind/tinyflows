@@ -210,7 +210,11 @@ impl tinyflows_schedule::runtime::JobStore for Store {
     }
     async fn queue_occurrence(&self, claim: &OccurrenceClaim, record: RunRecord) -> Result<bool> {
         self.0
-            .queue_claimed_run(&decode_claim(claim)?, record.started_at)
+            .queue_claimed_run_with_id(
+                &decode_claim(claim)?,
+                record.started_at,
+                Some(&record.run_id),
+            )
             .await
     }
     async fn complete_occurrence(
@@ -220,25 +224,20 @@ impl tinyflows_schedule::runtime::JobStore for Store {
         completion: Completion,
     ) -> Result<bool> {
         let claim = decode_claim(claim)?;
+        let completion_record = tinyflows_drivers::schedule::RunCompletion {
+            finished_at: record.finished_at,
+            success: completion.success,
+            output: completion.output,
+            delivery_status: record.delivery_status,
+            run_id: Some(record.run_id),
+        };
         let completed = if completion.advance_schedule {
             self.0
-                .complete_claim(
-                    &claim,
-                    record.finished_at,
-                    completion.success,
-                    &completion.output,
-                    record.delivery_status,
-                )
+                .complete_claim_with_run(&claim, completion_record)
                 .await?
         } else {
             self.0
-                .complete_manual_claim(
-                    &claim,
-                    record.finished_at,
-                    completion.success,
-                    &completion.output,
-                    record.delivery_status,
-                )
+                .complete_manual_claim_with_run(&claim, completion_record)
                 .await?
         };
         if completed && completion.remove {
