@@ -159,18 +159,21 @@ pub(super) async fn resume(
         checkpointer: DriverCheckpointer::new(documents),
         require_approval,
     };
+    active
+        .phase
+        .store(RUNNING, std::sync::atomic::Ordering::Release);
+    let (actor_ready, actor_admitted) = tokio::sync::oneshot::channel();
     tokio::spawn(super::actor::drive_resume(
         connection.clone(),
         run,
         prepared,
         Arc::clone(&active),
+        actor_admitted,
         request,
         row.steps,
     ));
-    active
-        .phase
-        .store(RUNNING, std::sync::atomic::Ordering::Release);
     active.admitted.notify_waiters();
+    let _ = actor_ready.send(());
     Ok(ResumeRunResponse {
         run_id: active.key.run_id.clone(),
     })

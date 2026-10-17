@@ -45,6 +45,7 @@ pub(super) async fn drive_resume(
     request: StartRun,
     prepared: Prepared,
     active: Arc<ActiveRun>,
+    admitted: tokio::sync::oneshot::Receiver<()>,
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
 ) {
@@ -53,7 +54,7 @@ pub(super) async fn drive_resume(
         request,
         prepared,
         active,
-        tokio::sync::oneshot::channel().1,
+        admitted,
         Continuation::Resume {
             approvals: resume.approvals,
             rejections: resume.rejections,
