@@ -3,7 +3,6 @@
 use super::*;
 use chrono::{Duration, Utc};
 use serde_json::json;
-use tinyflows_schedule::runtime::Clock as _;
 
 #[tokio::test(start_paused = true)]
 async fn retry_sleep_uses_tokio_time_without_changing_the_calendar_instant() {
