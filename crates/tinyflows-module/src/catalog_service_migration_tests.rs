@@ -129,7 +129,7 @@ async fn explicit_catalog_migration_preserves_records_and_imports_legacy_state()
 #[tokio::test]
 async fn catalog_migration_refuses_missing_record_metadata_before_writing() {
     let (_server, host) = connections().await;
-    let (storage, docs, _) = scope_with_test_options(&host, "missing-metadata", false, false).await;
+    let (storage, docs, _) = scope_with_test_options(&host, "missingmetadata", false, false).await;
     docs.ensure_collection(&CollectionSpec::new("flows_definitions"))
         .await
         .unwrap();
