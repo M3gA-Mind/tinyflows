@@ -371,17 +371,31 @@ async fn run_claim_with_renewal(
                     // A terminal commit may already have cleared the fence
                     // while its response is still in flight. Await the work;
                     // its callback boundaries remain guarded by claim checks.
-                    Ok(false) | Err(_) => return work.as_mut().await,
+                    Ok(false) | Err(_) => {
+                        let result = work.as_mut().await;
+                        return release_claim_after_work_error(ports, &claim, result).await;
+                    }
                 }
             }
             result = &mut work => {
-                if result.is_err() {
-                    let _ = ports.store.release_occurrence(&claim, ports.clock.now()).await;
-                }
-                return result;
+                return release_claim_after_work_error(ports, &claim, result).await;
             }
         }
     }
+}
+
+async fn release_claim_after_work_error(
+    ports: &RuntimePorts,
+    claim: &OccurrenceClaim,
+    result: Result<ManualRunOutcome>,
+) -> Result<ManualRunOutcome> {
+    if result.is_err() {
+        let _ = ports
+            .store
+            .release_occurrence(claim, ports.clock.now())
+            .await;
+    }
+    result
 }
 
 #[cfg(test)]
