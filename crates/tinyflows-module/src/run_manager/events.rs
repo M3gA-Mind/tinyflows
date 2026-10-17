@@ -68,9 +68,13 @@ impl EventWriter {
         tokio::spawn(async move {
             let mut seq = 0_u64;
             let mut last_error = None;
+            let mut terminal = false;
             while let Some(command) = receiver.recv().await {
                 match command {
                     WriteCommand::Step { step, data } => {
+                        if terminal {
+                            continue;
+                        }
                         if let Err(error) = catalog.upsert_flow_run_step(&run_id, &step).await {
                             last_error = Some(format!("persisting run step: {error}"));
                         }
@@ -91,6 +95,12 @@ impl EventWriter {
                         graph_run_id,
                         ack,
                     } => {
+                        if terminal {
+                            if let Some(ack) = ack {
+                                let _ = ack.send(Err(anyhow::anyhow!("run event stream is terminal")));
+                            }
+                            continue;
+                        }
                         let ack_result = persist_event(
                             &catalog,
                             &run_id,
@@ -101,6 +111,9 @@ impl EventWriter {
                             &mut last_error,
                         )
                         .await;
+                        if kind == "finished" && ack_result.is_ok() {
+                            terminal = true;
+                        }
                         if let Some(ack) = ack {
                             let _ = ack.send(ack_result);
                         }
