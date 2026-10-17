@@ -15,9 +15,6 @@ use tokio::{sync::{Semaphore, watch}, task::JoinSet};
 
 const OCCURRENCE_LEASE: chrono::Duration = chrono::Duration::hours(2);
 
-/// Stored output for a single-flight recurrence missed during an active run.
-pub const SKIPPED_OUTPUT: &str = "skipped: the previous run was still in flight";
-
 /// Scheduler defaults compatible with the former host loop.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -143,11 +140,9 @@ impl Scheduler {
         self.dispatch_claims(selected, ManualDelivery::Requested).await
     }
 
-    /// Durably claim jobs, advance recurring slots, and return the queued count.
-    /// A claimed single-flight recurrence records a skipped run; one-shots wait.
-    /// One-shots are disabled before dispatch: a crash after claiming can lose
-    /// execution or history, but persistence failure cannot automatically replay
-    /// an external side effect. Operators may explicitly re-enable such a job.
+    /// Durably claim due occurrences and return the dispatched count. A live
+    /// lease is excluded without advancing or recording a skipped occurrence;
+    /// expired leases remain due and can be recovered by another scheduler.
     pub async fn dispatch(&mut self, jobs: Vec<CronJob>) -> Result<usize> {
         anyhow::ensure!(!self.stopped, "scheduler is stopped");
         let mut claims = Vec::new();

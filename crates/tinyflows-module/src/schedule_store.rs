@@ -137,7 +137,7 @@ impl tinyflows_schedule::runtime::JobStore for Store {
             .claim_job_now(job, owner, now, lease)
             .await?
         else {
-            let current = self.0.get_job(&job.id).await.ok();
+            let current = self.0.get_job(&job.id).await?;
             let changed = current.is_none_or(|current| {
                 current.created_at != job.created_at
                     || current.claim_generation != job.claim_generation
