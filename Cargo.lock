@@ -1993,6 +1993,7 @@ name = "tinyflows"
 version = "0.8.23"
 dependencies = [
  "async-trait",
+ "base64",
  "font8x8",
  "futures-timer",
  "futures-util",
@@ -2123,9 +2124,12 @@ dependencies = [
  "tinybus-module",
  "tinyflows",
  "tinyflows-bus",
+ "tinyflows-catalog",
+ "tinyflows-copilot",
  "tinyflows-drivers",
  "tinyflows-schedule",
  "tinystoragedrivers-core",
+ "tinytools",
  "tokio",
  "tracing",
  "uuid",

@@ -50,6 +50,41 @@ pub fn graph_trigger_kind(graph: &WorkflowGraph) -> Option<TriggerKind> {
     serde_json::from_value(value.clone()).ok()
 }
 
+/// Whether the graph has exactly one `app_event` trigger bound to the given
+/// toolkit and trigger slug. Both identifiers are matched case-insensitively.
+#[must_use]
+pub fn app_event_binding(graph: &WorkflowGraph, toolkit: &str, trigger_slug: &str) -> bool {
+    let Some(trigger) = graph.trigger() else {
+        return false;
+    };
+    if graph_trigger_kind(graph) != Some(TriggerKind::AppEvent) {
+        return false;
+    }
+    trigger
+        .config
+        .get("toolkit")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case(toolkit))
+        && trigger
+            .config
+            .get("trigger_slug")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case(trigger_slug))
+}
+
+/// Literal object values pinned under the graph's single trigger `inputs`.
+/// Missing, multiple, or non-object trigger inputs produce an empty map; values
+/// are configuration and are never interpreted as expressions.
+#[must_use]
+pub fn pinned_inputs(graph: &WorkflowGraph) -> serde_json::Map<String, serde_json::Value> {
+    graph
+        .trigger()
+        .and_then(|trigger| trigger.config.get("inputs"))
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Non-fatal validation warnings for a graph, using [`trigger_kind_fires`] as
 /// the set of wired kinds. Today exactly one warning exists: the trigger kind
 /// does not fire automatically. Empty when it does, or when the graph has no

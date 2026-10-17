@@ -265,14 +265,21 @@ impl CronDocuments {
 
     /// The job with `job_id`, or an error when there is none.
     pub async fn get_job(&self, job_id: &str) -> Result<CronJob> {
+        self.find_job(job_id)
+            .await?
+            .ok_or_else(|| job_not_found(job_id))
+    }
+
+    /// The job with `job_id`, or `None` when it is absent.
+    pub async fn find_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         self.ensure().await?;
-        let stored = self
-            .docs
+        self.docs
             .get(JOBS, job_id)
             .await
             .map_err(storage_error)?
-            .ok_or_else(|| job_not_found(job_id))?;
-        doc_to_job(&stored)
+            .as_ref()
+            .map(doc_to_job)
+            .transpose()
     }
 
     /// Removes duplicate jobs sharing a `name`: per name, keeps the job with
@@ -373,8 +380,14 @@ impl CronDocuments {
                 .ok_or_else(|| job_not_found(job_id))?;
             let job = apply_patch(doc_to_job(&stored)?, patch.clone())?;
             let doc = updated_job_doc(&job, &stored.doc)?;
+            let invalidated_queued_run = super::claims::queued_run_cleanup(&stored.doc)?;
             match self
-                .commit_job(job_id, Some(&stored), Some(doc.clone()), vec![])
+                .commit_job(
+                    job_id,
+                    Some(&stored),
+                    Some(doc.clone()),
+                    invalidated_queued_run,
+                )
                 .await
             {
                 Ok(results) => {

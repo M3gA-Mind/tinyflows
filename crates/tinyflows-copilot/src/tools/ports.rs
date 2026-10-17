@@ -14,8 +14,8 @@
 //! type once, at the seam.
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tinyflows::caps::Capabilities;
 use tinyflows::catalog::NodeKindContract;
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::types::FlowSuggestion;
@@ -24,9 +24,28 @@ use tinyflows_catalog::{DraftOrigin, Flow, FlowDraft, FlowRevision, FlowRun, Flo
 /// A port call that failed, as the sentence the model will read.
 pub type PortResult<T> = Result<T, String>;
 
+/// An unsaved candidate graph prepared for the module's isolated sandbox.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SandboxRunRequest {
+    /// Graph JSON selected by the dry-run tool.
+    pub graph: Value,
+    /// Trigger input passed to the graph.
+    pub input: Value,
+    /// Host-classified permission report to include with a settled run.
+    pub permissions_manifest: Vec<Value>,
+}
+
+/// Runs an unsaved graph through the compiled TinyFlows module sandbox.
+#[async_trait]
+pub trait SandboxRunner: Send + Sync {
+    /// Returns the canonical JSON report, or a tool-level error string for
+    /// invalid, uncompilable, or timed-out executions.
+    async fn run(&self, request: SandboxRunRequest) -> PortResult<Value>;
+}
+
 /// A written value plus the explanatory log lines the host produced alongside it
 /// (for example the manual-to-automatic auto-disarm message of a save).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Written<T> {
     /// The persisted value.
     pub value: T,
@@ -94,11 +113,22 @@ pub trait FlowStore: Send + Sync {
     ) -> PortResult<Value>;
     /// Stops an in-flight or parked run.
     async fn cancel_run(&self, run_id: &str) -> PortResult<Value>;
+    /// Starts a real saved-flow run in the background and returns its run id.
+    async fn run_detached(
+        &self,
+        _flow_id: &str,
+        _input: Value,
+        _inputs: serde_json::Map<String, Value>,
+    ) -> PortResult<Value> {
+        Err("detached flow runs are not supported by this FlowStore".into())
+    }
 }
 
-/// The validation, gate and sandbox policy a host enforces on a graph.
+/// The host's validation and authoring gates, paired with its sandbox runner.
+/// The sandbox remains a distinct async port so production hosts can route it
+/// through the compiled module without exposing engine capabilities here.
 #[async_trait]
-pub trait BuilderGates: Send + Sync {
+pub trait BuilderGates: SandboxRunner {
     /// Structural validation of a candidate graph, every problem at once.
     async fn validate(&self, graph: Value) -> FlowValidation;
     /// The full hard-gate stack; empty means every gate passed.
@@ -127,13 +157,10 @@ pub trait BuilderGates: Send + Sync {
         draft_id: Option<String>,
         flow_id: Option<String>,
     ) -> Result<Value, String>;
-    /// The capability set a dry run executes against: mock capabilities, however
-    /// the host decorates them. No real side effect may fire through it.
-    fn sandbox_capabilities(&self) -> Capabilities;
 }
 
 /// One selectable agent definition, already rendered the way the tool returns it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct AgentDefinition {
     /// Registry id, the value of an `agent` node's `agent_ref`.
     pub id: String,

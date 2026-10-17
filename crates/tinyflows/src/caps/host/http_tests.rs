@@ -97,7 +97,8 @@ fn a_credential_is_injected_after_the_summary_is_taken() {
             header: "Authorization".into(),
             value: "Bearer super-secret".into(),
         },
-    );
+    )
+    .unwrap();
 
     assert_eq!(summary, "POST https://example.com/x");
     assert!(
@@ -105,6 +106,109 @@ fn a_credential_is_injected_after_the_summary_is_taken() {
         "a secret must never reach a log or an approval prompt"
     );
     assert_eq!(sent["headers"]["Authorization"], "Bearer super-secret");
+}
+
+#[test]
+fn credential_preparation_rejects_non_object_request_and_headers() {
+    // Keep this adapter compilable against the old infallible API. The
+    // assertions below describe the desired result and therefore fail on the
+    // baseline because malformed input is silently returned unchanged.
+    fn prepare(request: serde_json::Value, cred: &HttpCredential) -> Result<serde_json::Value> {
+        inject_credential(request, cred)
+    }
+    let cred = HttpCredential {
+        header: "Authorization".into(),
+        value: "Bearer secret-must-not-be-reported".into(),
+    };
+
+    let error = prepare(json!(null), &cred).expect_err("malformed request must fail closed");
+    let message = error.to_string();
+    assert!(!message.contains(&cred.value));
+}
+
+#[test]
+fn credential_preparation_rejects_malformed_headers() {
+    let cred = HttpCredential {
+        header: "Authorization".into(),
+        value: "Bearer secret-must-not-be-reported".into(),
+    };
+    let error = inject_credential(json!({"headers":"not-an-object"}), &cred)
+        .expect_err("malformed headers must fail closed");
+    assert!(!error.to_string().contains(&cred.value));
+}
+
+#[test]
+fn credential_header_values_support_scheme_templates_and_override_inline_values() {
+    use crate::caps::HttpCredentialTemplate;
+
+    let bearer = HttpCredentialTemplate::Bearer {
+        secret: "token".into(),
+    }
+    .render()
+    .unwrap();
+    let request =
+        inject_credential(json!({"headers":{"authorization":"inline"}}), &bearer).unwrap();
+    assert_eq!(request["headers"]["Authorization"], "Bearer token");
+    assert!(request["headers"].get("authorization").is_none());
+
+    let basic = HttpCredentialTemplate::Basic {
+        username: "alice".into(),
+        secret: "secret".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!(basic.value, "Basic YWxpY2U6c2VjcmV0");
+
+    let custom = HttpCredentialTemplate::Header {
+        header: " X-API-Key ".into(),
+        secret: "key".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!(
+        (custom.header.as_str(), custom.value.as_str()),
+        ("X-API-Key", "key")
+    );
+
+    let resolved = HttpCredentialTemplate::Resolved {
+        header: "X-Resolved".into(),
+        value: "already formatted".into(),
+    }
+    .render()
+    .unwrap();
+    assert_eq!(resolved.value, "already formatted");
+}
+
+#[test]
+fn custom_header_template_rejects_empty_fields_without_revealing_values() {
+    use crate::caps::HttpCredentialTemplate;
+
+    for template in [
+        HttpCredentialTemplate::Header {
+            header: "   ".into(),
+            secret: "secret-token".into(),
+        },
+        HttpCredentialTemplate::Header {
+            header: "X-Key".into(),
+            secret: "  ".into(),
+        },
+    ] {
+        let error = template.render().expect_err("empty field must fail");
+        assert!(!error.to_string().contains("secret-token"));
+    }
+}
+
+#[test]
+fn credential_injection_coerces_null_headers_to_an_object() {
+    let request = inject_credential(
+        json!({"headers":null}),
+        &HttpCredential {
+            header: "X-Token".into(),
+            value: "{token}".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(request["headers"]["X-Token"], "{token}");
 }
 
 #[test]

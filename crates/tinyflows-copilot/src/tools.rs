@@ -32,10 +32,10 @@
 //! `enabled`/`require_approval` (it CAN auto-disable an already-enabled flow
 //! when the graph's trigger transitions from manual to automatic — see its
 //! own doc). `revise_workflow` / `edit_workflow` / `validate_workflow` only
-//! validate or mutate a draft and never persist. `dry_run_workflow` executes
-//! only against `tinyflows`' deterministic **mock** capabilities, so no real
-//! LLM / tool / HTTP / code side effect can fire from it regardless of tier
-//! (F7 — it is deliberately NOT tier-gated; see its own doc).
+//! validate or mutate a draft and never persist. `dry_run_workflow` delegates
+//! to the `SandboxRunner` port; production hosts route it through
+//! `Runs.SandboxRun`, where only a ToolInvoke preflight callback crosses the
+//! bus and the module produces its own mock echo. It is not tier-gated (F7).
 //! [`ResumeFlowRunTool`] is the one place a non-persistence tool can cause a
 //! real effect: resuming a parked run lets its already-approved nodes fire,
 //! which is why it is `Execute`-gated rather than `None`/`Write`.
@@ -59,7 +59,9 @@ mod dry_run;
 mod flow_reads;
 mod kind_reads;
 mod persistence;
+mod propose;
 mod run_control;
+mod run_flow;
 
 pub use discovery::SuggestWorkflowsTool;
 pub use draft_edit::{EditWorkflowTool, edit_op_shape};
@@ -71,7 +73,9 @@ pub use flow_reads::{
 };
 pub use kind_reads::{GetNodeKindContractTool, ListAgentDefinitionsTool, ListNodeKindsTool};
 pub use persistence::{CreateWorkflowTool, DuplicateFlowTool, SaveWorkflowTool};
+pub use propose::ProposeWorkflowTool;
 pub use run_control::{CancelFlowRunTool, ResumeFlowRunTool};
+pub use run_flow::RunFlowTool;
 
 /// Return a constant tool schema parsed once from an embedded JSON string.
 macro_rules! static_schema {
@@ -96,3 +100,7 @@ pub(crate) mod fakes;
 #[cfg(test)]
 #[path = "tools_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "dry_run_port_tests.rs"]
+mod dry_run_port_tests;

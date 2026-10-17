@@ -2,13 +2,14 @@
 //!
 //! tinyflows stays host-agnostic: everything that touches the outside world is
 //! expressed as a trait the embedding application implements. OpenHuman's
-//! adapter seam (`src/openhuman/tinyflows/`) wires these to its inference stack,
-//! curated Composio tools, `HttpRequestTool`, and sandboxed code runtimes.
+//! host adapter wires these to its inference stack, curated tools, outbound HTTP,
+//! and sandboxed code runtimes.
 
 pub mod agent;
 pub mod approval;
 #[cfg(any(test, feature = "host-caps"))]
 pub mod host;
+pub mod http_credential;
 #[cfg(any(test, feature = "mock"))]
 pub mod mock;
 // Kept apart from `mock` because it answers a different question. `mock` echoes,
@@ -36,9 +37,10 @@ pub use self::agent::{
 pub use self::approval::{
     ApprovalDecision, ApprovalOutcome, ApprovalProvider, ApprovalRequest, ApprovalSubject,
 };
+pub use self::http_credential::{HttpCredential, HttpCredentialTemplate, inject_credential};
 pub use self::schema::sample_for_schema;
 pub use self::shell::{ShellInterpreter, ShellOutcome, ShellRequest, ShellRunner, ShellScript};
-pub use self::tasks::{TaskRunner, TaskSpec, TaskState, TokioTaskRunner};
+pub use self::tasks::{TaskExecutor, TaskRunner, TaskSpec, TaskState, TokioTaskRunner};
 
 /// A chat / LLM provider used by `agent` and `output_parser` nodes.
 #[async_trait]
@@ -253,12 +255,12 @@ pub struct Capabilities {
     /// Runner for background work a `spawn` node starts and a `gate` node
     /// collects.
     ///
-    /// Defaults to [`TokioTaskRunner`], so spawn/gate genuinely overlap without
-    /// a host wiring anything. `None` makes `spawn` run its work **inline** and
-    /// hand back a ticket that is already settled: such a graph still produces
-    /// the right answer, it just loses the overlap. That is a performance cliff
-    /// rather than a correctness one, which is exactly why it is worth saying
-    /// out loud here and in the node catalog.
+    /// A supplied runner owns both the ticket lifecycle and task semantics. Use
+    /// [`TokioTaskRunner::with_executor`] when spawned tool, HTTP and child
+    /// workflow work should execute asynchronously. [`TokioTaskRunner::new`]
+    /// preserves its record-the-spec behavior for compatibility; it is not an
+    /// execution fallback. `None` makes `spawn` execute its work inline through
+    /// these capabilities and hand `gate` an already-settled ticket.
     pub tasks: Option<Arc<dyn TaskRunner>>,
     /// Optional human-review surface for `approval` nodes. `None` on hosts
     /// without one, in which case an `approval` node falls back to pausing the

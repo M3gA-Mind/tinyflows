@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn infrastructure_failure_classification_and_repair_text_are_shared() {
+    assert!(is_backend_or_infrastructure_failure(
+        "HTTP 503 from inference"
+    ));
+    assert!(!is_backend_or_infrastructure_failure(
+        "invalid workflow graph"
+    ));
+    assert!(
+        backend_repair_message("connection refused")
+            .unwrap()
+            .contains("connection refused")
+    );
+    assert_eq!(backend_repair_message("invalid graph"), None);
+}
+
 fn result(tool_name: &str, content: &str) -> ToolResult {
     ToolResult {
         tool_name: Some(tool_name.into()),

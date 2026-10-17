@@ -3,6 +3,39 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Whether a tool failure is attributable to the backend or infrastructure.
+#[must_use]
+pub fn is_backend_or_infrastructure_failure(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        "backend returned 5",
+        "internal server error",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "connection refused",
+        "connection reset",
+        "connection timed out",
+        "transport error while calling",
+        "bucket does not exist",
+        "http 5",
+        "status 5",
+        "5xx",
+    ]
+    .iter()
+    .any(|marker| error.contains(marker))
+}
+
+/// Return a user-facing retry message for an infrastructure failure.
+#[must_use]
+pub fn backend_repair_message(error: &str) -> Option<String> {
+    is_backend_or_infrastructure_failure(error).then(|| {
+        format!(
+            "The workflow was not changed because this run failed in an external service.\n\n{error}"
+        )
+    })
+}
+
 /// One chronological tool result, after the host has correlated call ids to
 /// names. No transcript or harness dependency crosses this boundary.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

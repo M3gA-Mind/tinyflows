@@ -1,14 +1,13 @@
 //! Atomic occurrence leases and fenced run completion.
-use super::codec::{INCARNATION, doc_to_job, incarnation, run_id, run_to_doc, set_last_run};
-use super::jobs::reschedule;
+mod completion;
+
+use super::codec::{INCARNATION, doc_to_job, incarnation, run_id, run_to_doc};
 use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, storage_error};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tinyflows_schedule::{
-    CronJob, DeliveryStatus, Schedule, next_run_for_schedule, truncate_cron_output,
-};
+use tinyflows_schedule::CronJob;
 use tinystoragedrivers_core::{Capability, Precondition, Versioned, WriteOp};
 use uuid::Uuid;
 
@@ -23,11 +22,13 @@ struct Lease {
     occurrence: DateTime<Utc>,
     started_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    #[serde(default)]
+    queued_run: Option<i64>,
 }
 
 /// A fenced occurrence captured before dispatch. Keep this value through
 /// execution and pass it to completion; reading a fresh job loses that fence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimedOccurrence {
     job: CronJob,
     lease: Lease,
@@ -53,6 +54,10 @@ impl ClaimedOccurrence {
     pub fn occurrence(&self) -> DateTime<Utc> {
         self.lease.occurrence
     }
+    /// Start instant captured with this lease.
+    pub fn started_at(&self) -> DateTime<Utc> {
+        self.lease.started_at
+    }
     /// The initial expiry. Renewal extends the stored lease; this snapshot
     /// remains the original acquisition receipt.
     pub fn expires_at(&self) -> DateTime<Utc> {
@@ -73,6 +78,18 @@ fn lease(doc: &Value) -> Result<Option<Lease>> {
         .transpose()
         .map_err(Into::into)
 }
+
+pub(super) fn queued_run_cleanup(doc: &Value) -> Result<Vec<WriteOp>> {
+    let Some(queued_run) = lease(doc)?.and_then(|lease| lease.queued_run) else {
+        return Ok(vec![]);
+    };
+    Ok(vec![WriteOp::Delete {
+        collection: RUNS.into(),
+        id: run_id(queued_run),
+        precondition: Precondition::None,
+    }])
+}
+
 fn owns(doc: &Value, claim: &ClaimedOccurrence, now: DateTime<Utc>) -> Result<bool> {
     let Some(current) = lease(doc)? else {
         return Ok(false);
@@ -108,6 +125,44 @@ impl CronDocuments {
         now: DateTime<Utc>,
         duration: Duration,
     ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(job_id, None, owner, now, duration, false)
+            .await
+    }
+
+    /// Due-only claim that also verifies the caller's captured definition.
+    pub async fn claim_due_job_for(
+        &self,
+        expected: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+    ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(&expected.id, Some(expected), owner, now, duration, false)
+            .await
+    }
+
+    /// Atomically claims a saved definition for an explicit manual run,
+    /// including disabled jobs and jobs scheduled in the future.
+    pub async fn claim_job_now(
+        &self,
+        expected: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+    ) -> Result<Option<ClaimedOccurrence>> {
+        self.claim_occurrence(&expected.id, Some(expected), owner, now, duration, true)
+            .await
+    }
+
+    async fn claim_occurrence(
+        &self,
+        job_id: &str,
+        expected: Option<&CronJob>,
+        owner: &str,
+        now: DateTime<Utc>,
+        duration: Duration,
+        force: bool,
+    ) -> Result<Option<ClaimedOccurrence>> {
         if owner.trim().is_empty() {
             bail!("cron store: lease owner must not be empty");
         }
@@ -122,10 +177,23 @@ impl CronDocuments {
                 return Ok(None);
             };
             let job = doc_to_job(&stored)?;
-            if !job.enabled || job.next_run > now {
+            if expected.is_some_and(|expected| {
+                job.created_at != expected.created_at
+                    || job.claim_generation != expected.claim_generation
+                    || !job.same_execution_definition(expected)
+                    || job.schedule != expected.schedule
+                    || job.next_run != expected.next_run
+            }) {
                 return Ok(None);
             }
-            if lease(&stored.doc)?.is_some_and(|lease| lease.expires_at > now) {
+            if !force && (!job.enabled || job.next_run > now) {
+                return Ok(None);
+            }
+            let previous_lease = lease(&stored.doc)?;
+            if previous_lease
+                .as_ref()
+                .is_some_and(|lease| lease.expires_at > now)
+            {
                 return Ok(None);
             }
             let mut doc = stored.doc.clone();
@@ -143,10 +211,19 @@ impl CronDocuments {
                 occurrence: job.next_run,
                 started_at: now,
                 expires_at,
+                queued_run: None,
             };
             doc[LEASE] = serde_json::to_value(&acquired)?;
+            let mut extra = vec![];
+            if let Some(queued_run) = previous_lease.and_then(|lease| lease.queued_run) {
+                extra.push(WriteOp::Delete {
+                    collection: RUNS.into(),
+                    id: run_id(queued_run),
+                    precondition: Precondition::None,
+                });
+            }
             match self
-                .commit_job(job_id, Some(&stored), Some(doc), vec![])
+                .commit_job(job_id, Some(&stored), Some(doc), extra)
                 .await
             {
                 Ok(_) => {
@@ -160,6 +237,65 @@ impl CronDocuments {
             }
         }
         bail!("cron store: occurrence kept changing during acquisition")
+    }
+
+    /// Appends a durable queued placeholder while preserving the lease. The
+    /// scheduler replaces this row with terminal history when it completes.
+    pub async fn queue_claimed_run(
+        &self,
+        claim: &ClaimedOccurrence,
+        queued_at: DateTime<Utc>,
+    ) -> Result<bool> {
+        self.docs
+            .capabilities()
+            .require(Capability::Transactions)
+            .map_err(storage_error)?;
+        self.ensure().await?;
+        for _ in 0..CAS_ATTEMPTS {
+            let Some(stored) = self
+                .docs
+                .get(JOBS, &claim.job.id)
+                .await
+                .map_err(storage_error)?
+            else {
+                return Ok(false);
+            };
+            if !owns(&stored.doc, claim, queued_at)? {
+                return Ok(false);
+            }
+            let mut doc = stored.doc.clone();
+            if lease(&stored.doc)?.is_some_and(|lease| lease.queued_run.is_some()) {
+                return Ok(true);
+            }
+            let seq = self.next_run_number().await?;
+            doc[LEASE]["queued_run"] = serde_json::json!(seq);
+            let run = run_to_doc(
+                seq,
+                &claim.job.id,
+                Some(&claim.lease.incarnation),
+                queued_at,
+                queued_at,
+                "queued",
+                None,
+                0,
+                None,
+            );
+            let extra = vec![WriteOp::Put {
+                collection: RUNS.into(),
+                id: run_id(seq),
+                doc: run,
+                precondition: Precondition::Absent,
+            }];
+            match self
+                .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
+                .await
+            {
+                Ok(_) => return Ok(true),
+                Err(error) if super::admission::conflict(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        bail!("cron store: occurrence changed while queueing run")
     }
 
     /// Extends an unexpired, still-owned occurrence. A stale worker receives
@@ -212,6 +348,7 @@ impl CronDocuments {
                 return Ok(false);
             }
             let mut doc = stored.doc.clone();
+            let mut extra = vec![];
             match expires_at {
                 Some(expires_at) => {
                     let current_expiry = lease(&stored.doc)?
@@ -221,13 +358,21 @@ impl CronDocuments {
                         serde_json::to_value(expires_at.max(current_expiry))?;
                 }
                 None => {
+                    if let Some(queued_run) = lease(&stored.doc)?.and_then(|lease| lease.queued_run)
+                    {
+                        extra.push(WriteOp::Delete {
+                            collection: RUNS.into(),
+                            id: run_id(queued_run),
+                            precondition: Precondition::None,
+                        });
+                    }
                     doc.as_object_mut()
                         .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?
                         .remove(LEASE);
                 }
             }
             match self
-                .commit_job(&claim.job.id, Some(&stored), Some(doc), vec![])
+                .commit_job(&claim.job.id, Some(&stored), Some(doc), extra)
                 .await
             {
                 Ok(_) => return Ok(true),
@@ -287,90 +432,5 @@ impl CronDocuments {
             }
         }
         bail!("cron store: completed occurrence kept changing during removal")
-    }
-
-    /// Atomically records a run and advances its still-owned occurrence.
-    /// Stale, expired, edited, canceled or re-created jobs return false
-    /// without any outcome write. A one-shot is disabled, retaining history.
-    /// The host applies delete_after_run with [`Self::remove_completed_claim`]
-    /// separately when it wants removal. Never follow completion with
-    /// `remove_job(job_id)`: that id may already belong to a replacement.
-    ///
-    /// # Errors
-    /// Completion predates acquisition, state/schedule is malformed, transactions
-    /// are unavailable, retries are exhausted, or the backend fails. Pruning
-    /// failure is reported after the run and advance have already committed.
-    pub async fn complete_claim(
-        &self,
-        claim: &ClaimedOccurrence,
-        finished_at: DateTime<Utc>,
-        success: bool,
-        output: &str,
-        delivery_status: Option<DeliveryStatus>,
-    ) -> Result<bool> {
-        self.docs
-            .capabilities()
-            .require(Capability::Transactions)
-            .map_err(storage_error)?;
-        self.ensure().await?;
-        if finished_at < claim.lease.started_at {
-            bail!("cron store: completion precedes acquisition");
-        }
-        for _ in 0..CAS_ATTEMPTS {
-            let Some(stored) = self
-                .docs
-                .get(JOBS, &claim.job.id)
-                .await
-                .map_err(storage_error)?
-            else {
-                return Ok(false);
-            };
-            if !owns(&stored.doc, claim, finished_at)? {
-                return Ok(false);
-            }
-            let job = doc_to_job(&stored)?;
-            let mut doc = stored.doc.clone();
-            let body = doc
-                .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("cron store: invalid job"))?;
-            body.remove(LEASE);
-            body.insert(COMPLETED.into(), serde_json::to_value(&claim.lease)?);
-            set_last_run(body, finished_at, success, truncate_cron_output(output));
-            reschedule(
-                body,
-                next_run_for_schedule(&job.schedule, finished_at)?,
-                matches!(job.schedule, Schedule::At { .. }),
-            );
-            let seq = self.next_run_number().await?;
-            let run = run_to_doc(
-                seq,
-                &job.id,
-                Some(&claim.lease.incarnation),
-                claim.lease.started_at,
-                finished_at,
-                if success { "success" } else { "error" },
-                Some(truncate_cron_output(output)),
-                (finished_at - claim.lease.started_at).num_milliseconds(),
-                delivery_status.as_ref(),
-            );
-            let extra = vec![WriteOp::Put {
-                collection: RUNS.into(),
-                id: run_id(seq),
-                doc: run,
-                precondition: Precondition::Absent,
-            }];
-            match self
-                .commit_job(&job.id, Some(&stored), Some(doc), extra)
-                .await
-            {
-                Ok(_) => {
-                    self.prune_runs(&job.id, &stored.doc).await?;
-                    return Ok(true);
-                }
-                Err(error) if super::admission::conflict(&error) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        bail!("cron store: occurrence kept changing during completion")
     }
 }

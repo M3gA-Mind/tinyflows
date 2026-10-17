@@ -221,3 +221,7 @@ mod admission_tests;
 #[cfg(test)]
 #[path = "claim_removal_tests.rs"]
 mod claim_removal_tests;
+
+#[cfg(test)]
+#[path = "manual_claim_tests.rs"]
+mod manual_claim_tests;

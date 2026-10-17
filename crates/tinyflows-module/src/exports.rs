@@ -45,18 +45,85 @@ fn manifest() -> TbSlice {
             provides: vec![
                 provided(tinyflows_bus::INTERFACE, tinyflows_bus::METHODS),
                 provided(
+                    tinyflows_bus::copilot::INTERFACE,
+                    tinyflows_bus::copilot::METHODS,
+                ),
+                provided(tinyflows_bus::runs::INTERFACE, tinyflows_bus::runs::METHODS),
+                provided(
+                    tinyflows_bus::catalog::INTERFACE,
+                    tinyflows_bus::catalog::METHODS,
+                ),
+                provided(
                     tinyflows_bus::schedule::INTERFACE,
                     tinyflows_bus::schedule::METHODS,
                 ),
-            ],
-            requires: vec![Dependency {
-                interface: InterfaceVersion::consumed(
-                    InterfaceName::new(tinyflows_bus::HOST_INTERFACE).expect("static interface"),
-                    version.clone(),
+                provided(
+                    tinyflows_bus::portability::INTERFACE,
+                    tinyflows_bus::portability::METHODS,
                 ),
-                optional: true,
-                reason: String::new(),
-            }],
+            ],
+            requires: vec![
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::copilot::HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Copilot tools call the host callback bound to the invocation scope"
+                        .into(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: String::new(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::runs::CAPS_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Runs call the exact host callback address bound to their owner scope"
+                        .into(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::catalog::STORAGE_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason:
+                        "Catalog requests require a host callback bound to the acting agent scope"
+                            .into(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(tinyflows_bus::catalog::DRAFT_PROMOTION_HOST_INTERFACE)
+                            .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Draft promotion invokes the scope-bound host save path".into(),
+                },
+                Dependency {
+                    interface: InterfaceVersion::consumed(
+                        InterfaceName::new(
+                            tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE,
+                        )
+                        .expect("static interface"),
+                        version.clone(),
+                    ),
+                    optional: true,
+                    reason: "Approval manifests use the scope-bound host policy classifier".into(),
+                },
+            ],
             environment: vec![],
             capabilities: vec![],
             lazy_init: false,
