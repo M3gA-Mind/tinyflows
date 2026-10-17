@@ -13,9 +13,10 @@ pub async fn execute_with_retry(
 ) -> Result<Attempt> {
     let retries = job.policy.retries.unwrap_or(config.retries);
     let mut backoff_ms = config.backoff_ms.max(200);
+    let mut last_raw_detail = None;
     for attempt in 0..=retries {
         let result = if matches!(job.job_type, JobType::Flow) {
-            ports.triggers.schedule(&job.command, run_id).await
+            ports.triggers.schedule(job, run_id).await
         } else {
             ports.executor.execute(job, run_id).await
         };
@@ -23,7 +24,15 @@ pub async fn execute_with_retry(
             success: false,
             output: error.to_string(),
             retryable: true,
+            raw_detail: None,
         });
+        if result.raw_detail.as_ref().is_some_and(|detail| !detail.is_empty()) {
+            last_raw_detail = result.raw_detail.clone();
+        }
+        let result = Attempt {
+            raw_detail: last_raw_detail.clone(),
+            ..result
+        };
         if result.success {
             return Ok(result);
         }
@@ -50,20 +59,26 @@ pub(super) async fn execute_and_persist(
     let started_at = ports.clock.now();
     let attempt = execute_with_retry(ports, config, job, &run_id).await?;
     let finished_at = ports.clock.now();
-    let mut success = attempt.success;
-    let delivery_status = match ports.delivery.deliver(job, &run_id, &attempt).await {
-        Ok(status) => status,
-        Err(error) => {
-            if !job.delivery.best_effort {
-                success = false;
-            }
-            tracing::warn!(job_id = %job.id, %error, "scheduled delivery failed");
-            DeliveryStatus::Failed
-        }
+    let (delivery_status, delivery_error) = match ports.delivery.send(job, &run_id, &attempt).await {
+        Ok(status) => (Some(status), None),
+        Err(error) => (Some(DeliveryStatus::Failed), Some(error)),
     };
-    if delivery_status == DeliveryStatus::Failed && !job.delivery.best_effort {
-        success = false;
+    let success = attempt.success
+        && (job.delivery.best_effort
+            || (delivery_error.is_none() && delivery_status != Some(DeliveryStatus::Failed)));
+    if let Some(error) = delivery_error {
+        tracing::warn!(job_id = %job.id, %error, "scheduled delivery failed");
     }
+    ports
+        .delivery
+        .deliver(&tinyflows_bus::schedule::DeliveryProjection {
+            job: job.clone(),
+            run_id: run_id.clone(),
+            attempt: attempt.clone(),
+            success,
+            delivery_status,
+        })
+        .await?;
     ports
         .store
         .record_run(RunRecord {
@@ -74,7 +89,7 @@ pub(super) async fn execute_and_persist(
             finished_at,
             status: if success { "ok" } else { "error" }.into(),
             output: attempt.output.clone(),
-            delivery_status: Some(delivery_status),
+            delivery_status,
         })
         .await?;
     let one_shot = matches!(job.schedule, Schedule::At { .. });

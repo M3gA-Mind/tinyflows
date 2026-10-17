@@ -48,6 +48,7 @@ impl HostCallbacks {
             member,
             callbacks::EXECUTE
                 | callbacks::FAILED
+                | callbacks::SEND
                 | callbacks::DELIVER
                 | callbacks::SCHEDULE_TRIGGER
         ) {
@@ -97,17 +98,23 @@ impl JobExecutor for HostCallbacks {
 impl RunDelivery for HostCallbacks {
     async fn deliver(
         &self,
+        projection: &tinyflows_bus::schedule::DeliveryProjection,
+    ) -> Result<()> {
+        self.call(callbacks::DELIVER, &(projection,)).await
+    }
+    async fn send(
+        &self,
         job: &CronJob,
         run_id: &str,
         attempt: &Attempt,
     ) -> Result<DeliveryStatus> {
-        self.call(callbacks::DELIVER, &(job, run_id, attempt)).await
+        self.call(callbacks::SEND, &(job, run_id, attempt)).await
     }
 }
 #[async_trait]
 impl TriggerSink for HostCallbacks {
-    async fn schedule(&self, flow_id: &str, run_id: &str) -> Result<Attempt> {
-        self.call(callbacks::SCHEDULE_TRIGGER, &(flow_id, run_id))
+    async fn schedule(&self, job: &CronJob, run_id: &str) -> Result<Attempt> {
+        self.call(callbacks::SCHEDULE_TRIGGER, &(job, run_id))
             .await
     }
 }
