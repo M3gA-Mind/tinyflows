@@ -2,8 +2,8 @@
 //!
 //! tinyflows stays host-agnostic: everything that touches the outside world is
 //! expressed as a trait the embedding application implements. OpenHuman's
-//! adapter seam (`src/openhuman/tinyflows/`) wires these to its inference stack,
-//! curated Composio tools, `HttpRequestTool`, and sandboxed code runtimes.
+//! host adapter wires these to its inference stack, curated tools, outbound HTTP,
+//! and sandboxed code runtimes.
 
 pub mod agent;
 pub mod approval;

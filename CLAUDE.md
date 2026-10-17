@@ -27,7 +27,7 @@ uses, so a reader who knows one knows them all.
 | `crates/tinyflows-import` | One-time, read-only import of the retired stores (`flows.db`, `jobs.db`, `checkpoints.db`, the draft/`File*` JSON and JSONL stores) into the `tinyflows-drivers` stores, id for id and only where absent. Unpublished; reads SQLite through the SQLite driver's native handle. |
 | `crates/tinyflows-copilot` | The authoring copilot's *words*: the `workflow_builder` / `flow_discovery` standing archetypes, and the turn brief that opens a builder turn. Names no tool trait, no agent registry, no model client. |
 | `crates/tinyflows-adaptive` | The adaptive loop over the engine: select or author a workflow, run it, judge it, learn. |
-| `crates/tinyflows-schedule` | Schedule model and pure next-run logic (cron / interval / one-shot, time zones, active hours, cadence floor). No runtime, store or config. |
+| `crates/tinyflows-schedule` | Schedule model, pure next-run logic (cron / interval / one-shot, time zones, active hours, cadence floor), and the schedule runtime. Persistence and configuration are supplied by the host through `tinyflows-drivers` and `tinyflows-module`. |
 
 **Where a new thing goes.** Ask what it depends on, not what it is about. If it
 needs storage, it is not `tinyflows-catalog`. If it needs a tool trait or a model
