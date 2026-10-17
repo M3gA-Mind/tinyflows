@@ -355,7 +355,7 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
         request: ManualRunRequest {
             callback: callback(),
             config: json!({"retries":3,"backoff_ms":1}),
-            storage,
+            storage: storage.clone(),
             job: job.clone(),
             run_id: "manual-worker-run".into(),
             delivery: ManualDelivery::NotRequested,
@@ -448,6 +448,74 @@ async fn prepared_manual_worker_stop_wait_and_ack_are_idempotent_and_fenced() {
     let after_ack: tinyflows_bus::schedule::ManualRunHandle =
         proxy.call("PrepareManualRun", &prepare).await.unwrap();
     assert_ne!(handle, after_ack);
+
+    state
+        .defer_execute
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let completed_handle: tinyflows_bus::schedule::ManualRunHandle = proxy
+        .call(
+            "PrepareManualRun",
+            &(PrepareManualRun {
+                scope: "manual-worker-lifecycle".into(),
+                request_id: "request-2".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let completed_start = StartManualRun {
+        handle: completed_handle.clone(),
+        request: ManualRunRequest {
+            callback: callback(),
+            config: json!({}),
+            storage,
+            job: job.clone(),
+            run_id: "manual-worker-completed".into(),
+            delivery: ManualDelivery::NotRequested,
+        },
+    };
+    proxy
+        .call::<ManualRunState>("StartManualRun", &completed_start)
+        .await
+        .unwrap();
+    let mut completed = None;
+    for _ in 0..10_000 {
+        let current: ManualRunState = proxy
+            .call(
+                "WaitManualRun",
+                &(WaitManualRun {
+                    handle: completed_handle.clone(),
+                },),
+            )
+            .await
+            .unwrap();
+        if matches!(current, ManualRunState::Terminal { .. }) {
+            completed = Some(current);
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(matches!(
+        completed,
+        Some(ManualRunState::Terminal {
+            outcome: ManualRunOutcome::Completed {
+                run_id,
+                success: true,
+                ..
+            }
+        }) if run_id == "manual-worker-completed"
+    ));
+    let history = documents.list_runs(&job.id, 10).await.unwrap();
+    assert_eq!(history[0].run_id, "manual-worker-completed");
+    assert_eq!(history[0].status, "ok");
+    assert!(proxy
+        .call::<bool>(
+            "AcknowledgeManualRun",
+            &(tinyflows_bus::schedule::AcknowledgeManualRun {
+                handle: completed_handle,
+            },),
+        )
+        .await
+        .unwrap());
 }
 
 #[tokio::test]
