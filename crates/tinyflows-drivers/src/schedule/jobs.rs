@@ -381,8 +381,9 @@ impl CronDocuments {
                 .ok_or_else(|| job_not_found(job_id))?;
             let job = apply_patch(doc_to_job(&stored)?, patch.clone())?;
             let doc = updated_job_doc(&job, &stored.doc)?;
+            let invalidated_queued_run = super::claims::queued_run_cleanup(&stored.doc)?;
             match self
-                .commit_job(job_id, Some(&stored), Some(doc.clone()), vec![])
+                .commit_job(job_id, Some(&stored), Some(doc.clone()), invalidated_queued_run)
                 .await
             {
                 Ok(results) => {

@@ -132,3 +132,57 @@ async fn expired_manual_recovery_removes_the_old_queued_placeholder() {
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, "ok");
 }
+
+#[tokio::test]
+async fn editing_a_queued_job_cleans_history_and_fences_late_completion() {
+    let backend = MemoryStorage::new();
+    let store = CronDocuments::new(docs_in(&backend, "manual-edit-fence"));
+    let job = store
+        .add_shell_job(
+            None,
+            Schedule::Every { every_ms: 60_000 },
+            "echo before edit",
+        )
+        .await
+        .unwrap();
+    let started = Utc::now();
+    let claim = store
+        .claim_job_now(&job, "manual-owner", started, Duration::minutes(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store.queue_claimed_run(&claim, started).await.unwrap());
+
+    let updated = store
+        .update_job(
+            &job.id,
+            CronJobPatch {
+                name: Some("edited while queued".into()),
+                command: Some("echo after edit".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.name.as_deref(), Some("edited while queued"));
+    assert_eq!(updated.command, "echo after edit");
+    assert!(store
+        .list_runs(&job.id, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(!store
+        .complete_manual_claim(
+            &claim,
+            started + Duration::seconds(1),
+            true,
+            "late old result",
+            None,
+        )
+        .await
+        .unwrap());
+    let after_late_result = store.get_job(&job.id).await.unwrap();
+    assert_eq!(after_late_result.name.as_deref(), Some("edited while queued"));
+    assert_eq!(after_late_result.command, "echo after edit");
+    assert!(after_late_result.last_run.is_none());
+}

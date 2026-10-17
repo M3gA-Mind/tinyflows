@@ -80,6 +80,18 @@ fn lease(doc: &Value) -> Result<Option<Lease>> {
         .transpose()
         .map_err(Into::into)
 }
+
+pub(super) fn queued_run_cleanup(doc: &Value) -> Result<Vec<WriteOp>> {
+    let Some(queued_run) = lease(doc)?.and_then(|lease| lease.queued_run) else {
+        return Ok(vec![]);
+    };
+    Ok(vec![WriteOp::Delete {
+        collection: RUNS.into(),
+        id: run_id(queued_run),
+        precondition: Precondition::None,
+    }])
+}
+
 fn owns(doc: &Value, claim: &ClaimedOccurrence, now: DateTime<Utc>) -> Result<bool> {
     let Some(current) = lease(doc)? else {
         return Ok(false);
