@@ -43,6 +43,17 @@ fn shared_bridge() -> std::result::Result<&'static Blocking, String> {
 }
 
 impl FlowStateDocuments {
+    /// Opens namespaced state after proving its catalog collections are
+    /// available. Failed storage setup is returned to the caller so it cannot
+    /// silently select a process-local or unscoped fallback.
+    pub async fn open(
+        catalog: FlowCatalogDocuments,
+        namespace: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        catalog.ensure().await?;
+        Ok(Self::new(catalog, namespace))
+    }
+
     /// State in `namespace` of `catalog`, its synchronous calls on the
     /// process-wide bridge.
     pub fn new(catalog: FlowCatalogDocuments, namespace: impl Into<String>) -> Self {
