@@ -23,6 +23,7 @@ use super::{
 
 struct HistoryWrite<'a> {
     job_id: &'a str,
+    invocation_id: Option<&'a str>,
     started_at: DateTime<Utc>,
     finished_at: DateTime<Utc>,
     status: &'a str,
@@ -142,6 +143,7 @@ impl CronDocuments {
     ) -> Result<()> {
         self.append_history(HistoryWrite {
             job_id,
+            invocation_id: None,
             started_at,
             finished_at,
             status,
@@ -161,6 +163,7 @@ impl CronDocuments {
     ) -> Result<()> {
         self.append_history(HistoryWrite {
             job_id: &record.job_id,
+            invocation_id: Some(&record.run_id),
             started_at: record.started_at,
             finished_at: record.finished_at,
             status: &record.status,
@@ -175,6 +178,7 @@ impl CronDocuments {
     async fn append_history(&self, write: HistoryWrite<'_>) -> Result<()> {
         let HistoryWrite {
             job_id,
+            invocation_id,
             started_at,
             finished_at,
             status,
@@ -206,6 +210,7 @@ impl CronDocuments {
         let doc = run_to_doc(
             seq,
             job_id,
+            invocation_id,
             fired.as_deref(),
             started_at,
             finished_at,

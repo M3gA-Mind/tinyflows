@@ -237,6 +237,7 @@ pub(super) fn run_id(seq: i64) -> String {
 pub(super) fn run_to_doc(
     seq: i64,
     job_id: &str,
+    run_id: Option<&str>,
     incarnation: Option<&str>,
     started_at: DateTime<Utc>,
     finished_at: DateTime<Utc>,
@@ -248,6 +249,7 @@ pub(super) fn run_to_doc(
     let mut doc = Map::new();
     doc.insert("seq".into(), json!(seq));
     doc.insert("job_id".into(), json!(job_id));
+    set(&mut doc, "run_id", run_id.map(|value| json!(value)));
     doc.insert("started_ms".into(), json!(started_at.timestamp_millis()));
     doc.insert("finished_ms".into(), json!(finished_at.timestamp_millis()));
     doc.insert("status".into(), json!(status));
@@ -275,6 +277,7 @@ pub(super) fn doc_to_run(stored: &Versioned<Value>) -> Result<CronRun> {
     Ok(CronRun {
         id: integer(doc, "seq")?.ok_or_else(|| anyhow!("cron store: run document has no `seq`"))?,
         job_id: required(doc, "job_id")?.to_string(),
+        run_id: optional(doc, "run_id")?.map(str::to_string),
         started_at: instant("started_ms")?,
         finished_at: instant("finished_ms")?,
         status: required(doc, "status")?.to_string(),

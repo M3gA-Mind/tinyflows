@@ -88,7 +88,7 @@ mod runtime;
 #[cfg(test)]
 mod test_support;
 
-pub use claims::ClaimedOccurrence;
+pub use claims::{ClaimedOccurrence, RunCompletion};
 pub use import::ImportedJob;
 pub use migrate::{import_legacy_cron_counters, storage_schema};
 
@@ -280,6 +280,10 @@ mod claim_removal_tests;
 #[cfg(test)]
 #[path = "manual_claim_tests.rs"]
 mod manual_claim_tests;
+
+#[cfg(test)]
+#[path = "manual_claim_fence_tests.rs"]
+mod manual_claim_fence_tests;
 
 #[cfg(test)]
 #[path = "claims_safety_tests.rs"]

@@ -114,6 +114,7 @@ impl CronDocuments {
             let doc = run_to_doc(
                 seq,
                 &run.job_id,
+                run.run_id.as_deref(),
                 fired.as_deref(),
                 run.started_at,
                 run.finished_at,

@@ -16,6 +16,7 @@ fn run(id: i64, job_id: &str, minute: u32, status: &str) -> CronRun {
     CronRun {
         id,
         job_id: job_id.to_string(),
+        run_id: None,
         started_at: started,
         finished_at: started + chrono::Duration::seconds(3),
         status: status.to_string(),
