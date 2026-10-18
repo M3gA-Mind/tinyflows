@@ -45,14 +45,13 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
     let job = documents
         .add_shell_job(
             Some("artifact-stop-job".into()),
-            Schedule::At {
-                at: now - Duration::minutes(1),
-            },
+            Schedule::Every { every_ms: 60_000 },
             "echo stop",
         )
         .await
         .unwrap();
     *callback_state.due_job.lock().unwrap() = Some(serde_json::to_value(&job).unwrap());
+    let scheduler_now = job.next_run + Duration::seconds(1);
     let schedule = connection
         .proxy(
             tinyflows_bus::schedule::BUS_NAME,
@@ -68,7 +67,7 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
     let request = StartScheduler {
         scope: scope.clone(),
         callback: callback.clone(),
-        config: serde_json::json!({"now": now}),
+        config: serde_json::json!({"now": scheduler_now}),
         manual_ticks: true,
         storage: None,
     };
