@@ -219,22 +219,34 @@ async fn service_drop_cancels_and_reports_an_inflight_stop_supervisor() {
 
     stop_task.abort();
     assert!(stop_task.await.unwrap_err().is_cancelled());
+    let mut task_dropped_rx = task_dropped_rx;
+    let task_dropped_while_held =
+        tokio::time::timeout(std::time::Duration::from_millis(10), &mut task_dropped_rx).await;
     let completion_signal =
         tokio::time::timeout(std::time::Duration::from_millis(10), completion.changed()).await;
     let completion_result = completion.borrow().clone();
     let _ = release.send(());
-    let task_was_dropped =
-        tokio::time::timeout(std::time::Duration::from_secs(10), task_dropped_rx)
-            .await
-            .is_ok();
+    let task_was_aborted_while_held = match task_dropped_while_held {
+        Ok(Ok(())) => true,
+        Ok(Err(_)) => false,
+        Err(_) => {
+            let cleanup =
+                tokio::time::timeout(std::time::Duration::from_secs(10), task_dropped_rx).await;
+            assert!(
+                matches!(cleanup, Ok(Ok(()))),
+                "test loop task must be cleaned up"
+            );
+            false
+        }
+    };
 
     assert!(
-        completion_signal.is_ok(),
+        matches!(completion_signal, Ok(Ok(()))),
         "service Drop must stop its independent shutdown supervisor"
     );
     assert!(matches!(completion_result, Some(Err(_))));
     assert!(
-        task_was_dropped,
-        "service teardown must end the owned loop task"
+        task_was_aborted_while_held,
+        "service teardown must abort the owned loop task before releasing the barrier"
     );
 }
