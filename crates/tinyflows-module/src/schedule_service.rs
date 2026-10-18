@@ -187,12 +187,17 @@ impl ScheduleService {
         if let Some((running, completion)) = start_cleanup {
             let runtimes = self.runtimes.clone();
             let cleanup_handle = handle.clone();
+            let lifetime = self.stop_lifetime.subscribe();
+            let abort_on_cancel = stop_supervisor::abort_handle(&running);
             tokio::spawn(async move {
-                let mut guard = StopCompletionGuard {
-                    completion,
-                    completed: false,
+                let mut guard =
+                    stop_supervisor::StopCompletionGuard::new(completion, abort_on_cancel);
+                let result = tokio::select! {
+                    result = stop_supervisor::shutdown_scheduler(running) => result,
+                    _ = stop_supervisor::service_dropped(lifetime) => {
+                        Err("scheduler service dropped before shutdown was confirmed".into())
+                    }
                 };
-                let result = shutdown_scheduler(running).await;
                 if result.is_ok() {
                     runtimes
                         .lock()
