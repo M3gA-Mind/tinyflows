@@ -219,7 +219,10 @@ async fn ticking_at_a_later_instant_runs_a_future_job_without_waiting_for_it() {
         .call(schedule::members::TICK_SCHEDULER_AT, &(&handle, at))
         .await
         .unwrap();
-    assert_eq!(stepped, 1, "stepping the clock to the job's instant runs it");
+    assert_eq!(
+        stepped, 1,
+        "stepping the clock to the job's instant runs it"
+    );
     proxy
         .call::<()>(schedule::members::DRAIN_SCHEDULER, &(&handle,))
         .await
@@ -231,7 +234,10 @@ async fn ticking_at_a_later_instant_runs_a_future_job_without_waiting_for_it() {
 
     let history = documents.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].started_at, at, "the run is recorded at the host's instant");
+    assert_eq!(
+        history[0].started_at, at,
+        "the run is recorded at the host's instant"
+    );
     assert!(!documents.get_job(&job.id).await.unwrap().enabled);
 }
 

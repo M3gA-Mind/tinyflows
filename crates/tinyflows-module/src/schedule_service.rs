@@ -72,7 +72,9 @@ impl ScheduleService {
     }
     /// Return an active manually-driven scheduler, rejecting other states.
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
-        self.manual_with_clock(handle).await.map(|(runtime, _)| runtime)
+        self.manual_with_clock(handle)
+            .await
+            .map(|(runtime, _)| runtime)
     }
     /// Return an active manually-driven scheduler and its calendar clock.
     async fn manual_with_clock(
@@ -142,9 +144,9 @@ impl ScheduleService {
         let mut ports = HostCallbacks::ports(self.connection.clone(), request.callback);
         // A manual scheduler reads the host's calendar clock: fixed by
         // `config.now`, moved by `TickSchedulerAt`, system time otherwise.
-        let manual_clock = request.manual_ticks.then(|| {
-            Arc::new(now.map_or_else(clock::HostClock::system, clock::HostClock::fixed))
-        });
+        let manual_clock = request
+            .manual_ticks
+            .then(|| Arc::new(now.map_or_else(clock::HostClock::system, clock::HostClock::fixed)));
         if let Some(manual_clock) = &manual_clock {
             ports.clock = manual_clock.clone();
         }
