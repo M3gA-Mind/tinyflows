@@ -40,10 +40,10 @@ async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
 
     let retry_service = service.clone();
     let retry_handle = handle.clone();
-    let retry = tokio::spawn(async move { retry_service.stop_scheduler(retry_handle).await });
+    let mut retry = tokio::spawn(async move { retry_service.stop_scheduler(retry_handle).await });
     let duplicate_service = service.clone();
     let duplicate_handle = handle.clone();
-    let duplicate =
+    let mut duplicate =
         tokio::spawn(async move { duplicate_service.stop_scheduler(duplicate_handle).await });
     let retry_remained_pending =
         tokio::time::timeout(std::time::Duration::from_millis(10), &mut retry)
