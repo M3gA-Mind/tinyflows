@@ -53,7 +53,7 @@ impl Drop for StopCompletionGuard {
 pub(super) fn abort_handle(running: &Running) -> Option<AbortHandle> {
     match running {
         Running::Loop { task, .. } => Some(task.abort_handle()),
-        Running::Manual(_) | Running::Stopping(_) => None,
+        Running::Manual(..) | Running::Stopping(_) => None,
     }
 }
 
@@ -71,7 +71,7 @@ pub(super) async fn shutdown_scheduler(running: Running) -> std::result::Result<
                 .await
                 .map_err(|error| format!("scheduler shutdown task failed: {error}"))
         }
-        Running::Manual(runtime) => {
+        Running::Manual(runtime, _) => {
             runtime.lock().await.shutdown().await;
             Ok(())
         }

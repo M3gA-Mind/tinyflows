@@ -77,7 +77,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 5);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 5);
     assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 2);
-    assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 6);
+    assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 7);
     assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
     assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 19);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")

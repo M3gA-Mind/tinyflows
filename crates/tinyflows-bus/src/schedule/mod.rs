@@ -42,14 +42,17 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// optional `config.now` for fixed calendar time on manual schedulers. 5 adds
 /// occurrence leases, module-owned manual run admission and explicit
 /// send/terminal delivery phases. 6 adds prepared handles and host-owned
-/// lifecycle observation for detached manual workers.
-pub const CONTRACT_VERSION: u32 = 6;
+/// lifecycle observation for detached manual workers. 7 adds `TickSchedulerAt`,
+/// a manual pass at a host-supplied calendar instant, so a host can step a
+/// schedule forward instead of waiting for it.
+pub const CONTRACT_VERSION: u32 = 7;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     members::SCHEDULE_STORE,
     members::START_SCHEDULER,
     members::STOP_SCHEDULER,
     members::TICK_SCHEDULER,
+    members::TICK_SCHEDULER_AT,
     members::DRAIN_SCHEDULER,
     members::RUN_JOB_NOW,
     members::PREPARE_MANUAL_RUN,
@@ -82,6 +85,10 @@ pub mod members {
     pub const STOP_SCHEDULER: &str = "StopScheduler";
     /// `(handle: string) -> usize`; manual-tick schedulers only.
     pub const TICK_SCHEDULER: &str = "TickScheduler";
+    /// `(handle: string, now: RFC3339) -> usize`; manual-tick schedulers only.
+    /// Moves the scheduler's calendar time to `now`, then runs one pass:
+    /// due selection, run records and rescheduling all read `now`.
+    pub const TICK_SCHEDULER_AT: &str = "TickSchedulerAt";
     /// `(handle: string) -> ()`; manual-tick schedulers only.
     pub const DRAIN_SCHEDULER: &str = "DrainScheduler";
     /// `(RunJobNow) -> RunJobReply`; durable admission precedes acknowledgement.
