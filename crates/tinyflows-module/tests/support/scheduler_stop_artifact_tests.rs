@@ -72,7 +72,10 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
         manual_ticks: true,
         storage: None,
     };
-    let handle: String = schedule.call("StartScheduler", &(request,)).await.unwrap();
+    let handle: String = schedule
+        .call("StartScheduler", &(request.clone(),))
+        .await
+        .unwrap();
     let ticked: usize = schedule.call("TickScheduler", &(&handle,)).await.unwrap();
     assert_eq!(ticked, 1);
     callback_state.execute_started.notified().await;
@@ -83,14 +86,15 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
         .call::<()>("StopScheduler", &(&handle,))
         .await;
     assert!(matches!(first, Err(Error::Timeout { .. })), "{first:?}");
-    let retry = schedule
+    let stop_args = (&handle,);
+    let retry_proxy = schedule
         .clone()
-        .with_timeout(std::time::Duration::from_millis(10))
-        .call::<()>("StopScheduler", &(&handle,));
-    let duplicate = schedule
+        .with_timeout(std::time::Duration::from_millis(10));
+    let duplicate_proxy = schedule
         .clone()
-        .with_timeout(std::time::Duration::from_millis(10))
-        .call::<()>("StopScheduler", &(&handle,));
+        .with_timeout(std::time::Duration::from_millis(10));
+    let retry = retry_proxy.call::<()>("StopScheduler", &stop_args);
+    let duplicate = duplicate_proxy.call::<()>("StopScheduler", &stop_args);
     let (retry, duplicate) = tokio::join!(retry, duplicate);
     assert!(matches!(retry, Err(Error::Timeout { .. })), "{retry:?}");
     assert!(
