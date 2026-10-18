@@ -27,7 +27,8 @@ use tokio::{
 };
 
 pub(super) enum Running {
-    Manual(Arc<Mutex<Scheduler>>),
+    /// A host-driven scheduler and the calendar clock its passes read.
+    Manual(Arc<Mutex<Scheduler>>, Arc<clock::HostClock>),
     Loop {
         task: JoinHandle<()>,
         shutdown: Option<oneshot::Sender<()>>,
@@ -71,13 +72,20 @@ impl ScheduleService {
     }
     /// Return an active manually-driven scheduler, rejecting other states.
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
+        self.manual_with_clock(handle).await.map(|(runtime, _)| runtime)
+    }
+    /// Return an active manually-driven scheduler and its calendar clock.
+    async fn manual_with_clock(
+        &self,
+        handle: &str,
+    ) -> Result<(Arc<Mutex<Scheduler>>, Arc<clock::HostClock>)> {
         match self
             .runtimes
             .lock()
             .expect("scheduler registry poisoned")
             .get(handle)
         {
-            Some(Running::Manual(runtime)) => Ok(runtime.clone()),
+            Some(Running::Manual(runtime, clock)) => Ok((runtime.clone(), clock.clone())),
             Some(Running::Stopping(_)) => Err(Error::failed("scheduler is stopping")),
             Some(_) => Err(Error::failed("scheduler owns its poll loop")),
             None => Err(Error::failed("unknown scheduler handle")),
@@ -132,8 +140,13 @@ impl ScheduleService {
         }
         let config: SchedulerConfig = serde_json::from_value(request.config).map_err(failure)?;
         let mut ports = HostCallbacks::ports(self.connection.clone(), request.callback);
-        if let Some(now) = now {
-            ports.clock = Arc::new(clock::FixedClock(now));
+        // A manual scheduler reads the host's calendar clock: fixed by
+        // `config.now`, moved by `TickSchedulerAt`, system time otherwise.
+        let manual_clock = request.manual_ticks.then(|| {
+            Arc::new(now.map_or_else(clock::HostClock::system, clock::HostClock::fixed))
+        });
+        if let Some(manual_clock) = &manual_clock {
+            ports.clock = manual_clock.clone();
         }
         if let Some(storage) = request.storage {
             ports.store = Arc::new(
@@ -147,8 +160,8 @@ impl ScheduleService {
             return Err(Error::failed("a scheduler already owns this scope"));
         }
         let handle = uuid::Uuid::new_v4().to_string();
-        let running = if request.manual_ticks {
-            Running::Manual(Arc::new(Mutex::new(scheduler)))
+        let running = if let Some(manual_clock) = manual_clock {
+            Running::Manual(Arc::new(Mutex::new(scheduler)), manual_clock)
         } else {
             let (shutdown, stopped) = oneshot::channel();
             let task = tokio::spawn(async move {
@@ -232,6 +245,18 @@ impl ScheduleService {
             .tick()
             .await
             .map_err(failure)
+    }
+    /// One manual pass at the host-supplied calendar instant `now`.
+    async fn tick_scheduler_at(
+        &self,
+        handle: String,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<usize> {
+        let (runtime, clock) = self.manual_with_clock(&handle).await?;
+        let mut scheduler = runtime.lock().await;
+        // Set under the scheduler lock so no other pass reads a half-moved clock.
+        clock.set(now);
+        scheduler.tick().await.map_err(failure)
     }
     async fn drain_scheduler(&self, handle: String) -> Result<()> {
         self.manual(&handle)
