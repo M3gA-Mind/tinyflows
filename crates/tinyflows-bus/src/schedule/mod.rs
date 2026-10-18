@@ -76,7 +76,9 @@ pub mod members {
     pub const SCHEDULE_STORE: &str = "ScheduleStore";
     /// `(StartScheduler) -> handle: string`.
     pub const START_SCHEDULER: &str = "StartScheduler";
-    /// `(handle: string) -> ()`; idempotently joins shutdown; absent handles are a no-op.
+    /// `(handle: string) -> ()`; retries join shutdown and return only after
+    /// quiescence; absent handles are a no-op. Handles are process-generation
+    /// local, so a process crash falls back to claim expiry.
     pub const STOP_SCHEDULER: &str = "StopScheduler";
     /// `(handle: string) -> usize`; manual-tick schedulers only.
     pub const TICK_SCHEDULER: &str = "TickScheduler";

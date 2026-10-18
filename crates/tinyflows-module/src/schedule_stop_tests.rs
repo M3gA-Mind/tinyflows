@@ -155,6 +155,8 @@ async fn stop_cleanup_join_failure_is_retained_and_never_reports_quiescence() {
     );
 
     assert!(service.stop_scheduler(handle.clone()).await.is_err());
+    assert!(service.tick_scheduler(handle.clone()).await.is_err());
+    assert!(service.drain_scheduler(handle.clone()).await.is_err());
     assert!(matches!(
         service.runtimes.lock().unwrap().get(&handle),
         Some(Running::Stopping(_))

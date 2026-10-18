@@ -69,6 +69,7 @@ impl ScheduleService {
             .get(handle)
         {
             Some(Running::Manual(runtime)) => Ok(runtime.clone()),
+            Some(Running::Stopping(_)) => Err(Error::failed("scheduler is stopping")),
             Some(_) => Err(Error::failed("scheduler owns its poll loop")),
             None => Err(Error::failed("unknown scheduler handle")),
         }
