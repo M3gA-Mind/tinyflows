@@ -54,9 +54,7 @@ fn unfired_kind_warns_and_names_the_kind() {
 fn fired_schedule_legacy_and_unknown_kinds_do_not_warn() {
     let schedule_graph = graph_with_trigger(json!({"trigger_kind": "schedule"}));
     assert!(crate::validate::validate(&schedule_graph).is_ok());
-    assert!(
-        graph_trigger_warnings(&schedule_graph).is_empty()
-    );
+    assert!(graph_trigger_warnings(&schedule_graph).is_empty());
     assert!(graph_trigger_warnings(&graph_with_trigger(json!({}))).is_empty());
     assert!(
         graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "bogus"}))).is_empty()
