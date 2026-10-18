@@ -53,7 +53,7 @@ store = [
 test-fixtures = ["catalog"]
 
 [dependencies]
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0" }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

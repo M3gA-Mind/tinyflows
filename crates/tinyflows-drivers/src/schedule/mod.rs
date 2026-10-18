@@ -288,3 +288,7 @@ mod manual_claim_fence_tests;
 #[cfg(test)]
 #[path = "claims_safety_tests.rs"]
 mod claims_safety_tests;
+
+#[cfg(test)]
+#[path = "claims_compaction_tests.rs"]
+mod claims_compaction_tests;

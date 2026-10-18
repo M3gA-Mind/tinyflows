@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bounded occurrence lease records
+
+- **Fixed** the `tsd.leases` record kept per cron occurrence (#159). Completing
+  an advancing claim whose job moved past the occurrence now drops the lease
+  with `Leases::compact`, conditional on the claim's token and epoch, so a
+  frequent job no longer retains one expired record per occurrence. Manual
+  claims and one-shots keep their released record. Stale holders stay fenced
+  by `claim_epoch` and the moved `next_run`.
+
 ### Module CapsHost callbacks and capability-backed tasks
 
 - **Added** the serde-only `Runs.CapsHost` v1 callback contract for LLM, tool,
