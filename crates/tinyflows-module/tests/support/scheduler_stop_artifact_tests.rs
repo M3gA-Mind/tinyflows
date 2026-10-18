@@ -76,7 +76,12 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
         .unwrap();
     let ticked: usize = schedule.call("TickScheduler", &(&handle,)).await.unwrap();
     assert_eq!(ticked, 1);
-    callback_state.execute_started.notified().await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        callback_state.execute_started.notified(),
+    )
+    .await
+    .expect("held Execute callback must start within the test failure cap");
 
     let first = schedule
         .clone()
