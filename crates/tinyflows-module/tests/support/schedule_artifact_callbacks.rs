@@ -29,6 +29,7 @@ pub struct State {
 pub struct Callbacks(pub Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
 impl Callbacks {
+    /// Return the overridden shell job when a scheduler test needs due work.
     async fn due_jobs(&self, _now: String) -> Result<Vec<Value>> {
         if let Some(job) = self.0.due_job.lock().unwrap().clone() {
             return Ok(vec![job]);

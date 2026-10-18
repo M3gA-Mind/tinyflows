@@ -11,6 +11,7 @@ use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 #[tokio::test]
 #[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled cdylib"]
+/// Verify timed-out and concurrent Stop calls through the compiled TinyBus module.
 async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to a compiled cdylib");

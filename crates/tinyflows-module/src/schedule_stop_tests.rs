@@ -3,6 +3,7 @@ use tinybus::{Connection, broker::Broker, transport::memory::MemoryBus};
 use tokio::sync::oneshot;
 
 #[tokio::test(start_paused = true)]
+/// Retries and concurrent Stop calls wait for the same held shutdown.
 async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
     let bus = MemoryBus::new();
     Broker::new().spawn(bus.clone());
@@ -87,6 +88,7 @@ async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
 }
 
 #[tokio::test(start_paused = true)]
+/// Caller cancellation leaves cleanup owned by the module supervisor.
 async fn stop_cleanup_supervisor_survives_leader_handler_cancellation() {
     let bus = MemoryBus::new();
     Broker::new().spawn(bus.clone());
@@ -134,6 +136,7 @@ async fn stop_cleanup_supervisor_survives_leader_handler_cancellation() {
 }
 
 #[tokio::test]
+/// A failed loop join stays registered and never reports quiescence.
 async fn stop_cleanup_join_failure_is_retained_and_never_reports_quiescence() {
     let bus = MemoryBus::new();
     Broker::new().spawn(bus.clone());
@@ -168,6 +171,7 @@ async fn stop_cleanup_join_failure_is_retained_and_never_reports_quiescence() {
 }
 
 #[tokio::test(start_paused = true)]
+/// Service teardown reports failure and ends the supervisor-owned loop task.
 async fn service_drop_cancels_and_reports_an_inflight_stop_supervisor() {
     struct TaskDropSignal(Option<oneshot::Sender<()>>);
     impl Drop for TaskDropSignal {

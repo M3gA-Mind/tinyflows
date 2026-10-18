@@ -42,6 +42,7 @@ pub(super) struct ScheduleService {
     stop_lifetime: watch::Sender<bool>,
 }
 impl Drop for ScheduleService {
+    /// Signal teardown to stop supervisors and abort active polling loops.
     fn drop(&mut self) {
         self.stop_lifetime.send_replace(true);
         for running in self
@@ -58,6 +59,7 @@ impl Drop for ScheduleService {
     }
 }
 impl ScheduleService {
+    /// Create a scheduler service bound to this module connection.
     pub(super) fn new(connection: Connection) -> Self {
         let (stop_lifetime, _) = watch::channel(false);
         Self {
@@ -67,6 +69,7 @@ impl ScheduleService {
             stop_lifetime,
         }
     }
+    /// Return an active manually-driven scheduler, rejecting other states.
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
         match self
             .runtimes
@@ -167,6 +170,7 @@ impl ScheduleService {
         Ok(handle)
     }
 
+    /// Join the shared shutdown supervisor, or no-op for an absent handle.
     async fn stop_scheduler(&self, handle: String) -> Result<()> {
         let (mut stopped, start_cleanup) = {
             let mut runtimes = self.runtimes.lock().expect("scheduler registry poisoned");

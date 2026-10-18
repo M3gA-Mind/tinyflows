@@ -1,6 +1,7 @@
 use super::Running;
 use tokio::{sync::watch, task::AbortHandle};
 
+/// Reports a stop result and aborts its loop task if cleanup is interrupted.
 pub(super) struct StopCompletionGuard {
     completion: watch::Sender<Option<std::result::Result<(), String>>>,
     running_task: Option<AbortHandle>,
@@ -8,6 +9,7 @@ pub(super) struct StopCompletionGuard {
 }
 
 impl StopCompletionGuard {
+    /// Track the completion channel and the loop task owned by this supervisor.
     pub(super) fn new(
         completion: watch::Sender<Option<std::result::Result<(), String>>>,
         running_task: Option<AbortHandle>,
@@ -19,6 +21,7 @@ impl StopCompletionGuard {
         }
     }
 
+    /// Publish cleanup status, aborting the loop only on an unconfirmed result.
     pub(super) fn finish(&mut self, result: std::result::Result<(), String>) {
         if result.is_err() {
             if let Some(task) = self.running_task.take() {
@@ -33,6 +36,7 @@ impl StopCompletionGuard {
 }
 
 impl Drop for StopCompletionGuard {
+    /// Report supervisor cancellation without claiming the scheduler is stopped.
     fn drop(&mut self) {
         if !self.completed {
             if let Some(task) = self.running_task.take() {
@@ -45,6 +49,7 @@ impl Drop for StopCompletionGuard {
     }
 }
 
+/// Return an abort handle for a loop task, if this runtime owns one.
 pub(super) fn abort_handle(running: &Running) -> Option<AbortHandle> {
     match running {
         Running::Loop { task, .. } => Some(task.abort_handle()),
@@ -52,6 +57,7 @@ pub(super) fn abort_handle(running: &Running) -> Option<AbortHandle> {
     }
 }
 
+/// Signal and join a loop scheduler or drain a manually-driven scheduler.
 pub(super) async fn shutdown_scheduler(running: Running) -> std::result::Result<(), String> {
     match running {
         Running::Loop {
@@ -73,6 +79,7 @@ pub(super) async fn shutdown_scheduler(running: Running) -> std::result::Result<
     }
 }
 
+/// Wait until the owning schedule-service generation is dropped.
 pub(super) async fn service_dropped(mut lifetime: watch::Receiver<bool>) {
     while !*lifetime.borrow_and_update() {
         if lifetime.changed().await.is_err() {
