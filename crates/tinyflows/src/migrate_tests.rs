@@ -283,6 +283,7 @@ fn deserialize_graph_names_the_member_in_inputs_agents_and_edges() {
     let err = deserialize_graph(json!({ "inputs": [{ "type": "string" }] }))
         .expect_err("input without `name`");
     assert!(err.starts_with("inputs[0]: "), "got: {err}");
+    assert!(err.contains("missing field"), "got: {err}");
 
     let err = deserialize_graph(json!({ "agents": [{ "name": "no id" }] }))
         .expect_err("agent without `id`");

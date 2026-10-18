@@ -44,6 +44,7 @@ fn unfired_kind_warns_and_names_the_kind() {
     let warnings = graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "webhook"})));
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("'webhook'"));
+    assert!(warnings[0].contains("does not fire automatically"));
 }
 
 #[test]
