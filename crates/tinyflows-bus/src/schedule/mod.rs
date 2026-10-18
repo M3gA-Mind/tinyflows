@@ -76,7 +76,7 @@ pub mod members {
     pub const SCHEDULE_STORE: &str = "ScheduleStore";
     /// `(StartScheduler) -> handle: string`.
     pub const START_SCHEDULER: &str = "StartScheduler";
-    /// `(handle: string) -> ()`.
+    /// `(handle: string) -> ()`; idempotently joins shutdown; absent handles are a no-op.
     pub const STOP_SCHEDULER: &str = "StopScheduler";
     /// `(handle: string) -> usize`; manual-tick schedulers only.
     pub const TICK_SCHEDULER: &str = "TickScheduler";

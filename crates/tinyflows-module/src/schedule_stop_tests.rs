@@ -1,4 +1,5 @@
 use super::super::{Running, ScheduleService};
+use super::*;
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryBus};
 use tokio::sync::oneshot;
 
@@ -131,4 +132,36 @@ async fn stop_cleanup_supervisor_survives_leader_handler_cancellation() {
     .unwrap();
     assert!(remained_pending, "retry must join supervisor-owned cleanup");
     assert!(retry_result.is_ok());
+}
+
+#[tokio::test]
+async fn stop_cleanup_join_failure_is_retained_and_never_reports_quiescence() {
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let connection = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let service = ScheduleService::new(connection);
+    let handle = "scheduler-stop-failed".to_string();
+    let (shutdown, stopped) = oneshot::channel();
+    drop(stopped);
+    let task = tokio::spawn(std::future::pending::<()>());
+    task.abort();
+    service.runtimes.lock().unwrap().insert(
+        handle.clone(),
+        Running::Loop {
+            task,
+            shutdown: Some(shutdown),
+        },
+    );
+
+    assert!(service.stop_scheduler(handle.clone()).await.is_err());
+    assert!(matches!(
+        service.runtimes.lock().unwrap().get(&handle),
+        Some(Running::Stopping(_))
+    ));
+    assert!(
+        service.stop_scheduler(handle).await.is_err(),
+        "a cleanup failure remains observable on retry"
+    );
 }
