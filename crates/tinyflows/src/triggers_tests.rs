@@ -41,7 +41,10 @@ fn only_manual_schedule_and_app_event_fire() {
 
 #[test]
 fn unfired_kind_warns_and_names_the_kind() {
-    let warnings = graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "webhook"})));
+    let graph = graph_with_trigger(json!({"trigger_kind": "webhook"}));
+    assert!(crate::validate::validate(&graph).is_ok());
+
+    let warnings = graph_trigger_warnings(&graph);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("'webhook'"));
     assert!(warnings[0].contains("does not fire automatically"));
@@ -49,8 +52,10 @@ fn unfired_kind_warns_and_names_the_kind() {
 
 #[test]
 fn fired_schedule_legacy_and_unknown_kinds_do_not_warn() {
+    let schedule_graph = graph_with_trigger(json!({"trigger_kind": "schedule"}));
+    assert!(crate::validate::validate(&schedule_graph).is_ok());
     assert!(
-        graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "schedule"}))).is_empty()
+        graph_trigger_warnings(&schedule_graph).is_empty()
     );
     assert!(graph_trigger_warnings(&graph_with_trigger(json!({}))).is_empty());
     assert!(
