@@ -19,7 +19,7 @@ thiserror = "2"
 # tag so a host that vendors tinystoragedrivers once can `[patch]` it; chrono
 # turns the RFC 3339 instants of the records into the stored `*_ms`; tokio's
 # `OnceCell` for one-time collection setup.
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0", optional = true }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 tokio = { version = "1", features = ["sync"], optional = true }
@@ -39,7 +39,7 @@ tinyflows = { path = "../tinyflows", features = ["store", "mock"] }
 # The engine's `WorkflowStore` on an in-memory storage backend, for tests and
 # the eval example.
 tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["store"] }
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0" }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints.rust]
