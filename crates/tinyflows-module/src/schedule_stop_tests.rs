@@ -31,10 +31,10 @@ async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
     let first_handle = handle.clone();
     let mut first = tokio::spawn(async move { first_service.stop_scheduler(first_handle).await });
     entered_rx.await.unwrap();
+    let first_deadline =
+        tokio::time::timeout(std::time::Duration::from_millis(10), &mut first).await;
     assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(10), &mut first)
-            .await
-            .is_err(),
+        first_deadline.is_err(),
         "the first caller deadline expires while module shutdown remains held"
     );
 
@@ -45,19 +45,29 @@ async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
     let duplicate_handle = handle.clone();
     let mut duplicate =
         tokio::spawn(async move { duplicate_service.stop_scheduler(duplicate_handle).await });
-    let retry_remained_pending =
-        tokio::time::timeout(std::time::Duration::from_millis(10), &mut retry)
-            .await
-            .is_err();
-    let duplicate_remained_pending =
-        tokio::time::timeout(std::time::Duration::from_millis(10), &mut duplicate)
-            .await
-            .is_err();
+    let retry_deadline =
+        tokio::time::timeout(std::time::Duration::from_millis(10), &mut retry).await;
+    let retry_remained_pending = retry_deadline.is_err();
+    let duplicate_deadline =
+        tokio::time::timeout(std::time::Duration::from_millis(10), &mut duplicate).await;
+    let duplicate_remained_pending = duplicate_deadline.is_err();
 
     let _ = release.send(());
-    let first_result = first.await.unwrap();
-    let retry_result = retry.await.unwrap();
-    let duplicate_result = duplicate.await.unwrap();
+    let first_result = match first_deadline {
+        Ok(result) => result,
+        Err(_) => first.await,
+    }
+    .unwrap();
+    let retry_result = match retry_deadline {
+        Ok(result) => result,
+        Err(_) => retry.await,
+    }
+    .unwrap();
+    let duplicate_result = match duplicate_deadline {
+        Ok(result) => result,
+        Err(_) => duplicate.await,
+    }
+    .unwrap();
     assert!(first_result.is_ok());
     assert!(retry_remained_pending, "retry must join the in-flight stop");
     assert!(
@@ -111,11 +121,14 @@ async fn stop_cleanup_supervisor_survives_leader_handler_cancellation() {
     let retry_service = service.clone();
     let retry_handle = handle.clone();
     let mut retry = tokio::spawn(async move { retry_service.stop_scheduler(retry_handle).await });
-    let remained_pending = tokio::time::timeout(std::time::Duration::from_millis(10), &mut retry)
-        .await
-        .is_err();
+    let deadline = tokio::time::timeout(std::time::Duration::from_millis(10), &mut retry).await;
+    let remained_pending = deadline.is_err();
     let _ = release.send(());
-    let retry_result = retry.await.unwrap();
+    let retry_result = match deadline {
+        Ok(result) => result,
+        Err(_) => retry.await,
+    }
+    .unwrap();
     assert!(remained_pending, "retry must join supervisor-owned cleanup");
     assert!(retry_result.is_ok());
 }
