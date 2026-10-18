@@ -3,8 +3,8 @@ use super::super::codec::{doc_to_job, run_id, run_to_doc, set_last_run};
 use super::super::jobs::reschedule;
 use super::super::{CAS_ATTEMPTS, CronDocuments, OWNER, RUNS, storage_error};
 use super::{
-    CLAIM_EPOCH, CLAIM_OWNER, COMPLETED, ClaimedOccurrence, JOBS, QUEUED, Receipt, lease_key,
-    queued_run_cleanup,
+    CLAIM_EPOCH, CLAIM_OWNER, COMPLETED, ClaimedOccurrence, JOBS, QUEUED, Receipt,
+    job_occurrence_ms, lease_key, queued_run_cleanup,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -182,6 +182,7 @@ impl CronDocuments {
                 precondition: Precondition::Absent,
             }];
             extra.extend(queued_run_cleanup(&stored.doc)?);
+            let next_ms = job_occurrence_ms(&doc).ok();
             match self
                 .commit_job(&job.id, Some(&stored), Some(doc), extra)
                 .await
@@ -195,16 +196,41 @@ impl CronDocuments {
                     // a stale holder and the lease expires on its own).
                     match lease_key(&job.id, claim.lease.occurrence.timestamp_millis()) {
                         Ok(key) => {
-                            if let Err(error) = self
-                                .leases_at(finished_at)
-                                .release(OWNER, &key, &claim.lease.token, claim.lease.epoch)
-                                .await
-                            {
+                            let leases = self.leases_at(finished_at);
+                            // Once the job's next run is past this occurrence
+                            // nothing can claim it again, so its lease record
+                            // is dead weight: drop it, conditional on the
+                            // token and epoch this claim holds (tsd keeps
+                            // expired leases only so a takeover continues the
+                            // epoch, and none can follow). A manual claim or a
+                            // one-shot leaves the schedule where it was, so
+                            // its occurrence is still ahead and the record
+                            // stays, released.
+                            let moved_past = next_ms.is_some_and(|next| {
+                                next > claim.lease.occurrence.timestamp_millis()
+                            });
+                            let ended = if advance_schedule && moved_past {
+                                tracing::debug!(
+                                    job_id = %job.id,
+                                    epoch = claim.lease.epoch,
+                                    "[cron-claims] compacting a completed occurrence lease"
+                                );
+                                leases
+                                    .compact(OWNER, &key, &claim.lease.token, claim.lease.epoch)
+                                    .await
+                                    .map(|_| ())
+                            } else {
+                                leases
+                                    .release(OWNER, &key, &claim.lease.token, claim.lease.epoch)
+                                    .await
+                                    .map(|_| ())
+                            };
+                            if let Err(error) = ended {
                                 tracing::warn!(
                                     job_id = %job.id,
                                     epoch = claim.lease.epoch,
                                     %error,
-                                    "[cron-claims] releasing a completed claim's lease failed; it expires on its own"
+                                    "[cron-claims] ending a completed claim's lease failed; it expires on its own"
                                 );
                             }
                         }
