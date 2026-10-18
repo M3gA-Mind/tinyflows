@@ -10,7 +10,7 @@ use tinyflows_schedule::runtime::Clock;
 /// at start, and every `TickSchedulerAt` moves it to the instant the host
 /// passes, so due selection, run records and rescheduling in that pass all see
 /// the host's clock: a host can step a schedule forward without waiting for it.
-pub(super) struct HostClock(Mutex<Option<DateTime<Utc>>>);
+pub(crate) struct HostClock(Mutex<Option<DateTime<Utc>>>);
 
 impl HostClock {
     /// A clock on system time until the host supplies an instant.
