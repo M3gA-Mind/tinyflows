@@ -3,6 +3,10 @@ use serde_json::json;
 use tinyflows_bus::schedule::{CALLBACK_INTERFACE, CallbackAddress, CronJob};
 use tokio::sync::Mutex;
 
+#[cfg(test)]
+#[path = "schedule_stop_tests.rs"]
+mod stop_tests;
+
 #[derive(Default)]
 pub(super) struct State {
     executions: Mutex<Vec<String>>,
