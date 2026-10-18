@@ -3,6 +3,8 @@
 mod clock;
 #[path = "schedule_manual_workers.rs"]
 mod manual_workers;
+#[path = "schedule_stop_supervisor.rs"]
+mod stop_supervisor;
 use super::schedule_callbacks::HostCallbacks;
 use serde_json::Value;
 use std::{
@@ -24,7 +26,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-enum Running {
+pub(super) enum Running {
     Manual(Arc<Mutex<Scheduler>>),
     Loop {
         task: JoinHandle<()>,
@@ -37,9 +39,11 @@ pub(super) struct ScheduleService {
     connection: Connection,
     runtimes: Arc<StdMutex<HashMap<String, Running>>>,
     manual_workers: Mutex<manual_workers::ManualWorkers>,
+    stop_lifetime: watch::Sender<bool>,
 }
 impl Drop for ScheduleService {
     fn drop(&mut self) {
+        self.stop_lifetime.send_replace(true);
         for running in self
             .runtimes
             .lock()
@@ -55,10 +59,12 @@ impl Drop for ScheduleService {
 }
 impl ScheduleService {
     pub(super) fn new(connection: Connection) -> Self {
+        let (stop_lifetime, _) = watch::channel(false);
         Self {
             connection,
             runtimes: Arc::new(StdMutex::new(HashMap::new())),
             manual_workers: Mutex::new(manual_workers::ManualWorkers::default()),
+            stop_lifetime,
         }
     }
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
@@ -77,49 +83,6 @@ impl ScheduleService {
 }
 fn failure(error: impl std::fmt::Display) -> Error {
     Error::failed(error.to_string())
-}
-
-struct StopCompletionGuard {
-    completion: watch::Sender<Option<std::result::Result<(), String>>>,
-    completed: bool,
-}
-
-impl StopCompletionGuard {
-    fn finish(&mut self, result: std::result::Result<(), String>) {
-        self.completion.send_replace(Some(result));
-        self.completed = true;
-    }
-}
-
-impl Drop for StopCompletionGuard {
-    fn drop(&mut self) {
-        if !self.completed {
-            self.completion.send_replace(Some(Err(
-                "scheduler stop supervisor ended without confirming quiescence".into(),
-            )));
-        }
-    }
-}
-
-async fn shutdown_scheduler(running: Running) -> std::result::Result<(), String> {
-    match running {
-        Running::Loop {
-            mut task,
-            mut shutdown,
-        } => {
-            if let Some(shutdown) = shutdown.take() {
-                let _ = shutdown.send(());
-            }
-            (&mut task)
-                .await
-                .map_err(|error| format!("scheduler shutdown task failed: {error}"))
-        }
-        Running::Manual(runtime) => {
-            runtime.lock().await.shutdown().await;
-            Ok(())
-        }
-        Running::Stopping(_) => Err("scheduler stop was already in progress".into()),
-    }
 }
 
 async fn persist_manual_queue(
