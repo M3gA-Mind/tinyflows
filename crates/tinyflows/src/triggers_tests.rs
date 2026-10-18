@@ -48,7 +48,7 @@ fn unfired_kind_warns_and_names_the_kind() {
 }
 
 #[test]
-fn fired_legacy_and_unknown_kinds_do_not_warn() {
+fn fired_schedule_legacy_and_unknown_kinds_do_not_warn() {
     assert!(
         graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "schedule"}))).is_empty()
     );
@@ -56,6 +56,11 @@ fn fired_legacy_and_unknown_kinds_do_not_warn() {
     assert!(
         graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "bogus"}))).is_empty()
     );
+}
+
+#[test]
+fn graph_without_a_trigger_has_no_trigger_warnings() {
+    assert!(graph_trigger_warnings(&WorkflowGraph::default()).is_empty());
 }
 
 #[test]
