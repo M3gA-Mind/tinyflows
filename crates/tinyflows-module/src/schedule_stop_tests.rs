@@ -19,7 +19,7 @@ async fn stop_retries_join_inflight_shutdown_after_caller_deadline() {
         let _ = entered.send(());
         let _ = release_rx.await;
     });
-    service.runtimes.lock().await.insert(
+    service.runtimes.lock().unwrap().insert(
         handle.clone(),
         Running::Loop {
             task,
@@ -103,7 +103,7 @@ async fn stop_cleanup_supervisor_survives_leader_handler_cancellation() {
         let _ = entered.send(());
         let _ = release_rx.await;
     });
-    service.runtimes.lock().await.insert(
+    service.runtimes.lock().unwrap().insert(
         handle.clone(),
         Running::Loop {
             task,
