@@ -3,9 +3,14 @@
 mod clock;
 #[path = "schedule_manual_workers.rs"]
 mod manual_workers;
+#[path = "schedule_stop_supervisor.rs"]
+mod stop_supervisor;
 use super::schedule_callbacks::HostCallbacks;
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex as StdMutex},
+};
 use tinybus::{Connection, Error, Result};
 use tinyflows_bus::schedule::{
     self, AcknowledgeManualRun, CheckOriginRequest, CheckPatchRequest, ManualRunHandle,
@@ -17,26 +22,35 @@ use tinyflows_schedule::{
     DeliveryConfig, JobOrigin, Schedule, runtime::*, schedule as maths, store, validation,
 };
 use tokio::{
-    sync::{Mutex, oneshot},
+    sync::{Mutex, oneshot, watch},
     task::JoinHandle,
 };
 
-enum Running {
+pub(super) enum Running {
     Manual(Arc<Mutex<Scheduler>>),
     Loop {
         task: JoinHandle<()>,
         shutdown: Option<oneshot::Sender<()>>,
     },
+    Stopping(watch::Sender<Option<std::result::Result<(), String>>>),
 }
 
 pub(super) struct ScheduleService {
     connection: Connection,
-    runtimes: Mutex<HashMap<String, Running>>,
+    runtimes: Arc<StdMutex<HashMap<String, Running>>>,
     manual_workers: Mutex<manual_workers::ManualWorkers>,
+    stop_lifetime: watch::Sender<bool>,
 }
 impl Drop for ScheduleService {
+    /// Signal teardown to stop supervisors and abort active polling loops.
     fn drop(&mut self) {
-        for running in self.runtimes.get_mut().values() {
+        self.stop_lifetime.send_replace(true);
+        for running in self
+            .runtimes
+            .lock()
+            .expect("scheduler registry poisoned")
+            .values()
+        {
             if let Running::Loop { task, .. } = running {
                 task.abort();
             }
@@ -45,16 +59,26 @@ impl Drop for ScheduleService {
     }
 }
 impl ScheduleService {
+    /// Create a scheduler service bound to this module connection.
     pub(super) fn new(connection: Connection) -> Self {
+        let (stop_lifetime, _) = watch::channel(false);
         Self {
             connection,
-            runtimes: Mutex::new(HashMap::new()),
+            runtimes: Arc::new(StdMutex::new(HashMap::new())),
             manual_workers: Mutex::new(manual_workers::ManualWorkers::default()),
+            stop_lifetime,
         }
     }
+    /// Return an active manually-driven scheduler, rejecting other states.
     async fn manual(&self, handle: &str) -> Result<Arc<Mutex<Scheduler>>> {
-        match self.runtimes.lock().await.get(handle) {
+        match self
+            .runtimes
+            .lock()
+            .expect("scheduler registry poisoned")
+            .get(handle)
+        {
             Some(Running::Manual(runtime)) => Ok(runtime.clone()),
+            Some(Running::Stopping(_)) => Err(Error::failed("scheduler is stopping")),
             Some(_) => Err(Error::failed("scheduler owns its poll loop")),
             None => Err(Error::failed("unknown scheduler handle")),
         }
@@ -139,32 +163,65 @@ impl ScheduleService {
                 shutdown: Some(shutdown),
             }
         };
-        self.runtimes.lock().await.insert(handle.clone(), running);
+        self.runtimes
+            .lock()
+            .expect("scheduler registry poisoned")
+            .insert(handle.clone(), running);
         Ok(handle)
     }
 
+    /// Join the shared shutdown supervisor, or no-op for an absent handle.
     async fn stop_scheduler(&self, handle: String) -> Result<()> {
-        let running = self
-            .runtimes
-            .lock()
-            .await
-            .remove(&handle)
-            .ok_or_else(|| Error::failed("unknown scheduler handle"))?;
-        // Shut down and join the owning loop, then release every queued and
-        // running job claim before a replacement scheduler can poll.
-        match running {
-            Running::Loop {
-                mut task,
-                mut shutdown,
-            } => {
-                if let Some(shutdown) = shutdown.take() {
-                    let _ = shutdown.send(());
+        let (mut stopped, start_cleanup) = {
+            let mut runtimes = self.runtimes.lock().expect("scheduler registry poisoned");
+            match runtimes.get(&handle) {
+                None => return Ok(()),
+                Some(Running::Stopping(completion)) => (completion.subscribe(), None),
+                Some(_) => {
+                    let running = runtimes
+                        .remove(&handle)
+                        .expect("registered scheduler exists");
+                    let (completion, receiver) = watch::channel(None);
+                    runtimes.insert(handle.clone(), Running::Stopping(completion.clone()));
+                    (receiver, Some((running, completion)))
                 }
-                (&mut task).await.map_err(failure)?;
             }
-            Running::Manual(runtime) => runtime.lock().await.shutdown().await,
+        };
+
+        if let Some((running, completion)) = start_cleanup {
+            let runtimes = self.runtimes.clone();
+            let cleanup_handle = handle.clone();
+            let lifetime = self.stop_lifetime.subscribe();
+            let abort_on_cancel = stop_supervisor::abort_handle(&running);
+            tokio::spawn(async move {
+                let mut guard =
+                    stop_supervisor::StopCompletionGuard::new(completion, abort_on_cancel);
+                let result = tokio::select! {
+                    result = stop_supervisor::shutdown_scheduler(running) => result,
+                    _ = stop_supervisor::service_dropped(lifetime) => {
+                        Err("scheduler service dropped before shutdown was confirmed".into())
+                    }
+                };
+                if result.is_ok() {
+                    runtimes
+                        .lock()
+                        .expect("scheduler registry poisoned")
+                        .remove(&cleanup_handle);
+                }
+                guard.finish(result);
+            });
         }
-        Ok(())
+
+        loop {
+            if let Some(result) = stopped.borrow().clone() {
+                return result.map_err(failure);
+            }
+            if stopped.changed().await.is_err() {
+                return Err(Error::failed(
+                    "scheduler stop ended without confirming quiescence",
+                ));
+            }
+        }
     }
 
     async fn tick_scheduler(&self, handle: String) -> Result<usize> {

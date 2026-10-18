@@ -24,11 +24,16 @@ pub struct State {
     pub execute_started: tokio::sync::Notify,
     pub execute_release: tokio::sync::Notify,
     pub terminal_projection: tokio::sync::Notify,
+    pub due_job: Mutex<Option<Value>>,
 }
 pub struct Callbacks(pub Arc<State>);
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.ScheduleHost")]
 impl Callbacks {
+    /// Return the overridden shell job when a scheduler test needs due work.
     async fn due_jobs(&self, _now: String) -> Result<Vec<Value>> {
+        if let Some(job) = self.0.due_job.lock().unwrap().clone() {
+            return Ok(vec![job]);
+        }
         if !self.0.defer_first.load(std::sync::atomic::Ordering::SeqCst)
             && !self.0.completions.lock().unwrap().is_empty()
         {

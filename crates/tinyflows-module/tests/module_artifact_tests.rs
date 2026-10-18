@@ -22,6 +22,8 @@ mod schedule_v4_delivery_artifact;
 mod schedule_v4_manual_artifact;
 #[path = "support/schedule_v4_recovery_artifact.rs"]
 mod schedule_v4_recovery_artifact;
+#[path = "support/scheduler_stop_artifact_tests.rs"]
+mod scheduler_stop_artifact_tests;
 #[path = "support/storage_migration_artifact_tests.rs"]
 mod storage_migration_artifact_tests;
 #[path = "support/wiring_warning_artifact.rs"]
