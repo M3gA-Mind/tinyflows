@@ -102,8 +102,11 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
 
     callback_state.execute_release.notify_one();
     let released_args = (&handle,);
-    let retry_after_release = schedule.clone().call::<()>("StopScheduler", &released_args);
-    let duplicate_after_release = schedule.clone().call::<()>("StopScheduler", &released_args);
+    let retry_after_release_proxy = schedule.clone();
+    let duplicate_after_release_proxy = schedule.clone();
+    let retry_after_release = retry_after_release_proxy.call::<()>("StopScheduler", &released_args);
+    let duplicate_after_release =
+        duplicate_after_release_proxy.call::<()>("StopScheduler", &released_args);
     let (retry_after_release, duplicate_after_release) =
         tokio::join!(retry_after_release, duplicate_after_release);
     retry_after_release.unwrap();
