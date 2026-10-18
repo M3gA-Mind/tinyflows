@@ -1,0 +1,122 @@
+use super::callbacks;
+use chrono::Duration;
+use std::sync::Arc;
+use tinybus::{
+    Connection, Error, broker::Broker, module::ModuleHost, transport::memory::MemoryTransport,
+};
+use tinyflows_bus::schedule::{CallbackAddress, StartScheduler};
+use tinyflows_drivers::schedule::CronDocuments;
+use tinyflows_schedule::Schedule;
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+#[tokio::test]
+#[ignore = "run with TINYFLOWS_MODULE_ARTIFACT set to a compiled cdylib"]
+async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
+    let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
+        .expect("set TINYFLOWS_MODULE_ARTIFACT to a compiled cdylib");
+    let broker = Broker::new();
+    let host = ModuleHost::new(broker.clone());
+    host.load_file(std::path::PathBuf::from(artifact)).unwrap();
+    let (client, transport) = MemoryTransport::pair();
+    broker.attach(Arc::new(transport));
+    let connection = Connection::connect(Box::new(client)).await.unwrap();
+
+    let callback_state = Arc::new(callbacks::State::default());
+    callback_state
+        .defer_execute
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    connection
+        .serve_at(
+            "/test/ScheduleCallbacks".try_into().unwrap(),
+            callbacks::Callbacks(callback_state.clone()),
+        )
+        .await
+        .unwrap();
+    connection
+        .request_name("test.ScheduleCallbacks")
+        .await
+        .unwrap();
+
+    let storage = MemoryStorage::new()
+        .for_scope(&Scope::new("artifact-stop-scope").unwrap())
+        .unwrap();
+    let documents = CronDocuments::new(storage.documents().clone());
+    let now = chrono::Utc::now();
+    let job = documents
+        .add_shell_job(
+            Some("artifact-stop-job".into()),
+            Schedule::At {
+                at: now - Duration::minutes(1),
+            },
+            "echo stop",
+        )
+        .await
+        .unwrap();
+    *callback_state.due_job.lock().unwrap() = Some(serde_json::to_value(&job).unwrap());
+    let schedule = connection
+        .proxy(
+            tinyflows_bus::schedule::BUS_NAME,
+            tinyflows_bus::schedule::OBJECT_PATH,
+            tinyflows_bus::schedule::INTERFACE,
+        )
+        .unwrap();
+    let callback = CallbackAddress {
+        destination: "test.ScheduleCallbacks".into(),
+        object_path: "/test/ScheduleCallbacks".into(),
+    };
+    let scope = "artifact-stop-scope".to_string();
+    let request = StartScheduler {
+        scope: scope.clone(),
+        callback: callback.clone(),
+        config: serde_json::json!({"now": now}),
+        manual_ticks: true,
+        storage: None,
+    };
+    let handle: String = schedule.call("StartScheduler", &(request,)).await.unwrap();
+    let ticked: usize = schedule.call("TickScheduler", &(&handle,)).await.unwrap();
+    assert_eq!(ticked, 1);
+    callback_state.execute_started.notified().await;
+
+    let first = schedule
+        .clone()
+        .with_timeout(std::time::Duration::from_millis(10))
+        .call::<()>("StopScheduler", &(&handle,))
+        .await;
+    assert!(matches!(first, Err(Error::Timeout { .. })), "{first:?}");
+    let retry = schedule
+        .clone()
+        .with_timeout(std::time::Duration::from_millis(10))
+        .call::<()>("StopScheduler", &(&handle,));
+    let duplicate = schedule
+        .clone()
+        .with_timeout(std::time::Duration::from_millis(10))
+        .call::<()>("StopScheduler", &(&handle,));
+    let (retry, duplicate) = tokio::join!(retry, duplicate);
+    assert!(matches!(retry, Err(Error::Timeout { .. })), "{retry:?}");
+    assert!(
+        matches!(duplicate, Err(Error::Timeout { .. })),
+        "{duplicate:?}"
+    );
+
+    callback_state.execute_release.notify_one();
+    schedule
+        .call::<()>("StopScheduler", &(&handle,))
+        .await
+        .unwrap();
+    assert!(callback_state.leases.lock().unwrap().is_empty());
+    assert_eq!(callback_state.executions.lock().unwrap().len(), 1);
+    schedule
+        .call::<()>("StopScheduler", &(&handle,))
+        .await
+        .unwrap();
+    schedule
+        .call::<()>("StopScheduler", &("never-created",))
+        .await
+        .unwrap();
+
+    let restarted: String = schedule.call("StartScheduler", &(request,)).await.unwrap();
+    schedule
+        .call::<()>("StopScheduler", &(&restarted,))
+        .await
+        .unwrap();
+}
