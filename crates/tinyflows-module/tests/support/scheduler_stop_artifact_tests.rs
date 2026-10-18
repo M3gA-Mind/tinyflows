@@ -101,10 +101,17 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
     );
 
     callback_state.execute_release.notify_one();
-    schedule
-        .call::<()>("StopScheduler", &(&handle,))
-        .await
-        .unwrap();
+    let released_args = (&handle,);
+    let retry_after_release = schedule
+        .clone()
+        .call::<()>("StopScheduler", &released_args);
+    let duplicate_after_release = schedule
+        .clone()
+        .call::<()>("StopScheduler", &released_args);
+    let (retry_after_release, duplicate_after_release) =
+        tokio::join!(retry_after_release, duplicate_after_release);
+    retry_after_release.unwrap();
+    duplicate_after_release.unwrap();
     assert!(callback_state.leases.lock().unwrap().is_empty());
     assert_eq!(callback_state.executions.lock().unwrap().len(), 1);
     schedule
