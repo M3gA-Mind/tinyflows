@@ -113,6 +113,15 @@ async fn resume_denying_a_gate_routes_to_its_error_port() {
         json!("gate"),
         "the denied gate must route its error item to the `error`-port recovery node"
     );
+    assert_eq!(
+        denied.outcome.output["nodes"]["recover"]["items"][0]["json"]["error"],
+        json!({
+            "message": "approval denied",
+            "node": "gate",
+            "denied": true,
+        }),
+        "the error port must receive the complete approval-denial payload"
+    );
     assert!(
         denied.outcome.output["nodes"]["downstream"].is_null(),
         "the main branch must not run when the gate is denied"

@@ -41,20 +41,29 @@ fn only_manual_schedule_and_app_event_fire() {
 
 #[test]
 fn unfired_kind_warns_and_names_the_kind() {
-    let warnings = graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "webhook"})));
+    let graph = graph_with_trigger(json!({"trigger_kind": "webhook"}));
+    assert!(crate::validate::validate(&graph).is_ok());
+
+    let warnings = graph_trigger_warnings(&graph);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("'webhook'"));
+    assert!(warnings[0].contains("does not fire automatically"));
 }
 
 #[test]
-fn fired_legacy_and_unknown_kinds_do_not_warn() {
-    assert!(
-        graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "schedule"}))).is_empty()
-    );
+fn fired_schedule_legacy_and_unknown_kinds_do_not_warn() {
+    let schedule_graph = graph_with_trigger(json!({"trigger_kind": "schedule"}));
+    assert!(crate::validate::validate(&schedule_graph).is_ok());
+    assert!(graph_trigger_warnings(&schedule_graph).is_empty());
     assert!(graph_trigger_warnings(&graph_with_trigger(json!({}))).is_empty());
     assert!(
         graph_trigger_warnings(&graph_with_trigger(json!({"trigger_kind": "bogus"}))).is_empty()
     );
+}
+
+#[test]
+fn graph_without_a_trigger_has_no_trigger_warnings() {
+    assert!(graph_trigger_warnings(&WorkflowGraph::default()).is_empty());
 }
 
 #[test]
