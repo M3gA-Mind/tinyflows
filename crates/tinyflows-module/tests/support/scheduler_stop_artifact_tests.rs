@@ -41,7 +41,6 @@ async fn compiled_module_stop_scheduler_retries_after_tinybus_timeout() {
         .for_scope(&Scope::new("artifact-stop-scope").unwrap())
         .unwrap();
     let documents = CronDocuments::new(storage.documents().clone());
-    let now = chrono::Utc::now();
     let job = documents
         .add_shell_job(
             Some("artifact-stop-job".into()),
