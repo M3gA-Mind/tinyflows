@@ -10,8 +10,8 @@ use tinyflows_bus::runs::{CancelRunResponse, RunControlRequest, RunEvent};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
-use super::events::EventWriter;
 use super::dedup_settlement::{DedupSettlementScope, from_snapshot};
+use super::events::EventWriter;
 use super::preparation::Prepared;
 use super::{ActiveRun, RUNNING, unregister};
 use crate::catalog_documents::Documents;

@@ -17,8 +17,8 @@ use tinyflows_bus::runs::{ResumeRun, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
 use tokio::time::sleep;
 
-use super::events::{EventWriter, Observer};
 use super::dedup_settlement::DedupSettlementScope;
+use super::events::{EventWriter, Observer};
 use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
@@ -255,14 +255,13 @@ async fn drive_inner(
             .phase
             .store(PARKED, std::sync::atomic::Ordering::Release);
         if active.token.is_cancelled() {
-            if let Err(error) =
-                super::cancellation::cancel_parked(
-                    &prepared,
-                    &request.storage,
-                    &request.run_id,
-                    &writer,
-                )
-                .await
+            if let Err(error) = super::cancellation::cancel_parked(
+                &prepared,
+                &request.storage,
+                &request.run_id,
+                &writer,
+            )
+            .await
             {
                 tracing::error!(%error, run_id = %request.run_id, "settling cancellation after park");
             }
