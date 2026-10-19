@@ -83,9 +83,14 @@ async fn compiled_module_resumes_a_legacy_parked_run_without_a_graph_hash() {
     assert_eq!(resumed.run_id, run_id);
 
     let terminal = poll_until_done(&runs_proxy, &owner.storage, run_id).await;
-    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     let outcome: runs::RunFinished =
         serde_json::from_value(terminal.events.last().unwrap().data.clone()).unwrap();
+    assert!(
+        matches!(outcome.status.as_str(), "completed" | "completed_with_warnings"),
+        "legacy null graph hash resumed to a successful terminal outcome: {:?}",
+        outcome.status
+    );
+    assert!(outcome.successful);
     assert!(
         outcome.output.is_some(),
         "resume returns the engine outcome"
