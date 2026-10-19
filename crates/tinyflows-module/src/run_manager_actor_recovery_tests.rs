@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryTransport};
 use tinyflows::graph::{Checkpoint, Checkpointer as _};
+use tinyflows_catalog::FlowRunStep;
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
 use tinyflows_bus::runs::{CallbackAddress as CapsCallbackAddress, FlowRunTrigger, RunContext, StartRun};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
@@ -67,6 +68,151 @@ async fn aborting_an_admitted_actor_reconciles_its_running_row() {
         &fixture.storage,
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
+    let parked = running_fixture().await;
+    let (_parked_admission, parked_rx) = oneshot::channel();
+    let parked_actor = actor::drive(
+        parked.connection.clone(),
+        parked.request.clone(),
+        parked.prepared,
+        Arc::clone(&parked.active),
+        parked_rx,
+    );
+    assert!(parked
+        .catalog
+        .finish_flow_run(
+            &parked.run_id,
+            "pending_approval",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &["gate".into()],
+            None,
+            Some("graph-pin"),
+        )
+        .await
+        .unwrap());
+    parked
+        .active
+        .phase
+        .store(PARKED, std::sync::atomic::Ordering::Release);
+    drop(parked_actor);
+    wait_for_no_active(&parked.storage, &parked.run_id).await;
+    let row = parked
+        .catalog
+        .get_flow_run(&parked.run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, "pending_approval");
+    assert!(parked
+        .catalog
+        .flow_run_events_after(&parked.run_id, 0, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(!parked
+        .checkpointer
+        .get_thread(&parked.run_id)
+        .await
+        .unwrap()
+        .is_empty());
+
+    let terminal = running_fixture().await;
+    let (_terminal_admission, terminal_rx) = oneshot::channel();
+    let terminal_actor = actor::drive(
+        terminal.connection.clone(),
+        terminal.request.clone(),
+        terminal.prepared,
+        Arc::clone(&terminal.active),
+        terminal_rx,
+    );
+    assert!(terminal
+        .catalog
+        .finish_flow_run(
+            &terminal.run_id,
+            "completed",
+            "2026-01-01T00:00:01Z",
+            &[FlowRunStep {
+                node_id: "finished".into(),
+                ..Default::default()
+            }],
+            &[],
+            None,
+            None,
+        )
+        .await
+        .unwrap());
+    drop(terminal_actor);
+    wait_for_no_active(&terminal.storage, &terminal.run_id).await;
+    let row = terminal
+        .catalog
+        .get_flow_run(&terminal.run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, "completed");
+    assert_eq!(row.steps[0].node_id, "finished");
+    assert!(terminal
+        .catalog
+        .flow_run_events_after(&terminal.run_id, 0, 10)
+        .await
+        .unwrap()
+        .is_empty());
+
+    let replacement = running_fixture().await;
+    let (_replacement_admission, replacement_rx) = oneshot::channel();
+    let stale_actor = actor::drive(
+        replacement.connection.clone(),
+        replacement.request.clone(),
+        replacement.prepared,
+        Arc::clone(&replacement.active),
+        replacement_rx,
+    );
+    assert!(replacement
+        .catalog
+        .finish_flow_run(
+            &replacement.run_id,
+            "pending_approval",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &["gate".into()],
+            None,
+            Some("graph-pin"),
+        )
+        .await
+        .unwrap());
+    replacement
+        .active
+        .phase
+        .store(PARKED, std::sync::atomic::Ordering::Release);
+    let new_actor = reserve_resume(key(&replacement.storage, &replacement.run_id)).unwrap();
+    assert!(replacement
+        .catalog
+        .claim_parked_flow_run_for_resume(&replacement.run_id, &new_actor.lease)
+        .await
+        .unwrap());
+    drop(stale_actor);
+    wait_for_owner(&replacement.storage, &replacement.run_id, &new_actor).await;
+    assert_eq!(
+        replacement
+            .catalog
+            .get_flow_run(&replacement.run_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "running"
+    );
+    assert!(replacement
+        .catalog
+        .flow_run_events_after(&replacement.run_id, 0, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    unregister(&new_actor);
 }
 
 struct RunningFixture {
@@ -251,6 +397,26 @@ async fn assert_reconciled(
         None
     );
     assert!(active(&key(storage, run_id)).is_none());
+}
+
+async fn wait_for_no_active(storage: &CatalogStorage, run_id: &str) {
+    for _ in 0..128 {
+        if active(&key(storage, run_id)).is_none() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the stopped actor stayed registered");
+}
+
+async fn wait_for_owner(storage: &CatalogStorage, run_id: &str, expected: &Arc<ActiveRun>) {
+    for _ in 0..128 {
+        if active(&key(storage, run_id)).is_some_and(|actual| Arc::ptr_eq(&actual, expected)) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the stale actor recovery removed or replaced the new owner");
 }
 
 #[cfg(test)]
