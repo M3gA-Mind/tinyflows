@@ -15,7 +15,8 @@ impl Portability {
     ) -> Result<tinyflows_bus::portability::HttpRequestDetails> {
         let credential_name = match request.connection_ref.as_deref() {
             Some(connection_ref)
-                if connection_ref.starts_with(tinyflows::caps::http_credential::HTTP_CRED_PREFIX) =>
+                if connection_ref
+                    .starts_with(tinyflows::caps::http_credential::HTTP_CRED_PREFIX) =>
             {
                 tinyflows::caps::http_credential::http_cred_name(Some(connection_ref))
                     .map_err(|_| Error::failed("HTTP request inspection failed"))?
@@ -27,9 +28,7 @@ impl Portability {
         };
         Ok(tinyflows_bus::portability::HttpRequestDetails {
             credential_name,
-            redacted_summary: tinyflows::caps::http_credential::redacted_summary(
-                &request.request,
-            ),
+            redacted_summary: tinyflows::caps::http_credential::redacted_summary(&request.request),
         })
     }
 

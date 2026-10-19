@@ -9,7 +9,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         .unwrap();
     let inspection: portability::HttpRequestDetails = proxy
         .call(
-            "InspectHttpRequest",
+            portability::methods::INSPECT_HTTP_REQUEST,
             (portability::InspectHttpRequest {
                 request: json!({
                     "method": "post",
@@ -17,7 +17,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
                     "headers": {"X-Private": "header-secret"},
                     "body": "body-secret"
                 }),
-                connection_ref: Some("http_cred:payments".into()),
+                connection_ref: Some("http_cred: payments ".into()),
             },),
         )
         .await
@@ -31,10 +31,14 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
     assert!(!serialized.contains("header-secret"));
     assert!(!serialized.contains("body-secret"));
 
-    for connection_ref in [None, Some("composio:slack:account".into())] {
+    for connection_ref in [
+        None,
+        Some("composio:slack:account".into()),
+        Some(" http_cred:payments".into()),
+    ] {
         let details: portability::HttpRequestDetails = proxy
             .call(
-                "InspectHttpRequest",
+                portability::methods::INSPECT_HTTP_REQUEST,
                 (portability::InspectHttpRequest {
                     request: json!({"url":"https://api.example.test"}),
                     connection_ref,
@@ -46,15 +50,20 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
     }
     let malformed = proxy
         .call::<portability::HttpRequestDetails>(
-            "InspectHttpRequest",
+            portability::methods::INSPECT_HTTP_REQUEST,
             (portability::InspectHttpRequest {
-                request: json!({"url":"https://api.example.test"}),
+                request: json!({
+                    "url":"https://api.example.test",
+                    "headers":{"X-Private":"header-secret"},
+                    "body":"body-secret"
+                }),
                 connection_ref: Some("http_cred:   ".into()),
             },),
         )
         .await
         .expect_err("an empty recognized credential name fails closed");
     assert!(!malformed.to_string().contains("header-secret"));
+    assert!(!malformed.to_string().contains("body-secret"));
 
     let prepared: Value = proxy
         .call(

@@ -9,12 +9,26 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Portability";
 pub const CONTRACT_VERSION: u32 = 3;
 /// Methods implemented by the compiled module.
 pub const METHODS: &[&str] = &[
-    "PrepareHttpRequest",
-    "InspectHttpRequest",
-    "AppEventBinding",
-    "PinnedInputs",
-    "DescribeTrigger",
+    methods::PREPARE_HTTP_REQUEST,
+    methods::INSPECT_HTTP_REQUEST,
+    methods::APP_EVENT_BINDING,
+    methods::PINNED_INPUTS,
+    methods::DESCRIBE_TRIGGER,
 ];
+
+/// Stable member names.
+pub mod methods {
+    /// Prepare a request with a host-resolved credential.
+    pub const PREPARE_HTTP_REQUEST: &str = "PrepareHttpRequest";
+    /// Inspect a request before the host resolves its credential.
+    pub const INSPECT_HTTP_REQUEST: &str = "InspectHttpRequest";
+    /// Match a graph's sole app-event trigger.
+    pub const APP_EVENT_BINDING: &str = "AppEventBinding";
+    /// Read literal inputs from a graph's sole trigger.
+    pub const PINNED_INPUTS: &str = "PinnedInputs";
+    /// Describe the module-owned trigger metadata.
+    pub const DESCRIBE_TRIGGER: &str = "DescribeTrigger";
+}
 
 /// Credential material already resolved by the trusted host.
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]

@@ -45,7 +45,6 @@ const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// not covered by it at all.
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-
 /// The hosts an `http_request` node may reach.
 ///
 /// Policy, and therefore the host's to state — but the *shape* of the policy is
