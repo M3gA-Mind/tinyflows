@@ -1,3 +1,4 @@
+use super::run_lifecycle_tests::module_proxies;
 use super::*;
 
 #[tokio::test]
