@@ -74,6 +74,13 @@ pinned graph and input snapshot. The parked-to-running transition and resumed
 actor lease are one compare-and-swap, so a concurrent resume, expiry, or boot
 sweep cannot replace the winner.
 
+`PollRun` also carries the engine outcome needed by synchronous host
+controllers: a `parked` event's data is `RunParked` (segment output, pending
+approval ids, and the pinned graph hash), and a `finished` event's data is
+`RunFinished` with an optional output. Recovery-only terminal events omit the
+output because no engine outcome exists. These fields are additive and
+optional when reading events produced by an older module.
+
 The resumed observer starts with the persisted step prefix, replaces a node's
 parked observation with its resumed result, and seeds the event writer from
 the last persisted sequence. Resumed execution uses a cancellable engine entry

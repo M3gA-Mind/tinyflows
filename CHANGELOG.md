@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Run event outcomes
+
+- **Added** the engine output to `Runs.PollRun` parked and finished event
+  payloads so hosts can preserve synchronous run/resume results without
+  reading module-owned checkpoints. The fields are optional when decoding
+  events from older module versions; recovery events omit output when no engine
+  outcome exists.
+
 ### Bounded occurrence lease records
 
 - **Fixed** the `tsd.leases` record kept per cron occurrence (#159). Completing
