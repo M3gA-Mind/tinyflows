@@ -85,15 +85,22 @@ async fn compiled_module_resumes_a_legacy_parked_run_without_a_graph_hash() {
     let terminal = poll_until_done(&runs_proxy, &owner.storage, run_id).await;
     let outcome: runs::RunFinished =
         serde_json::from_value(terminal.events.last().unwrap().data.clone()).unwrap();
-    assert!(
-        matches!(outcome.status.as_str(), "completed" | "completed_with_warnings"),
-        "legacy null graph hash resumed to a successful terminal outcome: {:?}",
-        outcome.status
-    );
+    assert_eq!(outcome.status, "completed_with_warnings");
     assert!(outcome.successful);
+    assert_eq!(outcome.error, None);
     assert!(
         outcome.output.is_some(),
         "resume returns the engine outcome"
     );
     assert!(!outcome.timed_out);
+    let row = catalog.get_flow_run(run_id).await.unwrap().unwrap();
+    let warning_diagnostics = row
+        .steps
+        .iter()
+        .filter(|step| !step.diagnostics.is_empty())
+        .collect::<Vec<_>>();
+    assert!(
+        !warning_diagnostics.is_empty(),
+        "completed_with_warnings must be explained by persisted diagnostics: {warning_diagnostics:?}"
+    );
 }
