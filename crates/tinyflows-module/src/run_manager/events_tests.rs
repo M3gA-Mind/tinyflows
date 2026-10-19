@@ -219,7 +219,7 @@ async fn setup(mode: FaultMode) -> TestSetup {
     let module = Connection::connect(bus.connect().await.unwrap())
         .await
         .unwrap();
-    host.serve_at("/terminal-docs".parse().unwrap(), StorageReader(docs))
+    host.serve_at("/terminal_docs".parse().unwrap(), StorageReader(docs))
         .await
         .unwrap();
     host.request_name("test.TerminalCatalogStorage")
@@ -232,7 +232,7 @@ async fn setup(mode: FaultMode) -> TestSetup {
         storage: CatalogStorage {
             callback: catalog::CallbackAddress {
                 destination: "test.TerminalCatalogStorage".into(),
-                object_path: "/terminal-docs".into(),
+                object_path: "/terminal_docs".into(),
             },
         },
     }
