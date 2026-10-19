@@ -180,6 +180,7 @@ struct TestSetup {
     catalog: FlowCatalogDocuments,
     run_id: String,
     module: Connection,
+    _host: Connection,
     storage: CatalogStorage,
 }
 
@@ -237,6 +238,7 @@ async fn setup(mode: FaultMode) -> TestSetup {
         catalog,
         run_id,
         module,
+        _host: host,
         storage: CatalogStorage {
             callback: catalog::CallbackAddress {
                 destination: "test.TerminalCatalogStorage".into(),
