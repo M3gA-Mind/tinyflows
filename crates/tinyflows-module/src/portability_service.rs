@@ -87,6 +87,9 @@ impl Portability {
             .filter(|prompt| !prompt.is_empty())
         {
             agent_prompt::prepend_system_message(&mut node_request, system_prompt);
+            if let Some(object) = node_request.as_object_mut() {
+                object.remove("prompt");
+            }
         }
         let model = agent_prompt::resolve_node_model(&node_request, request.entry_model.as_deref());
         let prompt = agent_prompt::build_harness_run_prompt(&node_request);
