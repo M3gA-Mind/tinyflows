@@ -16,9 +16,8 @@ pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
         return Ok(None);
     };
     conn.strip_prefix(HTTP_CRED_PREFIX)
-        .map(str::trim)
         .map(Some)
-        .filter(|name| name.is_some_and(|name| !name.is_empty()))
+        .filter(|name| name.is_some_and(|n| !n.is_empty()))
         .ok_or_else(|| {
             EngineError::Capability(format!(
                 "http_request: unrecognised connection_ref '{conn}'; expected \
