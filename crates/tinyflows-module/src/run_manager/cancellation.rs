@@ -147,7 +147,8 @@ pub(super) async fn cancel_parked(
             "cancelled",
             Some("parked run cancelled".into()),
             None,
-            Some(Value::Null),
+            None,
+            false,
         ))
         .await?;
     if !prepared
@@ -206,7 +207,8 @@ async fn append_cancelled_event(
                     "cancelled",
                     Some(reason.to_owned()),
                     None,
-                    Some(Value::Null),
+                    None,
+                    false,
                 ))?,
                 graph_run_id: None,
             })?,

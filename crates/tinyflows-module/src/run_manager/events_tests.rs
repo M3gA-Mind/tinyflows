@@ -10,10 +10,22 @@ fn terminal_payload_uses_the_engine_success_vocabulary() {
         ("interrupted", false),
         ("future_terminal_status", false),
     ] {
-        let payload = finished_payload(status, None, None, None);
+        let payload = finished_payload(status, None, None, None, false);
         assert_eq!(payload.status, status);
         assert_eq!(payload.successful, successful, "status: {status}");
     }
+}
+
+#[test]
+fn terminal_payload_preserves_engine_output_and_deadline_cause() {
+    let output = serde_json::json!({"partial":true});
+    let payload = finished_payload("cancelled", None, None, Some(output.clone()), false);
+    assert_eq!(payload.output, Some(output));
+    assert!(!payload.timed_out);
+
+    let timeout = finished_payload("cancelled", Some("deadline".into()), None, None, true);
+    assert_eq!(timeout.output, None);
+    assert!(timeout.timed_out);
 }
 
 #[test]

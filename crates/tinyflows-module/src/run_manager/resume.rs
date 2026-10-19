@@ -253,6 +253,7 @@ async fn refuse_stale_graph(
                     Some(GRAPH_CHANGED.to_owned()),
                     None,
                     None,
+                    false,
                 ))?,
                 graph_run_id: None,
             })?,

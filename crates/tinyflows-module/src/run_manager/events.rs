@@ -19,6 +19,7 @@ pub(super) fn finished_payload(
     error: Option<String>,
     graph_run_id: Option<String>,
     output: Option<Value>,
+    timed_out: bool,
 ) -> RunFinished {
     RunFinished {
         status: status.to_owned(),
@@ -26,6 +27,7 @@ pub(super) fn finished_payload(
         error,
         graph_run_id,
         output,
+        timed_out,
     }
 }
 

@@ -150,14 +150,6 @@ async fn drive_inner(
             failure = Some(format!("{error:#}"));
         }
     }
-    // The legacy host returns null for an explicit cancellation and an error
-    // for its wall-clock timeout, even if the cooperative engine returned a
-    // partial graph value while unwinding either signal.
-    if timed_out {
-        output = None;
-    } else if cancelled {
-        output = Some(Value::Null);
-    }
     if let Some(error) = writer.flush().await {
         tracing::error!(%error, run_id = %request.run_id, "run observer writes did not drain cleanly");
         failure.get_or_insert(error);
@@ -268,6 +260,7 @@ async fn drive_inner(
             error_text.clone(),
             graph_run_id.clone(),
             output,
+            timed_out,
         ))
         .await
     {
