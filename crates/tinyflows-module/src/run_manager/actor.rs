@@ -15,7 +15,7 @@ use tinyflows::{
 };
 use tinyflows_bus::runs::{ResumeRun, RunContext, RunEvent, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
-use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
+use tinyflows_drivers::{DriverCheckpointer, catalog::{FlowCatalogDocuments, FlowStateDocuments}};
 use tokio::time::sleep;
 
 use super::events::{EventWriter, Observer};
@@ -212,11 +212,19 @@ impl ActorRecovery {
             },
             graph_run_id: None,
         };
-        match self
-            .catalog
-            .append_flow_run_event(&self.run_id, serde_json::to_value(event).unwrap_or(Value::Null))
-            .await
-        {
+        let event = match serde_json::to_value(event) {
+            Ok(event) => event,
+            Err(error) => {
+                tracing::error!(
+                    target: "workflows",
+                    run_id = %self.run_id,
+                    %error,
+                    "actor recovery could not serialize its terminal event"
+                );
+                return;
+            }
+        };
+        match self.catalog.append_flow_run_event(&self.run_id, event).await {
             Ok(()) => match self
                 .catalog
                 .mark_flow_run_terminal_event(&self.run_id, seq)
