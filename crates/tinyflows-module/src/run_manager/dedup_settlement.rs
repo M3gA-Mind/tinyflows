@@ -117,9 +117,7 @@ pub(super) async fn from_snapshot(
     run_id: &str,
     success: bool,
 ) -> Option<DedupSettlementScope> {
-    let Some(snapshot) = snapshot else {
-        return None;
-    };
+    let snapshot = snapshot?;
     let decoded = (|| {
         Some((
             tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?,
