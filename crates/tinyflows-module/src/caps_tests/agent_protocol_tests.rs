@@ -42,7 +42,7 @@ fn request() -> AgentRunRequest {
 }
 
 #[test]
-fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
+fn agent_run_wire_adds_correlation_without_changing_engine_payload() {
     let engine_request = AgentRunRequest {
         agent: AgentDefinition {
             id: "researcher".into(),
@@ -94,7 +94,13 @@ fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
     };
     let engine_json = serde_json::to_value(&engine_request).unwrap();
     let wire_request: runs::AgentRunRequest = convert(engine_request).unwrap();
-    assert_eq!(serde_json::to_value(wire_request).unwrap(), engine_json);
+    let mut wire_json = serde_json::to_value(wire_request).unwrap();
+    assert_eq!(wire_json["client_request_id"], "");
+    wire_json
+        .as_object_mut()
+        .unwrap()
+        .remove("client_request_id");
+    assert_eq!(wire_json, engine_json);
 
     let engine_outcome = AgentRunOutcome {
         stop: StopReason::Paused {
