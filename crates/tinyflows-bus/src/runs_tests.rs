@@ -212,7 +212,7 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"result":{"sandbox":true,"ok":true}}),
     );
-    assert_eq!(CONTRACT_VERSION, 5);
+    assert_eq!(CONTRACT_VERSION, 6);
     assert_eq!(
         METHODS,
         [
