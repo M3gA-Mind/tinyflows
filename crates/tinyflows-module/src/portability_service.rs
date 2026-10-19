@@ -129,3 +129,7 @@ pub(super) async fn setup(connection: &Connection) -> Result<()> {
         .serve_at(tinyflows_bus::OBJECT_PATH.try_into()?, Portability)
         .await
 }
+
+#[cfg(test)]
+#[path = "portability_service_tests.rs"]
+mod tests;
