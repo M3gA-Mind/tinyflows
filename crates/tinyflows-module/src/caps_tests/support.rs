@@ -255,7 +255,16 @@ pub(super) async fn memory_bus() -> (Connection, Connection) {
         .await
         .unwrap();
     host.request_name("test.CapsHost").await.unwrap();
+    announce_caps_contract(&host, 2).await;
     (module, host)
+}
+
+pub(super) async fn announce_caps_contract(host: &Connection, version: u64) {
+    let interface = tinybus::InterfaceName::new(runs::CAPS_INTERFACE).unwrap();
+    let manifest = tinybus::PeerManifest::new("test-caps-host").provides(
+        tinybus::InterfaceVersion::provided(interface, tinybus::Version::new(version, 0, 0)),
+    );
+    host.announce(&manifest).await.unwrap();
 }
 
 pub(super) async fn serve_caps(
