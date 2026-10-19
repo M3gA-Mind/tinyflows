@@ -19,7 +19,7 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Runs";
 /// Run-control object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Runs";
 /// Version of the run-control contract.
-pub const CONTRACT_VERSION: u32 = 5;
+pub const CONTRACT_VERSION: u32 = 6;
 /// Run-control members, in stable interface order.
 pub const METHODS: &[&str] = &[
     "StartRun",
@@ -248,8 +248,13 @@ pub struct RunFinished {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_run_id: Option<String>,
     /// Engine outcome returned to the caller, when an engine outcome exists.
-    /// Absent for recovery and pre-execution failure events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Absent for recovery/pre-execution events or when output had to be
+    /// omitted so the terminal event itself could be persisted.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_value",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub output: Option<Value>,
     /// True when the host-selected run deadline, rather than an explicit
     /// cancellation, stopped the engine.
@@ -261,12 +266,24 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+fn deserialize_present_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// Outcome carried by a `parked` event while a run awaits human approval.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RunParked {
     /// Engine outcome returned by the parked execution segment, when present.
-    /// Absent when reading a record written by an older module.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Absent for older records or when output had to be omitted so the
+    /// approval metadata could be persisted.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_value",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub output: Option<Value>,
     /// Nodes whose approval is required to resume the run.
     #[serde(default)]

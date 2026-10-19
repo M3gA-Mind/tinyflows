@@ -212,7 +212,7 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
         },
         serde_json::json!({"result":{"sandbox":true,"ok":true}}),
     );
-    assert_eq!(CONTRACT_VERSION, 5);
+    assert_eq!(CONTRACT_VERSION, 6);
     assert_eq!(
         METHODS,
         [
@@ -277,6 +277,25 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
 }
 
 #[test]
+fn finished_json_null_output_is_distinct_from_absent_output() {
+    pin(
+        RunFinished {
+            status: "completed".into(),
+            successful: true,
+            error: None,
+            graph_run_id: None,
+            output: Some(serde_json::Value::Null),
+            timed_out: false,
+        },
+        serde_json::json!({
+            "status":"completed",
+            "successful":true,
+            "output":null
+        }),
+    );
+}
+
+#[test]
 fn parked_outcome_round_trips_and_accepts_legacy_events() {
     let parked = RunParked {
         output: Some(serde_json::json!({"answer":42})),
@@ -295,4 +314,19 @@ fn parked_outcome_round_trips_and_accepts_legacy_events() {
     let decoded: RunParked = serde_json::from_value(legacy).unwrap();
     assert_eq!(decoded.output, None);
     assert_eq!(decoded.pending_approvals, ["approve"]);
+}
+
+#[test]
+fn parked_json_null_output_is_distinct_from_absent_output() {
+    pin(
+        RunParked {
+            output: Some(serde_json::Value::Null),
+            pending_approvals: Vec::new(),
+            graph_hash: None,
+        },
+        serde_json::json!({
+            "output":null,
+            "pending_approvals":[]
+        }),
+    );
 }

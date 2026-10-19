@@ -16,7 +16,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | --- | --- | --- |
 | Authoring | served, v4 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, graph analysis, import, gates, preflight, advisory wiring) |
 | Schedule | served, v4 | scheduler start/stop/tick/drain, durable occurrence leases, queued `RunJobNow`, two-phase `Send`/terminal `Deliver`, captured-job `ScheduleTrigger`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
+| Runs | served, v6 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
@@ -83,9 +83,12 @@ sweep cannot replace the winner.
 `PollRun` also carries the engine outcome needed by synchronous host
 controllers: a `parked` event's data is `RunParked` (segment output, pending
 approval ids, and the pinned graph hash), and a `finished` event's data is
-`RunFinished` with an optional output and a deadline-cause flag. Recovery-only
-terminal events omit the output because no engine outcome exists. These fields
-are additive and default when reading events produced by an older module.
+`RunFinished` with an optional output and a deadline-cause flag. If an
+output-bearing event exceeds the storage backend's document limit, the module
+retries the same event without only the output field; the parked approval
+metadata or finished status remains pollable. Recovery-only terminal events
+also omit output because no engine outcome exists. These fields are additive
+and default when reading events produced by an older module.
 
 The resumed observer starts with the persisted step prefix, replaces a node's
 parked observation with its resumed result, and seeds the event writer from
@@ -273,7 +276,7 @@ not need implementation-library dependencies.
 3. `ApplyGraphOps` and `ApprovalManifest` served (host classifies).
 4. `CapsHost` callbacks and `StartRun`/`PollRun`/`CancelRun`; core run
    manager shrinks to the host adapter and event-bus projection.
-5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v4).
+5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v6).
 6. `SandboxRun` and the module artifact's mock-only preflight boundary.
 7. Retire remaining direct `tinyflows` links from core; update
    `module-boundaries.json` and the boundary inventory.
