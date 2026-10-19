@@ -6,7 +6,7 @@ use serde_json::Value;
 /// Interface that exposes engine-owned preparation behavior to hosts.
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Portability";
 /// Contract version for this interface.
-pub const CONTRACT_VERSION: u32 = 3;
+pub const CONTRACT_VERSION: u32 = 4;
 /// Methods implemented by the compiled module.
 pub const METHODS: &[&str] = &[
     methods::PREPARE_HTTP_REQUEST,
@@ -14,6 +14,10 @@ pub const METHODS: &[&str] = &[
     methods::APP_EVENT_BINDING,
     methods::PINNED_INPUTS,
     methods::DESCRIBE_TRIGGER,
+    methods::PREPARE_LLM_COMPLETE,
+    methods::FORMAT_LLM_COMPLETE,
+    methods::PREPARE_AGENT_RUN,
+    methods::FORMAT_AGENT_RUN,
 ];
 
 /// Stable member names.
@@ -28,6 +32,14 @@ pub mod methods {
     pub const PINNED_INPUTS: &str = "PinnedInputs";
     /// Describe the module-owned trigger metadata.
     pub const DESCRIBE_TRIGGER: &str = "DescribeTrigger";
+    /// Prepare a generic completion request for the host inference provider.
+    pub const PREPARE_LLM_COMPLETE: &str = "PrepareLlmComplete";
+    /// Apply module-owned structured-output behavior to a host completion.
+    pub const FORMAT_LLM_COMPLETE: &str = "FormatLlmComplete";
+    /// Prepare the prompt, model, and timeout for a host agent run.
+    pub const PREPARE_AGENT_RUN: &str = "PrepareAgentRun";
+    /// Shape a host agent reply into the node's stable output value.
+    pub const FORMAT_AGENT_RUN: &str = "FormatAgentRun";
 }
 
 /// Credential material already resolved by the trusted host.
@@ -57,6 +69,82 @@ pub struct HttpRequestDetails {
     /// Method and URL only; request headers and body are omitted, though the
     /// URL copied from the request may itself contain sensitive data.
     pub redacted_summary: String,
+}
+
+/// One normalized chat message for a host inference provider.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CompletionMessage {
+    /// Normalized role: `system`, `user`, `assistant`, or `tool`.
+    pub role: String,
+    /// Message text.
+    pub content: String,
+}
+
+/// Prepare a TinyFlows completion request without exposing engine helpers to
+/// the host.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PrepareLlmComplete {
+    /// Original module-owned request.
+    pub request: Value,
+}
+
+/// Host-neutral completion data produced by the module.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PreparedLlmComplete {
+    /// Messages in the order the model must receive them.
+    pub messages: Vec<CompletionMessage>,
+    /// Whether the module should extract structured JSON from the reply.
+    pub structured_output: bool,
+    /// Node-pinned model, before host-specific provider routing.
+    pub node_model: Option<String>,
+}
+
+/// Format a host completion through the module's output contract.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct FormatLlmComplete {
+    /// Original request used to determine structured-output behavior.
+    pub request: Value,
+    /// Host completion response, including its text and usage fields.
+    pub response: Value,
+}
+
+/// Prepare a generic node request for a host-owned agent turn.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PrepareAgentRun {
+    /// Raw agent node config.
+    pub request: Value,
+    /// Custom host registry model fallback, if any.
+    pub entry_model: Option<String>,
+    /// Custom host registry system prompt, if any.
+    pub system_prompt: Option<String>,
+    /// Effective limit read from the built host agent.
+    pub effective_iteration_cap: u32,
+}
+
+/// Module-prepared agent prompt and execution policy inputs.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PreparedAgentRun {
+    /// Model pin selected from the node and host registry entry.
+    pub model: Option<String>,
+    /// Complete prompt, including module-owned context and output steering.
+    pub prompt: String,
+    /// Whether the final text should be parsed as structured JSON.
+    pub structured_output: bool,
+    /// Clamped requested timeout before iteration-cap adjustment.
+    pub base_timeout_secs: u64,
+    /// Effective host timeout after applying the iteration-cap rule.
+    pub timeout_secs: u64,
+}
+
+/// Format a host agent's final text through the module's output contract.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct FormatAgentRun {
+    /// Agent identifier used in the stable result envelope.
+    pub agent_ref: String,
+    /// Original agent node config.
+    pub request: Value,
+    /// Final host-generated text.
+    pub final_text: String,
 }
 
 /// Portable HTTP credential forms. Secret fields are transport data and must
