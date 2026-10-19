@@ -6,6 +6,8 @@ mod approval_park_tests;
 mod dedup_snapshot_test;
 #[path = "failed_run_test.rs"]
 mod failed_run_test;
+#[path = "legacy_null_graph_hash_test.rs"]
+mod legacy_null_graph_hash_test;
 #[path = "run_lifecycle_tests.rs"]
 mod run_lifecycle_tests;
 #[path = "run_resume_tests.rs"]
