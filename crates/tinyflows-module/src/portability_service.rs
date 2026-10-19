@@ -33,6 +33,93 @@ impl Portability {
         })
     }
 
+    /// Normalize a generic TinyFlows completion request for a host provider.
+    async fn prepare_llm_complete(
+        &self,
+        request: tinyflows_bus::portability::PrepareLlmComplete,
+    ) -> Result<tinyflows_bus::portability::PreparedLlmComplete> {
+        let prompt = &request.request;
+        let messages = tinyflows::nodes::integration::agent_prompt::build_completion_messages(prompt)
+            .into_iter()
+            .map(|message| tinyflows_bus::portability::CompletionMessage {
+                role: message.role.to_owned(),
+                content: message.content,
+            })
+            .collect();
+        Ok(tinyflows_bus::portability::PreparedLlmComplete {
+            messages,
+            structured_output:
+                tinyflows::nodes::integration::agent_prompt::structured_output_requested(prompt),
+            node_model: tinyflows::nodes::integration::agent_prompt::resolve_node_model(
+                prompt, None,
+            ),
+        })
+    }
+
+    /// Apply the module-owned structured-output behavior to a host reply.
+    async fn format_llm_complete(
+        &self,
+        request: tinyflows_bus::portability::FormatLlmComplete,
+    ) -> Result<Value> {
+        if tinyflows::nodes::integration::agent_prompt::structured_output_requested(
+            &request.request,
+        ) {
+            if let Some(text) = request.response.get("text").and_then(Value::as_str) {
+                if let Some(value) =
+                    tinyflows::nodes::integration::agent_prompt::extract_structured_json(text)
+                {
+                    return Ok(value);
+                }
+            }
+        }
+        Ok(request.response)
+    }
+
+    /// Apply module-owned agent prompt, model and timeout preparation.
+    async fn prepare_agent_run(
+        &self,
+        request: tinyflows_bus::portability::PrepareAgentRun,
+    ) -> Result<tinyflows_bus::portability::PreparedAgentRun> {
+        use tinyflows::nodes::integration::agent_prompt as agent_prompt;
+
+        let mut node_request = request.request;
+        if let Some(system_prompt) = request
+            .system_prompt
+            .as_deref()
+            .filter(|prompt| !prompt.is_empty())
+        {
+            agent_prompt::prepend_system_message(&mut node_request, system_prompt);
+        }
+        let model = agent_prompt::resolve_node_model(&node_request, request.entry_model.as_deref());
+        let prompt = agent_prompt::build_harness_run_prompt(&node_request);
+        let structured_output = agent_prompt::structured_output_requested(&node_request);
+        let requested_timeout_secs = node_request.get("timeout_secs").and_then(Value::as_u64);
+        let base_timeout_secs = agent_prompt::clamp_run_timeout_secs(requested_timeout_secs);
+        let timeout_secs = agent_prompt::resolve_run_timeout_secs(
+            requested_timeout_secs,
+            request.effective_iteration_cap as usize,
+        );
+        Ok(tinyflows_bus::portability::PreparedAgentRun {
+            model,
+            prompt,
+            structured_output,
+            base_timeout_secs,
+            timeout_secs,
+        })
+    }
+
+    /// Shape an agent reply through the module's stable output contract.
+    async fn format_agent_run(
+        &self,
+        request: tinyflows_bus::portability::FormatAgentRun,
+    ) -> Result<Value> {
+        Ok(tinyflows::nodes::integration::agent_prompt::build_agent_result(
+            &request.agent_ref,
+            &request.final_text,
+            &request.request,
+        ))
+    }
+
     /// Merge a host-resolved credential into a request, failing closed on bad
     /// request/header shapes. The credential value is never included in errors.
     async fn prepare_http_request(
