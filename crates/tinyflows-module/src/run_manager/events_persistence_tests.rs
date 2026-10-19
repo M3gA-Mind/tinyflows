@@ -64,6 +64,47 @@ async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
 }
 
 #[tokio::test]
+async fn output_free_fallback_lost_ack_is_reconciled_without_duplicate_event() {
+    let setup = setup(
+        FaultMode::LimitOutputThenLoseFallbackAck(4_096),
+        "completed_with_warnings",
+    )
+    .await;
+    let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
+    let result = writer
+        .emit_terminal(finished_payload(
+            "completed_with_warnings",
+            Some("warning preserved".into()),
+            None,
+            Some(json!({"body":"x".repeat(8_192)})),
+            false,
+        ))
+        .await;
+    match &result {
+        Ok(seq) => assert!(
+            setup
+                .catalog
+                .mark_flow_run_terminal_event(&setup.run_id, *seq)
+                .await
+                .unwrap()
+        ),
+        Err(_) => assert!(writer.flush().await.is_some()),
+    }
+
+    let page = poll(&setup).await;
+    assert!(
+        page.done,
+        "committed output-free fallback was not reconciled after lost acknowledgement: {result:?}"
+    );
+    assert_eq!(page.events.len(), 1);
+    let finished: tinyflows_bus::runs::RunFinished =
+        serde_json::from_value(page.events[0].data.clone()).unwrap();
+    assert_eq!(finished.output, None);
+    assert_eq!(finished.error.as_deref(), Some("warning preserved"));
+    assert_eq!(finished.status, "completed_with_warnings");
+}
+
+#[tokio::test]
 async fn terminal_event_lost_ack_retries_the_exact_payload_without_duplication() {
     let setup = setup(FaultMode::CommitThenLoseAck, "completed").await;
     let output = json!({"kept":true});
@@ -242,6 +283,7 @@ async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
 #[derive(Clone, Copy)]
 enum FaultMode {
     LimitTerminalDocument(usize),
+    LimitOutputThenLoseFallbackAck(usize),
     CommitThenLoseAck,
     RejectEveryTerminalWrite,
 }
@@ -331,6 +373,28 @@ impl DocumentStore for FaultingDocuments {
                     self.output_attempts.fetch_add(1, Ordering::SeqCst);
                     return Err(StorageError::backend(
                         "injected terminal document size limit",
+                    ));
+                }
+                FaultMode::LimitOutputThenLoseFallbackAck(max_bytes)
+                    if Self::terminal_output_event(collection, &doc)
+                        && serde_json::to_vec(&doc).unwrap().len() > max_bytes =>
+                {
+                    self.output_attempts.fetch_add(1, Ordering::SeqCst);
+                    return Err(StorageError::backend(
+                        "injected terminal document size limit",
+                    ));
+                }
+                FaultMode::LimitOutputThenLoseFallbackAck(_)
+                    if !Self::terminal_output_event(collection, &doc)
+                        && self.lose_ack_once.swap(false, Ordering::SeqCst) =>
+                {
+                    let _version = self
+                        .inner
+                        .put_with(collection, id, doc, precondition, options)
+                        .await?;
+                    self.output_attempts.fetch_add(1, Ordering::SeqCst);
+                    return Err(StorageError::unavailable(
+                        "injected lost acknowledgement after fallback commit",
                     ));
                 }
                 FaultMode::CommitThenLoseAck
