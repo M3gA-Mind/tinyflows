@@ -55,7 +55,7 @@ async fn persist_event(
             Ok(event.seq)
         }
         Err(error) => {
-            let message = error.to_string();
+            let message = format!("{error:#}");
             *last_error = Some(message.clone());
             Err(anyhow::anyhow!(message))
         }
@@ -77,6 +77,7 @@ async fn persist_terminal(
     data: Value,
     last_error: &mut Option<String>,
 ) -> Result<u64> {
+    let prior_error = last_error.clone();
     let next_seq = seq.saturating_add(1);
     match persist_event(
         catalog,
@@ -107,7 +108,7 @@ async fn persist_terminal(
     .await
     {
         Ok(seq) => {
-            *last_error = None;
+            *last_error = prior_error.clone();
             return Ok(seq);
         }
         Err(error) => {
@@ -118,7 +119,7 @@ async fn persist_terminal(
     match terminal_event_state(catalog, run_id, next_seq, &data).await? {
         TerminalEventState::Committed => {
             *seq = next_seq;
-            *last_error = None;
+            *last_error = prior_error.clone();
             return Ok(next_seq);
         }
         TerminalEventState::Unwritten => {}
@@ -146,7 +147,7 @@ async fn persist_terminal(
     )
     .await;
     if result.is_ok() {
-        *last_error = None;
+        *last_error = prior_error;
     }
     result
 }
