@@ -39,13 +39,14 @@ impl Portability {
         request: tinyflows_bus::portability::PrepareLlmComplete,
     ) -> Result<tinyflows_bus::portability::PreparedLlmComplete> {
         let prompt = &request.request;
-        let messages = tinyflows::nodes::integration::agent_prompt::build_completion_messages(prompt)
-            .into_iter()
-            .map(|message| tinyflows_bus::portability::CompletionMessage {
-                role: message.role.to_owned(),
-                content: message.content,
-            })
-            .collect();
+        let messages =
+            tinyflows::nodes::integration::agent_prompt::build_completion_messages(prompt)
+                .into_iter()
+                .map(|message| tinyflows_bus::portability::CompletionMessage {
+                    role: message.role.to_owned(),
+                    content: message.content,
+                })
+                .collect();
         Ok(tinyflows_bus::portability::PreparedLlmComplete {
             messages,
             structured_output:
@@ -80,7 +81,7 @@ impl Portability {
         &self,
         request: tinyflows_bus::portability::PrepareAgentRun,
     ) -> Result<tinyflows_bus::portability::PreparedAgentRun> {
-        use tinyflows::nodes::integration::agent_prompt as agent_prompt;
+        use tinyflows::nodes::integration::agent_prompt;
 
         let mut node_request = request.request;
         if let Some(system_prompt) = request
@@ -113,11 +114,13 @@ impl Portability {
         &self,
         request: tinyflows_bus::portability::FormatAgentRun,
     ) -> Result<Value> {
-        Ok(tinyflows::nodes::integration::agent_prompt::build_agent_result(
-            &request.agent_ref,
-            &request.final_text,
-            &request.request,
-        ))
+        Ok(
+            tinyflows::nodes::integration::agent_prompt::build_agent_result(
+                &request.agent_ref,
+                &request.final_text,
+                &request.request,
+            ),
+        )
     }
 
     /// Merge a host-resolved credential into a request, failing closed on bad

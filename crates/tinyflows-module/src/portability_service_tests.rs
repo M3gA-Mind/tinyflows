@@ -98,7 +98,10 @@ async fn agent_helpers_keep_model_prompt_timeout_and_result_formatting_in_the_mo
     assert_eq!(prepared.model.as_deref(), Some("hint:reasoning"));
     assert!(prepared.structured_output);
     assert_eq!(prepared.base_timeout_secs, 45);
-    assert_eq!(prepared.timeout_secs, 45, "explicit timeout is never scaled");
+    assert_eq!(
+        prepared.timeout_secs, 45,
+        "explicit timeout is never scaled"
+    );
     assert!(prepared.prompt.starts_with("Custom persona"));
     assert!(prepared.prompt.contains("invoice"));
     assert!(prepared.prompt.contains("classify"));

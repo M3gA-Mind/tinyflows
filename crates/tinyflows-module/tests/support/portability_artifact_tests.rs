@@ -43,10 +43,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         .expect("inspection uses the credential name parsed by the engine helper");
     assert_eq!(padded_name.credential_name.as_deref(), Some(" payments"));
 
-    for connection_ref in [
-        None,
-        Some("composio:slack:account".into()),
-    ] {
+    for connection_ref in [None, Some("composio:slack:account".into())] {
         let details: portability::HttpRequestDetails = proxy
             .call(
                 portability::methods::INSPECT_HTTP_REQUEST,
@@ -69,7 +66,10 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         )
         .await
         .expect("inspection matches the engine parser for leading whitespace");
-    assert_eq!(leading_whitespace.credential_name.as_deref(), Some("payments"));
+    assert_eq!(
+        leading_whitespace.credential_name.as_deref(),
+        Some("payments")
+    );
     let malformed = proxy
         .call::<portability::HttpRequestDetails>(
             portability::methods::INSPECT_HTTP_REQUEST,

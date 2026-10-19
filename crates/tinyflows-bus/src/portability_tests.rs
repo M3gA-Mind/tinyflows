@@ -140,8 +140,7 @@ fn agent_preparation_and_formatting_wire_shapes_round_trip() {
         effective_iteration_cap: 20,
     };
     assert_eq!(
-        serde_json::from_value::<PrepareAgentRun>(serde_json::to_value(&prepare).unwrap())
-            .unwrap(),
+        serde_json::from_value::<PrepareAgentRun>(serde_json::to_value(&prepare).unwrap()).unwrap(),
         prepare
     );
 
