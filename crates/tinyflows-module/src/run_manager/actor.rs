@@ -18,7 +18,7 @@ use tinyflows_catalog::{FlowRunStep, run_summary};
 use tinyflows_drivers::{DriverCheckpointer, catalog::{FlowCatalogDocuments, FlowStateDocuments}};
 use tokio::time::sleep;
 
-use super::events::{EventWriter, Observer};
+use super::events::{EventWriter, Observer, finished_payload};
 use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
@@ -192,7 +192,7 @@ impl ActorRecovery {
         let event = RunEvent {
             seq,
             kind: "finished".into(),
-            data: match serde_json::to_value(events::finished_payload(
+            data: match serde_json::to_value(finished_payload(
                 "interrupted",
                 Some(STOPPED_ACTOR_REASON.to_owned()),
                 None,
