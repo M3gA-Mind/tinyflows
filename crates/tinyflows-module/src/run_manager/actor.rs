@@ -12,7 +12,7 @@ use tinyflows::{
     },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::runs::{ResumeRun, RunContext, StartRun};
+use tinyflows_bus::runs::{ResumeRun, RunContext, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tokio::time::sleep;
@@ -135,14 +135,14 @@ async fn drive_inner(
     };
     let observed = observer.steps();
     let mut graph_run_id = None;
-    let mut output = Value::Null;
+    let mut output = None;
     let mut pending_approvals = Vec::new();
     let mut failure = None;
     let mut cancelled = active.token.is_cancelled();
     match result {
         Ok((outcome, graph_id)) => {
             graph_run_id = graph_id;
-            output = outcome.output;
+            output = Some(outcome.output);
             pending_approvals = outcome.pending_approvals;
             cancelled |= outcome.cancelled;
         }
@@ -155,7 +155,8 @@ async fn drive_inner(
         failure.get_or_insert(error);
     }
 
-    let settled_steps = run_summary::settle_steps(observed, &output);
+    let output_value = output.clone().unwrap_or(Value::Null);
+    let settled_steps = run_summary::settle_steps(observed, &output_value);
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
     let status = if pending {
         "pending_approval"
@@ -213,7 +214,12 @@ async fn drive_inner(
     if pending {
         writer.emit(
             "parked",
-            json!({"pending_approvals":pending_approvals,"graph_hash":graph_hash}),
+            serde_json::to_value(RunParked {
+                output,
+                pending_approvals,
+                graph_hash,
+            })
+            .unwrap_or(Value::Null),
         );
         if let Some(error) = writer.flush().await {
             tracing::error!(%error, run_id = %request.run_id, "parked run events did not drain cleanly");
@@ -253,6 +259,7 @@ async fn drive_inner(
             status,
             error_text.clone(),
             graph_run_id.clone(),
+            output,
         ))
         .await
     {

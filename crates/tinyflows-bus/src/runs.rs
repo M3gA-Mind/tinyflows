@@ -246,6 +246,25 @@ pub struct RunFinished {
     /// Graph runtime id, distinct from the durable flow run id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_run_id: Option<String>,
+    /// Engine outcome returned to the caller, when an engine outcome exists.
+    /// Absent for recovery and pre-execution failure events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<Value>,
+}
+
+/// Outcome carried by a `parked` event while a run awaits human approval.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct RunParked {
+    /// Engine outcome returned by the parked execution segment, when present.
+    /// Absent when reading a record written by an older module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<Value>,
+    /// Nodes whose approval is required to resume the run.
+    #[serde(default)]
+    pub pending_approvals: Vec<String>,
+    /// Graph hash pinned by this approval gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_hash: Option<String>,
 }
 
 /// `PollRun` response.
