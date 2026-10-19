@@ -102,7 +102,7 @@ async fn agent_helpers_keep_model_prompt_timeout_and_result_formatting_in_the_mo
         prepared.timeout_secs, 45,
         "explicit timeout is never scaled"
     );
-    assert!(prepared.prompt.starts_with("Custom persona"));
+    assert!(prepared.prompt.starts_with("system: Custom persona"));
     assert!(prepared.prompt.contains("invoice"));
     assert!(prepared.prompt.contains("classify"));
 
