@@ -276,7 +276,10 @@ impl FaultingDocuments {
         collection == "flows.runs"
             && doc["events"].as_array().is_some_and(|events| {
                 events.last().is_some_and(|event| {
-                    event["kind"] == "finished" && event["data"]["output"].is_some()
+                    event["kind"] == "finished"
+                        && event["data"]
+                            .get("output")
+                            .is_some_and(|value| !value.is_null())
                 })
             })
     }
