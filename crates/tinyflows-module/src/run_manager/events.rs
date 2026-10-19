@@ -66,6 +66,7 @@ async fn persist_event(
 enum TerminalEventState {
     Committed,
     Unwritten,
+    Conflicting,
 }
 
 /// Retries an ambiguous terminal append with the identical event and, only
@@ -116,16 +117,23 @@ async fn persist_terminal(
         }
     }
 
-    match terminal_event_state(catalog, run_id, next_seq, &data).await? {
+    match terminal_event_state(catalog, run_id, next_seq, &[&data]).await? {
         TerminalEventState::Committed => {
             *seq = next_seq;
             *last_error = prior_error.clone();
             return Ok(next_seq);
         }
         TerminalEventState::Unwritten => {}
+        TerminalEventState::Conflicting => {
+            return Err(anyhow::anyhow!(
+                last_error
+                    .clone()
+                    .unwrap_or_else(|| "terminal run event was not persisted".into())
+            ));
+        }
     }
 
-    let Some(fallback) = finished_without_output(data) else {
+    let Some(fallback) = finished_without_output(data.clone()) else {
         return Err(anyhow::anyhow!(
             last_error
                 .clone()
@@ -141,46 +149,60 @@ async fn persist_terminal(
         run_id,
         seq,
         "finished".into(),
-        fallback,
+        fallback.clone(),
         None,
         last_error,
     )
     .await;
-    if result.is_ok() {
-        *last_error = prior_error;
+    match result {
+        Ok(seq) => {
+            *last_error = prior_error;
+            Ok(seq)
+        }
+        Err(error) => {
+            match terminal_event_state(catalog, run_id, next_seq, &[&data, &fallback]).await? {
+                TerminalEventState::Committed => {
+                    *seq = next_seq;
+                    *last_error = prior_error;
+                    Ok(next_seq)
+                }
+                TerminalEventState::Unwritten | TerminalEventState::Conflicting => Err(error),
+            }
+        }
     }
-    result
 }
 
 async fn terminal_event_state(
     catalog: &FlowCatalogDocuments,
     run_id: &str,
     seq: u64,
-    data: &Value,
+    candidates: &[&Value],
 ) -> Result<TerminalEventState> {
     let last_seq = catalog.flow_run_event_last_seq(run_id).await?;
     if last_seq == seq.saturating_sub(1) {
         return Ok(TerminalEventState::Unwritten);
     }
     if last_seq != seq {
-        anyhow::bail!(
-            "terminal event sequence {seq} cannot be reconciled with persisted cursor {last_seq}"
-        );
+        return Ok(TerminalEventState::Conflicting);
     }
-    let expected = serde_json::to_value(RunEvent {
-        seq,
-        kind: "finished".into(),
-        data: data.clone(),
-        graph_run_id: None,
-    })?;
     let events = catalog
         .flow_run_events_after(run_id, seq.saturating_sub(1), 1)
         .await?;
-    if events.first() == Some(&expected) {
-        Ok(TerminalEventState::Committed)
-    } else {
-        anyhow::bail!("terminal event sequence {seq} contains different persisted data")
+    let Some(persisted) = events.first() else {
+        return Ok(TerminalEventState::Conflicting);
+    };
+    for data in candidates {
+        let expected = serde_json::to_value(RunEvent {
+            seq,
+            kind: "finished".into(),
+            data: (*data).clone(),
+            graph_run_id: None,
+        })?;
+        if persisted == &expected {
+            return Ok(TerminalEventState::Committed);
+        }
     }
+    Ok(TerminalEventState::Conflicting)
 }
 
 fn finished_without_output(mut data: Value) -> Option<Value> {
@@ -446,8 +468,8 @@ fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
 }
 
 #[cfg(test)]
-#[path = "events_tests.rs"]
-mod tests;
-#[cfg(test)]
 #[path = "events_persistence_tests.rs"]
 mod persistence_tests;
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;
