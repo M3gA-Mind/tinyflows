@@ -142,6 +142,10 @@ impl FakeHost {
             handle: format!("{}:{}", self.owner, request.identity.node_id),
         })
     }
+    async fn agent_cancel(&self, _request: runs::AgentCancelRequest) -> tinybus::Result<()> {
+        self.record("AgentCancel");
+        Ok(())
+    }
     async fn agent_events(
         &self,
         request: AgentEventsRequest,

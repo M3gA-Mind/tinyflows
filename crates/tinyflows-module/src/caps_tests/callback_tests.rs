@@ -154,6 +154,14 @@ async fn every_callback_trait_uses_the_exact_host_object_and_preserves_typed_inp
         outcome.transcript[0].text,
         "authoritative terminal transcript"
     );
+    port.call_one::<_, ()>(
+        runs::caps::AGENT_CANCEL,
+        &runs::AgentCancelRequest {
+            client_request_id: "already-finished".into(),
+        },
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         AgentRunner::resolve_agent(&port, "known")

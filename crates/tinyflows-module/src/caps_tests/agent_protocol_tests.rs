@@ -141,3 +141,29 @@ async fn oversized_authoritative_terminal_transcript_fails_as_a_capability_error
     let error = AgentRunner::run(&port, request()).await.unwrap_err();
     assert!(matches!(error, EngineError::Capability(_)));
 }
+
+#[tokio::test]
+async fn older_caps_host_peer_is_rejected_before_agent_callbacks_start() {
+    let (module, host) = support::memory_bus().await;
+    let calls = support::serve_caps(&host, "legacy", "/caps/legacy", false).await;
+    support::announce_caps_contract(&host, 1).await;
+    let storage = tinyflows_bus::catalog::CatalogStorage {
+        callback: tinyflows_bus::catalog::CallbackAddress {
+            destination: "test.CatalogStorage".into(),
+            object_path: "/unused/documents".into(),
+        },
+    };
+
+    let result = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/legacy"),
+        RunScope {
+            flow_id: "flow-legacy".into(),
+            storage,
+        },
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert!(calls.lock().unwrap().is_empty());
+}
