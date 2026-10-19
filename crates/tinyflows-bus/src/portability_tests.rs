@@ -122,7 +122,7 @@ fn completion_preparation_and_formatting_wire_shapes_round_trip() {
 
     let format = FormatLlmComplete {
         request: json!({"response_format":"json"}),
-        response: json!({"text":"{\\"ok\\":true}"}),
+        response: json!({"text":r#"{"ok":true}"#}),
     };
     assert_eq!(
         serde_json::from_value::<FormatLlmComplete>(serde_json::to_value(&format).unwrap())
@@ -147,7 +147,7 @@ fn agent_preparation_and_formatting_wire_shapes_round_trip() {
 
     let prepared = PreparedAgentRun {
         model: Some("hint:reasoning".into()),
-        prompt: "persona\\n\\nwork".into(),
+        prompt: "persona\n\nwork".into(),
         structured_output: false,
         base_timeout_secs: 90,
         timeout_secs: 90,
@@ -161,7 +161,7 @@ fn agent_preparation_and_formatting_wire_shapes_round_trip() {
     let format = FormatAgentRun {
         agent_ref: "assistant".into(),
         request: json!({"response_format":"json"}),
-        final_text: "{\\"ok\\":true}".into(),
+        final_text: r#"{"ok":true}"#.into(),
     };
     assert_eq!(
         serde_json::from_value::<FormatAgentRun>(serde_json::to_value(&format).unwrap()).unwrap(),
