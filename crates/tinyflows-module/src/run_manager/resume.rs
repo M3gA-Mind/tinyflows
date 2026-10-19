@@ -260,6 +260,7 @@ async fn compatibility_error(
         .await
         .into_iter()
         .next()
+        .map(|error| format!("incompatible_referenced_workflow: {error}"))
 }
 
 async fn refuse_parked_run(

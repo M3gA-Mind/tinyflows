@@ -320,6 +320,10 @@ async fn resume_fails_and_settles_when_current_graph_references_incompatible_chi
         .await
         .unwrap_err()
         .wire_message();
+    assert!(
+        error.starts_with("incompatible_referenced_workflow: "),
+        "the Runs error should retain the prior host validation code prefix: {error}"
+    );
     assert!(error.contains(child_id.as_str()), "{error}");
     assert!(
         error.contains(tinyflows::compat::UNSUPPORTED_NESTED_CONDITIONAL_FAN_IN),
