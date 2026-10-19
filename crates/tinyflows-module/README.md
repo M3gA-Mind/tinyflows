@@ -171,8 +171,11 @@ bash scripts/verify-module-artifact.sh
 
 The compiled module provides `ai.tinyhumans.tinyflows.Portability` from
 `tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
-credential-reference inspection and safe summary, case-insensitive app-event
-binding, and literal pinned trigger inputs. Inspection does not receive a
-credential secret; the host continues to resolve and authorize credentials,
-then may send its resolved header through `PrepareHttpRequest` for injection.
+credential-reference inspection and a method/URL summary, case-insensitive
+app-event binding, and literal pinned trigger inputs. Inspection accepts the
+request but no resolved-credential argument. Its result omits request headers
+and body, including any inline values in them; the summarized URL may itself
+contain sensitive data. The host continues to resolve and authorize
+credentials, then may send its resolved header through `PrepareHttpRequest` for
+injection.
 
