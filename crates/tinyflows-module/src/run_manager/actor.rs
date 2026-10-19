@@ -60,6 +60,8 @@ impl ActorRecoveryGuard {
 
 impl Drop for ActorRecoveryGuard {
     fn drop(&mut self) {
+        #[cfg(test)]
+        eprintln!("ActorRecoveryGuard drop run_id={}", self.run_id);
         if !self.armed {
             return;
         }
@@ -109,6 +111,8 @@ struct ActorRecovery {
 
 impl ActorRecovery {
     async fn reconcile(self) {
+        #[cfg(test)]
+        eprintln!("ActorRecovery reconcile run_id={}", self.run_id);
         let snapshot = match self.catalog.flow_run_snapshot(&self.run_id).await {
             Ok(Some(snapshot))
                 if snapshot.get("lease").and_then(Value::as_str) == Some(&self.lease) =>
