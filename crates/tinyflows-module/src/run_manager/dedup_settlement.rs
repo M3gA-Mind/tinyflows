@@ -1,10 +1,12 @@
 //! One owner-and-flow-scoped critical section for run settlement of `dedup`
 //! node state.
 
-use tinyflows::model::{NodeKind, WorkflowGraph};
+use tinyflows::{
+    model::{NodeKind, WorkflowGraph},
+    nodes::control_flow::dedup_settle,
+};
 use tinyflows_bus::runs::RunContext;
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
-use tinyflows_nodes::control_flow::dedup_settle::{self, DedupKv};
 
 /// Holds the per-flow settlement lease until the caller finishes all terminal
 /// cleanup (checkpoint deletion and terminal event persistence).
@@ -55,7 +57,9 @@ impl DedupSettlementScope {
         .await
         {
             Ok(()) => {}
-            Err(error) => tracing::error!(%error, run_id = %self.run_id, "dedup settlement worker failed"),
+            Err(error) => {
+                tracing::error!(%error, run_id = %self.run_id, "dedup settlement worker failed")
+            }
         }
     }
 }

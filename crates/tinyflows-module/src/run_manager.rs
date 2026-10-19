@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 mod actor;
 mod actor_recovery;
 mod cancellation;
+mod dedup_settlement;
 mod events;
 mod preparation;
 mod resume;
