@@ -51,7 +51,8 @@ pub struct InspectHttpRequest {
 /// Credential lookup details and a method/URL summary for host approval.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct HttpRequestDetails {
-    /// Name from a recognized `http_cred:<name>` reference.
+    /// Exact name parsed from a recognized `http_cred:<name>` reference;
+    /// no additional suffix normalization is applied.
     pub credential_name: Option<String>,
     /// Method and URL only; request headers and body are omitted, though the
     /// URL copied from the request may itself contain sensitive data.

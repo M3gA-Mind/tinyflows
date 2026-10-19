@@ -138,11 +138,12 @@ mock execution or produce simulated outputs.
 HTTP credential preparation and trigger readers to hosts through the compiled
 module. `InspectHttpRequest` accepts the request and optional connection
 reference before the host resolves any secret; it has no resolved-credential
-argument. Its result contains the recognized credential name and a method/URL
-summary; request headers and body are omitted from the result, even if the
-input contains inline values. The URL is copied from the request and may itself
-contain sensitive data. Foreign references return no credential name, while
-an empty `http_cred:` name fails. `PrepareHttpRequest` accepts a request
+argument. Its result contains the exact credential name parsed by the engine
+helper and a method/URL summary; it applies no additional name normalization.
+Request headers and body are omitted from the result, even if the input contains
+inline values. The URL is copied from the request and may itself contain
+sensitive data. Foreign references return no credential name, while an empty
+`http_cred:` name fails. `PrepareHttpRequest` accepts a request
 and a tagged Bearer, Basic,
 custom-header, or already-resolved credential template. The module renders the
 scheme, rejects malformed request/header shapes, and returns the prepared
