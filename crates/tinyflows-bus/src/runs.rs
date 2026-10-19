@@ -249,7 +249,11 @@ pub struct RunFinished {
     pub graph_run_id: Option<String>,
     /// Engine outcome returned to the caller, when an engine outcome exists.
     /// Absent for recovery and pre-execution failure events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_value",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub output: Option<Value>,
     /// True when the host-selected run deadline, rather than an explicit
     /// cancellation, stopped the engine.
@@ -261,12 +265,23 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+fn deserialize_present_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// Outcome carried by a `parked` event while a run awaits human approval.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RunParked {
     /// Engine outcome returned by the parked execution segment, when present.
     /// Absent when reading a record written by an older module.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_value",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub output: Option<Value>,
     /// Nodes whose approval is required to resume the run.
     #[serde(default)]
