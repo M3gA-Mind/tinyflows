@@ -1,5 +1,5 @@
 use super::*;
-use crate::catalog::FlowRunStep;
+use tinyflows_catalog::FlowRunStep;
 use tinystoragedrivers_core::MemoryStorage;
 
 async fn running_with_lease(lease: &str) -> (FlowCatalogDocuments, String) {
