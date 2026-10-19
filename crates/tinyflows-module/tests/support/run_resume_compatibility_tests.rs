@@ -172,7 +172,8 @@ async fn start_parked_run(
 ) -> String {
     let graph = parked_graph();
     let flow_id = create_flow_with_graph(catalog_proxy, &owner.storage, name, graph.clone()).await;
-    let _caps = serve_agent(connection, name).await;
+    let caps_name = name.to_ascii_lowercase().replace(' ', "-");
+    let _caps = serve_agent(connection, &caps_name).await;
     let mut start = request(owner, flow_id.clone(), run_id, graph, 20_000);
     start.trigger_data = json!({"id":"compatibility-item"});
     runs_proxy
