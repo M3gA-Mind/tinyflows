@@ -83,6 +83,15 @@ async fn compiled_module_expires_parked_runs_and_sweeps_only_local_orphans() {
         expired_page.events.last().unwrap().data["status"],
         "cancelled"
     );
+    let after_expiry: Option<catalog::Workflow> = catalog_proxy
+        .call("GetWorkflow", &(owner.storage.clone(), flow_id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        after_expiry.unwrap().last_status.as_deref(),
+        Some("cancelled"),
+        "parked expiry updates the workflow summary after winning its CAS"
+    );
 
     documents
         .insert_flow_run("orphan", &flow_id, "orphan", "2020-01-01T00:00:00Z")
@@ -114,7 +123,7 @@ async fn compiled_module_expires_parked_runs_and_sweeps_only_local_orphans() {
         .call(
             "PollRun",
             (RunControlRequest {
-                storage: owner.storage,
+                storage: owner.storage.clone(),
                 run_id: "orphan".into(),
                 cursor: 0,
             },),
@@ -129,6 +138,15 @@ async fn compiled_module_expires_parked_runs_and_sweeps_only_local_orphans() {
     let finished: runs::RunFinished =
         serde_json::from_value(orphan_page.events.last().unwrap().data.clone()).unwrap();
     assert!(!finished.successful);
+    let after_sweep: Option<catalog::Workflow> = catalog_proxy
+        .call("GetWorkflow", &(owner.storage, flow_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        after_sweep.unwrap().last_status.as_deref(),
+        Some("interrupted"),
+        "boot recovery updates the workflow summary after winning its CAS"
+    );
 }
 
 #[tokio::test]

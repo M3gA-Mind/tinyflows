@@ -57,6 +57,15 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
             .unwrap()
             .contains("injected agent callback failure")
     );
+    let summary: Option<catalog::Workflow> = catalog_proxy
+        .call("GetWorkflow", &(owner.storage.clone(), flow_id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        summary.unwrap().last_status.as_deref(),
+        Some("failed"),
+        "failed actor settlement updates the workflow summary"
+    );
 
     let catalog_docs = FlowCatalogDocuments::new(owner.docs.clone());
     let namespace = format!("flow:{flow_id}");

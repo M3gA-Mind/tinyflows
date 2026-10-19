@@ -235,7 +235,7 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert_eq!(alice_agent.calls.load(Ordering::SeqCst), 1);
 
     let bob_started: runs::StartRunResponse =
-        runs_proxy.call("StartRun", (bob_start,)).await.unwrap();
+        runs_proxy.call("StartRun", (bob_start.clone(),)).await.unwrap();
     assert!(!bob_started.already_running);
     wait_notify(&bob_agent.started, "bob agent start").await;
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);
@@ -356,6 +356,29 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .await
         .unwrap();
     assert!(!terminal_cancel.signalled);
+
+    let alice_summary: Option<catalog::Workflow> = catalog_proxy
+        .call(
+            "GetWorkflow",
+            &(alice.storage.clone(), alice_start.context.flow_id.clone()),
+        )
+        .await
+        .unwrap();
+    let bob_summary: Option<catalog::Workflow> = catalog_proxy
+        .call(
+            "GetWorkflow",
+            &(bob.storage.clone(), bob_start.context.flow_id.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        alice_summary.unwrap().last_status.as_deref(),
+        Some("cancelled"),
+        "active cancellation updates the owning workflow summary"
+    );
+    let bob_summary = bob_summary.unwrap();
+    assert_eq!(bob_summary.last_status.as_deref(), Some("completed"));
+    assert!(bob_summary.last_run_at.is_some());
 
     let insert_started = Arc::new(Notify::new());
     let release_insert = Arc::new(Notify::new());
