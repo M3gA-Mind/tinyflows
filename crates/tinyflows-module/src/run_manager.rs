@@ -60,8 +60,14 @@ pub(super) async fn record_settled_summary(
 ) {
     match catalog.record_run_for_run(run_id, status).await {
         Ok(true) => {}
-        Ok(false) => tracing::debug!(run_id, status, "workflow summary no longer belongs to settled run"),
-        Err(error) => tracing::warn!(%error, run_id, status, "recording settled workflow summary failed"),
+        Ok(false) => tracing::debug!(
+            run_id,
+            status,
+            "workflow summary no longer belongs to settled run"
+        ),
+        Err(error) => {
+            tracing::warn!(%error, run_id, status, "recording settled workflow summary failed")
+        }
     }
 }
 

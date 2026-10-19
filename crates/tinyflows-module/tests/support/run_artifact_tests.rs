@@ -234,8 +234,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert!(duplicate.already_running);
     assert_eq!(alice_agent.calls.load(Ordering::SeqCst), 1);
 
-    let bob_started: runs::StartRunResponse =
-        runs_proxy.call("StartRun", (bob_start.clone(),)).await.unwrap();
+    let bob_started: runs::StartRunResponse = runs_proxy
+        .call("StartRun", (bob_start.clone(),))
+        .await
+        .unwrap();
     assert!(!bob_started.already_running);
     wait_notify(&bob_agent.started, "bob agent start").await;
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);

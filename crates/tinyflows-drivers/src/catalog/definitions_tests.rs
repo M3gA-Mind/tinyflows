@@ -85,7 +85,12 @@ async fn settled_run_updates_its_workflow_summary_only_for_the_winning_status() 
         .await
         .unwrap();
     store
-        .insert_flow_run("settled-summary-run", &flow.id, "thread", "2026-01-01T00:00:00Z")
+        .insert_flow_run(
+            "settled-summary-run",
+            &flow.id,
+            "thread",
+            "2026-01-01T00:00:00Z",
+        )
         .await
         .unwrap();
     assert!(
@@ -134,7 +139,12 @@ async fn a_run_from_a_removed_flow_incarnation_cannot_stamp_its_replacement() {
         .await
         .unwrap();
     store
-        .insert_flow_run("stale-summary-run", &original.id, "thread", "2026-01-01T00:00:00Z")
+        .insert_flow_run(
+            "stale-summary-run",
+            &original.id,
+            "thread",
+            "2026-01-01T00:00:00Z",
+        )
         .await
         .unwrap();
     let mut stale_run = docs

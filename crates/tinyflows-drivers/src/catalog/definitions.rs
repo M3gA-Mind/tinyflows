@@ -298,10 +298,7 @@ impl FlowCatalogDocuments {
             let mut next = flow.doc.clone();
             next["last_run_ms"] = json!(Utc::now().timestamp_millis());
             next["last_status"] = json!(status);
-            match docs
-                .put(DEFINITIONS, flow_id, next, flow.unchanged())
-                .await
-            {
+            match docs.put(DEFINITIONS, flow_id, next, flow.unchanged()).await {
                 Ok(_) => {
                     tracing::debug!(flow_id, run_id, status, "recorded settled flow run");
                     return Ok(true);
