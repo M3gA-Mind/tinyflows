@@ -155,6 +155,38 @@ async fn terminal_event_lost_ack_retries_the_exact_payload_without_duplication()
 }
 
 #[tokio::test]
+async fn recovered_terminal_retry_preserves_an_earlier_event_writer_error() {
+    let setup = setup(FaultMode::CommitThenLoseAck, "completed").await;
+    let mut seq = 0;
+    let mut last_error = Some("earlier progress persistence failed".to_string());
+    let data = serde_json::to_value(finished_payload(
+        "completed",
+        None,
+        None,
+        Some(json!({"kept":true})),
+        false,
+    ))
+    .unwrap();
+
+    let terminal_seq = persist_terminal(
+        &setup.catalog,
+        &setup.run_id,
+        &mut seq,
+        data,
+        &mut last_error,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(terminal_seq, 1);
+    assert_eq!(seq, 1);
+    assert_eq!(
+        last_error.as_deref(),
+        Some("earlier progress persistence failed")
+    );
+}
+
+#[tokio::test]
 async fn terminal_event_stops_cleanly_when_output_and_fallback_writes_fail() {
     let setup = setup(FaultMode::RejectEveryTerminalWrite, "failed").await;
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
