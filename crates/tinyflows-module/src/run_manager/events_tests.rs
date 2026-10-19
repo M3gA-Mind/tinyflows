@@ -431,6 +431,11 @@ struct StorageReader(Arc<FaultingDocuments>);
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.CatalogStorage")]
 impl StorageReader {
+    async fn doc_ensure(&self, request: Value) -> tinybus::Result<Value> {
+        let spec: CollectionSpec = serde_json::from_value(request["spec"].clone())?;
+        Ok(reply(self.0.ensure_collection(&spec).await))
+    }
+
     async fn doc_get(&self, request: Value) -> tinybus::Result<Value> {
         let result = self
             .0
@@ -439,12 +444,16 @@ impl StorageReader {
                 request["id"].as_str().unwrap(),
             )
             .await;
-        Ok(match result {
-            Ok(value) => json!({"value":serde_json::to_value(value).unwrap()}),
-            Err(error) => json!({"error":{
-                "kind":error.kind().to_string().replace(' ', "_"),
-                "message":error.to_string()
-            }}),
-        })
+        Ok(reply(result))
+    }
+}
+
+fn reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
+    match result {
+        Ok(value) => json!({"value":serde_json::to_value(value).unwrap()}),
+        Err(error) => json!({"error":{
+            "kind":error.kind().to_string().replace(' ', "_"),
+            "message":error.to_string()
+        }}),
     }
 }
