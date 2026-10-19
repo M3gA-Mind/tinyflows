@@ -73,7 +73,45 @@ async fn compiled_module_updates_workflow_summaries_after_run_settlement() {
     );
     assert_eq!(
         bob_events.events.last().unwrap().data["output"],
-        json!({"declared":"declared-value","payload":"trigger-value"}),
+        json!({
+            "nodes": {
+                "agent": {
+                    "_activation_step": 2,
+                    "items": [{"json": {
+                        "json": {},
+                        "meta": {"agent_ref":"test-agent","stop":"finished"},
+                        "raw": {},
+                        "text":"done"
+                    }}],
+                    "port": null
+                },
+                "output": {
+                    "_activation_step": 3,
+                    "items": [{
+                        "json": {
+                            "declared":"declared-value",
+                            "json": {},
+                            "meta": {"agent_ref":"test-agent","stop":"finished"},
+                            "payload":"trigger-value",
+                            "raw": {},
+                            "text":"done"
+                        },
+                        "paired_item": 0
+                    }],
+                    "port": null
+                },
+                "trigger": {
+                    "items": [{"json":{"payload":"trigger-value"}}],
+                    "port": null
+                }
+            },
+            "run": {
+                "approvals": [],
+                "id":"summary-complete-run",
+                "inputs":{"declared":"declared-value"},
+                "trigger":{"payload":"trigger-value"}
+            }
+        }),
         "PollRun retains the exact engine outcome for the legacy run response"
     );
 
