@@ -28,6 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Added** `code_source_errors`, a static check that fails the dry run when a
   `code` source reads an `item` variable it never binds.
 
+### Per-run dedup tentative keys
+
+- **Changed** the `dedup` node to stage unseen keys under
+  `dedup:<node_id>:tentative:<run_id>` when the host seeds `run.id`
+  (`RunInput::run_id`), so overlapping runs of one flow no longer share a
+  tentative set and one run's settlement cannot commit or release another's
+  keys (tinyhumansai/openhuman#5268). A run with no seeded id keeps the shared
+  `dedup:<node_id>:tentative` key.
+- **Breaking:** `dedup::tentative_key` and `dedup_settle::{settle, commit,
+  release}` take the run id (`Option<&str>`). Hosts settle with the id they
+  seeded; the module run manager does. Tentative keys a pre-upgrade run wrote
+  under the shared key are not settled by a post-upgrade finish; the node only
+  reads `committed`, so those items are processed again once.
+
 ### Bounded occurrence lease records
 
 - **Fixed** the `tsd.leases` record kept per cron occurrence (#159). Completing

@@ -318,7 +318,7 @@ async fn running_fixture() -> RunningFixture {
     catalog
         .kv_set(
             &namespace,
-            &tinyflows::nodes::control_flow::dedup::tentative_key("dedup"),
+            &tinyflows::nodes::control_flow::dedup::tentative_key("dedup", Some(&run_id)),
             &json!(["dedup-item"]),
         )
         .await
@@ -411,7 +411,7 @@ async fn assert_reconciled(
         catalog
             .kv_get(
                 &format!("flow:{flow_id}"),
-                &tinyflows::nodes::control_flow::dedup::tentative_key("dedup"),
+                &tinyflows::nodes::control_flow::dedup::tentative_key("dedup", Some(run_id)),
             )
             .await
             .unwrap(),

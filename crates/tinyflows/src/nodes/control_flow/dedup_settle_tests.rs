@@ -46,7 +46,7 @@ fn seeded() -> MemKv {
 #[test]
 fn success_unions_tentative_into_committed_and_clears_tentative() {
     let kv = seeded();
-    let out = settle(&kv, "n1", true);
+    let out = settle(&kv, "n1", None, true);
     assert_eq!(
         out,
         Settlement::Commit(CommitOutcome::Committed {
@@ -63,7 +63,7 @@ fn success_unions_tentative_into_committed_and_clears_tentative() {
 #[test]
 fn failure_releases_tentative_and_leaves_committed() {
     let kv = seeded();
-    assert_eq!(settle(&kv, "n1", false), Settlement::Release(Ok(())));
+    assert_eq!(settle(&kv, "n1", None, false), Settlement::Release(Ok(())));
     let map = kv.map.lock().unwrap();
     assert_eq!(map["dedup:n1:committed"], json!(["a", "b"]));
     assert!(!map.contains_key("dedup:n1:tentative"));
@@ -72,7 +72,7 @@ fn failure_releases_tentative_and_leaves_committed() {
 #[test]
 fn nothing_tentative_is_a_no_op() {
     let kv = MemKv::default();
-    assert_eq!(commit(&kv, "n1"), CommitOutcome::NothingTentative);
+    assert_eq!(commit(&kv, "n1", None), CommitOutcome::NothingTentative);
     assert!(kv.map.lock().unwrap().is_empty());
 }
 
@@ -81,7 +81,7 @@ fn failed_committed_write_keeps_tentative_for_retry() {
     let mut kv = seeded();
     kv.fail_set = true;
     assert_eq!(
-        commit(&kv, "n1"),
+        commit(&kv, "n1", None),
         CommitOutcome::CommitFailed("disk full".into())
     );
     assert_eq!(
@@ -118,7 +118,7 @@ fn malformed_stored_sets_degrade_to_empty() {
         .unwrap()
         .insert("dedup:n1:committed".into(), json!("not-an-array"));
     assert!(matches!(
-        commit(&kv, "n1"),
+        commit(&kv, "n1", None),
         CommitOutcome::Committed {
             added: 1,
             committed_len: 1,
@@ -133,7 +133,7 @@ fn failed_committed_read_aborts_without_touching_either_set() {
     let mut kv = seeded();
     kv.fail_get = Some("dedup:n1:committed");
     assert_eq!(
-        commit(&kv, "n1"),
+        commit(&kv, "n1", None),
         CommitOutcome::CommitFailed("read timeout".into())
     );
     let map = kv.map.lock().unwrap();
@@ -146,11 +146,43 @@ fn failed_tentative_read_aborts_the_commit() {
     let mut kv = seeded();
     kv.fail_get = Some("dedup:n1:tentative");
     assert_eq!(
-        commit(&kv, "n1"),
+        commit(&kv, "n1", None),
         CommitOutcome::CommitFailed("read timeout".into())
     );
     assert_eq!(
         kv.map.lock().unwrap()["dedup:n1:committed"],
         json!(["a", "b"])
     );
+}
+
+#[test]
+fn settling_one_run_leaves_an_overlapping_runs_tentative_set_alone() {
+    let kv = MemKv::default();
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", Some("r1")), json!(["a"]));
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", Some("r2")), json!(["b"]));
+
+    // r2 finishes first and fails; r1 then succeeds.
+    assert_eq!(
+        settle(&kv, "n1", Some("r2"), false),
+        Settlement::Release(Ok(()))
+    );
+    assert!(matches!(
+        settle(&kv, "n1", Some("r1"), true),
+        Settlement::Commit(CommitOutcome::Committed { added: 1, .. })
+    ));
+
+    let map = kv.map.lock().unwrap();
+    assert_eq!(
+        map.get("dedup:n1:committed"),
+        Some(&json!(["a"])),
+        "r2's failed item is not committed by r1's success"
+    );
+    assert!(!map.contains_key(&tentative_key("n1", Some("r1"))));
+    assert!(!map.contains_key(&tentative_key("n1", Some("r2"))));
 }

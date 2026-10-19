@@ -2,8 +2,9 @@
 //! logic over a synchronous key/value seam.
 //!
 //! The [`DedupNode`](super::DedupNode) writes each unseen item's key into a
-//! *tentative* set during a run. When the run finishes, the host settles every
-//! `dedup` node in the flow through [`settle`]:
+//! *tentative* set during a run, scoped to the run's id when the host seeds one
+//! ([`tentative_key`]). When the run finishes, the host settles every `dedup`
+//! node the run executed through [`settle`], with that same run id:
 //!
 //! - **success** — union `tentative` into `committed`, then clear `tentative`
 //!   ([`commit`]);
@@ -72,19 +73,22 @@ pub fn is_success_status(status: &str) -> bool {
     matches!(status, "completed" | "completed_with_warnings")
 }
 
-/// Settles one `dedup` node: [`commit`] when `success`, else [`release`].
-pub fn settle(kv: &dyn DedupKv, node_id: &str, success: bool) -> Settlement {
+/// Settles one `dedup` node for run `run_id`: [`commit`] when `success`, else
+/// [`release`]. `run_id` must be the id the host seeded as
+/// [`RunInput::run_id`](crate::engine::RunInput::run_id) for that run (`None`
+/// when it seeded none), or the node's tentative keys are not found.
+pub fn settle(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>, success: bool) -> Settlement {
     if success {
-        Settlement::Commit(commit(kv, node_id))
+        Settlement::Commit(commit(kv, node_id, run_id))
     } else {
-        Settlement::Release(release(kv, node_id))
+        Settlement::Release(release(kv, node_id, run_id))
     }
 }
 
-/// Success path: union the node's `tentative` set into `committed`, then clear
-/// `tentative`.
-pub fn commit(kv: &dyn DedupKv, node_id: &str) -> CommitOutcome {
-    let tentative_key = tentative_key(node_id);
+/// Success path: union run `run_id`'s `tentative` set into `committed`, then
+/// clear that `tentative` set.
+pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOutcome {
+    let tentative_key = tentative_key(node_id, run_id);
     let committed_key = committed_key(node_id);
 
     let tentative = match load_key_set(kv, &tentative_key) {
@@ -117,10 +121,11 @@ pub fn commit(kv: &dyn DedupKv, node_id: &str) -> CommitOutcome {
     }
 }
 
-/// Failure path: clear `tentative` only, leaving `committed` untouched. Does
-/// not read first: `kv_delete` already no-ops on a missing key.
-pub fn release(kv: &dyn DedupKv, node_id: &str) -> Result<(), String> {
-    kv.kv_delete(&tentative_key(node_id))
+/// Failure path: clear run `run_id`'s `tentative` set only, leaving
+/// `committed` untouched. Does not read first: `kv_delete` already no-ops on a
+/// missing key.
+pub fn release(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> Result<(), String> {
+    kv.kv_delete(&tentative_key(node_id, run_id))
 }
 
 /// Loads a key set (a JSON array of strings). A missing key, non-array value,
