@@ -50,6 +50,21 @@ pub(super) struct ActiveRun {
 static ACTIVE: LazyLock<Mutex<HashMap<ScopedRunId, Arc<ActiveRun>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Updates workflow summary fields only after the matching run has won its
+/// lifecycle compare-and-swap. The catalog method also checks incarnation so
+/// a late actor cannot stamp a replacement workflow.
+pub(super) async fn record_settled_summary(
+    catalog: &tinyflows_drivers::catalog::FlowCatalogDocuments,
+    run_id: &str,
+    status: &str,
+) {
+    match catalog.record_run_for_run(run_id, status).await {
+        Ok(true) => {}
+        Ok(false) => tracing::debug!(run_id, status, "workflow summary no longer belongs to settled run"),
+        Err(error) => tracing::warn!(%error, run_id, status, "recording settled workflow summary failed"),
+    }
+}
+
 fn owner(storage: &tinyflows_bus::catalog::CatalogStorage) -> OwnerKey {
     OwnerKey {
         destination: storage.callback.destination.clone(),
@@ -245,6 +260,7 @@ async fn finish_admission_failure(
     {
         return Ok(());
     }
+    record_settled_summary(catalog, run_id, "failed").await;
     let seq = catalog
         .flow_run_event_last_seq(run_id)
         .await?

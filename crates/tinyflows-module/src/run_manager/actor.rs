@@ -197,7 +197,7 @@ async fn drive_inner(
         )
         .await;
     match finish {
-        Ok(true) => {}
+        Ok(true) => super::record_settled_summary(&prepared.catalog, &request.run_id, status).await,
         Ok(false) => {
             tracing::warn!(run_id = %request.run_id, "run row was settled by another owner");
             unregister(&active);

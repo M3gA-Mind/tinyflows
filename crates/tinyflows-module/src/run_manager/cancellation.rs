@@ -91,6 +91,7 @@ pub(super) async fn cancel_parked_or_stale(
     if !changed {
         return Ok(CancelRunResponse { signalled: false });
     }
+    super::record_settled_summary(&catalog, &request.run_id, "cancelled").await;
     if let Err(error) =
         cancel_snapshot(&catalog, &checkpointer, &request.run_id, &run.thread_id).await
     {
@@ -130,6 +131,7 @@ pub(super) async fn cancel_parked(
     if !changed {
         return Ok(false);
     }
+    super::record_settled_summary(&prepared.catalog, run_id, "cancelled").await;
     if let Err(error) = cancel_snapshot(
         &prepared.catalog,
         &prepared.checkpointer,

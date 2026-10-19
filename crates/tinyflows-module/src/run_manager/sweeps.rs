@@ -49,6 +49,7 @@ pub(super) async fn expire_parked(
         if !changed {
             continue;
         }
+        super::record_settled_summary(&catalog, &run_id, "cancelled").await;
         expired.push((run_id.clone(), flow_id));
         let snapshot = match catalog.flow_run_snapshot(&run_id).await {
             Ok(snapshot) => snapshot,
@@ -166,6 +167,7 @@ pub(super) async fn boot_sweep(
         {
             continue;
         }
+        super::record_settled_summary(&catalog, &run_id, "interrupted").await;
         settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
         if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
             tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
