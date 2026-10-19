@@ -77,9 +77,9 @@ sweep cannot replace the winner.
 `PollRun` also carries the engine outcome needed by synchronous host
 controllers: a `parked` event's data is `RunParked` (segment output, pending
 approval ids, and the pinned graph hash), and a `finished` event's data is
-`RunFinished` with an optional output. Recovery-only terminal events omit the
-output because no engine outcome exists. These fields are additive and
-optional when reading events produced by an older module.
+`RunFinished` with an optional output and a deadline-cause flag. Recovery-only
+terminal events omit the output because no engine outcome exists. These fields
+are additive and default when reading events produced by an older module.
 
 The resumed observer starts with the persisted step prefix, replaces a node's
 parked observation with its resumed result, and seeds the event writer from

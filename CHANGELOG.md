@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   payloads so hosts can preserve synchronous run/resume results without
   reading module-owned checkpoints. The fields are optional when decoding
   events from older module versions; recovery events omit output when no engine
-  outcome exists.
+  outcome exists, and finished events identify host-deadline termination.
 
 ### Bounded occurrence lease records
 
