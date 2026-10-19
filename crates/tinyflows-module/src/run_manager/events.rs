@@ -63,18 +63,19 @@ async fn persist_event(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TerminalEventState {
+enum OutcomeEventState {
     Committed,
     Unwritten,
     Conflicting,
 }
 
-/// Retries an ambiguous terminal append with the identical event and, only
-/// after confirming that sequence is still unwritten, retries without output.
-async fn persist_terminal(
+/// Retries a parked or terminal outcome at the same sequence and, only after
+/// confirming it is unwritten, retries without its potentially large output.
+async fn persist_outcome_event(
     catalog: &FlowCatalogDocuments,
     run_id: &str,
     seq: &mut u64,
+    kind: &str,
     data: Value,
     last_error: &mut Option<String>,
 ) -> Result<u64> {
@@ -84,7 +85,7 @@ async fn persist_terminal(
         catalog,
         run_id,
         seq,
-        "finished".into(),
+        kind.into(),
         data.clone(),
         None,
         last_error,
@@ -93,7 +94,7 @@ async fn persist_terminal(
     {
         Ok(seq) => return Ok(seq),
         Err(error) => {
-            tracing::warn!(%error, run_id, "finished event append failed; retrying identical event")
+            tracing::warn!(%error, run_id, event_kind = kind, "run outcome event append failed; retrying identical event")
         }
     }
 
@@ -101,7 +102,7 @@ async fn persist_terminal(
         catalog,
         run_id,
         seq,
-        "finished".into(),
+        kind.into(),
         data.clone(),
         None,
         last_error,
@@ -113,42 +114,43 @@ async fn persist_terminal(
             return Ok(seq);
         }
         Err(error) => {
-            tracing::warn!(%error, run_id, "identical finished event retry failed; checking durable cursor")
+            tracing::warn!(%error, run_id, event_kind = kind, "identical run outcome retry failed; checking durable cursor")
         }
     }
 
-    match terminal_event_state(catalog, run_id, next_seq, &[&data]).await? {
-        TerminalEventState::Committed => {
+    match outcome_event_state(catalog, run_id, next_seq, kind, &[&data]).await? {
+        OutcomeEventState::Committed => {
             *seq = next_seq;
             *last_error = prior_error.clone();
             return Ok(next_seq);
         }
-        TerminalEventState::Unwritten => {}
-        TerminalEventState::Conflicting => {
+        OutcomeEventState::Unwritten => {}
+        OutcomeEventState::Conflicting => {
             return Err(anyhow::anyhow!(
                 last_error
                     .clone()
-                    .unwrap_or_else(|| "terminal run event was not persisted".into())
+                    .unwrap_or_else(|| "run outcome event was not persisted".into())
             ));
         }
     }
 
-    let Some(fallback) = finished_without_output(data.clone()) else {
+    let Some(fallback) = outcome_without_output(data.clone()) else {
         return Err(anyhow::anyhow!(
             last_error
                 .clone()
-                .unwrap_or_else(|| "terminal run event was not persisted".into())
+                .unwrap_or_else(|| "run outcome event was not persisted".into())
         ));
     };
     tracing::warn!(
         run_id,
-        "retrying the confirmed-unwritten finished event without its optional output"
+        event_kind = kind,
+        "retrying the confirmed-unwritten run outcome without its optional output"
     );
     let result = persist_event(
         catalog,
         run_id,
         seq,
-        "finished".into(),
+        kind.into(),
         fallback.clone(),
         None,
         last_error,
@@ -160,52 +162,53 @@ async fn persist_terminal(
             Ok(seq)
         }
         Err(error) => {
-            match terminal_event_state(catalog, run_id, next_seq, &[&data, &fallback]).await? {
-                TerminalEventState::Committed => {
+            match outcome_event_state(catalog, run_id, next_seq, kind, &[&data, &fallback]).await? {
+                OutcomeEventState::Committed => {
                     *seq = next_seq;
                     *last_error = prior_error;
                     Ok(next_seq)
                 }
-                TerminalEventState::Unwritten | TerminalEventState::Conflicting => Err(error),
+                OutcomeEventState::Unwritten | OutcomeEventState::Conflicting => Err(error),
             }
         }
     }
 }
 
-async fn terminal_event_state(
+async fn outcome_event_state(
     catalog: &FlowCatalogDocuments,
     run_id: &str,
     seq: u64,
+    kind: &str,
     candidates: &[&Value],
-) -> Result<TerminalEventState> {
+) -> Result<OutcomeEventState> {
     let last_seq = catalog.flow_run_event_last_seq(run_id).await?;
     if last_seq == seq.saturating_sub(1) {
-        return Ok(TerminalEventState::Unwritten);
+        return Ok(OutcomeEventState::Unwritten);
     }
     if last_seq != seq {
-        return Ok(TerminalEventState::Conflicting);
+        return Ok(OutcomeEventState::Conflicting);
     }
     let events = catalog
         .flow_run_events_after(run_id, seq.saturating_sub(1), 1)
         .await?;
     let Some(persisted) = events.first() else {
-        return Ok(TerminalEventState::Conflicting);
+        return Ok(OutcomeEventState::Conflicting);
     };
     for data in candidates {
         let expected = serde_json::to_value(RunEvent {
             seq,
-            kind: "finished".into(),
+            kind: kind.to_owned(),
             data: (*data).clone(),
             graph_run_id: None,
         })?;
         if persisted == &expected {
-            return Ok(TerminalEventState::Committed);
+            return Ok(OutcomeEventState::Committed);
         }
     }
-    Ok(TerminalEventState::Conflicting)
+    Ok(OutcomeEventState::Conflicting)
 }
 
-fn finished_without_output(mut data: Value) -> Option<Value> {
+fn outcome_without_output(mut data: Value) -> Option<Value> {
     let object = data.as_object_mut()?;
     object.remove("output")?;
     Some(data)
@@ -271,9 +274,17 @@ impl EventWriter {
                             continue;
                         }
                         let seals_stream = kind == "finished";
-                        let ack_result = if seals_stream {
-                            persist_terminal(&catalog, &run_id, &mut seq, data, &mut last_error)
-                                .await
+                        let carries_outcome = matches!(kind.as_str(), "finished" | "parked");
+                        let ack_result = if carries_outcome {
+                            persist_outcome_event(
+                                &catalog,
+                                &run_id,
+                                &mut seq,
+                                &kind,
+                                data,
+                                &mut last_error,
+                            )
+                            .await
                         } else {
                             persist_event(
                                 &catalog,
