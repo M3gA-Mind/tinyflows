@@ -4,6 +4,40 @@ use serde_json::Value;
 
 use crate::error::{EngineError, Result};
 
+/// The `connection_ref` prefix naming an HTTP credential.
+pub const HTTP_CRED_PREFIX: &str = "http_cred:";
+
+/// The credential name inside a `connection_ref`, if it names one.
+///
+/// Fails closed: a non-empty reference that does not name an HTTP credential
+/// is an error rather than a silently unauthenticated request.
+pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
+    let Some(conn) = conn.map(str::trim).filter(|c| !c.is_empty()) else {
+        return Ok(None);
+    };
+    conn.strip_prefix(HTTP_CRED_PREFIX)
+        .map(Some)
+        .filter(|name| name.is_some_and(|n| !n.is_empty()))
+        .ok_or_else(|| {
+            EngineError::Capability(format!(
+                "http_request: unrecognised connection_ref '{conn}'; expected \
+                 '{HTTP_CRED_PREFIX}<name>'"
+            ))
+        })
+}
+
+/// A description safe to show for approval: method and URL only, never
+/// request headers or body.
+pub fn redacted_summary(request: &Value) -> String {
+    let method = request
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("GET")
+        .to_ascii_uppercase();
+    let url = request.get("url").and_then(Value::as_str).unwrap_or("");
+    format!("{method} {url}")
+}
+
 /// Portable credential forms rendered before the HTTP transport is called.
 pub enum HttpCredentialTemplate {
     /// `Authorization: Bearer <secret>`.

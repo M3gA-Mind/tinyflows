@@ -31,6 +31,55 @@ fn portability_wire_requests_round_trip_without_credential_diagnostics() {
 }
 
 #[test]
+fn http_inspection_wire_has_no_credential_material() {
+    let request = InspectHttpRequest {
+        request: json!({
+            "method":"post",
+            "url":"https://api.example.test/charge",
+            "headers":{"X-Private":"header-secret"},
+            "body":"body-secret"
+        }),
+        connection_ref: Some("http_cred:payments".into()),
+    };
+    let wire = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        wire,
+        json!({
+            "request": {
+                "method":"post",
+                "url":"https://api.example.test/charge",
+                "headers":{"X-Private":"header-secret"},
+                "body":"body-secret"
+            },
+            "connection_ref":"http_cred:payments"
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<InspectHttpRequest>(wire).unwrap(),
+        request
+    );
+
+    let details = HttpRequestDetails {
+        credential_name: Some("payments".into()),
+        redacted_summary: "POST https://api.example.test/charge".into(),
+    };
+    let response = serde_json::to_value(&details).unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "credential_name":"payments",
+            "redacted_summary":"POST https://api.example.test/charge"
+        })
+    );
+    assert!(!response.to_string().contains("header-secret"));
+    assert!(!response.to_string().contains("body-secret"));
+    assert_eq!(
+        serde_json::from_value::<HttpRequestDetails>(response).unwrap(),
+        details
+    );
+}
+
+#[test]
 fn every_credential_template_has_a_stable_tagged_wire_shape() {
     let cases = [
         (
