@@ -97,18 +97,6 @@ fn agent_capability_records_round_trip_and_match_fixtures() {
         serde_json::json!({"client_request_id":"request-1","agent":{"id":"researcher","name":"","description":"","instructions":null,"model":null,"provider":null,"limits":{},"tools":[],"context":[],"metadata":{}},"model":{},"input":{"text":""},"context":[],"tools":[],"identity":{"node_id":"agent","depth":0},"config":{"prompt":"hi"}}),
     );
     pin(
-        AgentCancelRequest {
-            client_request_id: "request-1".into(),
-        },
-        serde_json::json!({"client_request_id":"request-1"}),
-    );
-    let legacy: AgentRunRequest = serde_json::from_value(serde_json::json!({
-        "agent":{"id":"legacy"},
-        "config":null
-    }))
-    .unwrap();
-    assert_eq!(legacy.client_request_id, "");
-    pin(
         AgentRunHandle {
             handle: "h1".into(),
         },

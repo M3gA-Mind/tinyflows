@@ -1,6 +1,9 @@
 use super::*;
 use crate::catalog;
 
+#[path = "runs_tests/caps_cancel_wire_tests.rs"]
+mod caps_cancel_wire_tests;
+
 fn pin<T>(value: T, expected: serde_json::Value)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,

@@ -167,3 +167,28 @@ async fn older_caps_host_peer_is_rejected_before_agent_callbacks_start() {
     assert!(result.is_err());
     assert!(calls.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn unannounced_caps_host_peer_is_rejected_before_agent_callbacks_start() {
+    let (module, host) = support::memory_bus_without_manifest().await;
+    let calls = support::serve_caps(&host, "unknown", "/caps/unknown", false).await;
+    let storage = tinyflows_bus::catalog::CatalogStorage {
+        callback: tinyflows_bus::catalog::CallbackAddress {
+            destination: "test.CatalogStorage".into(),
+            object_path: "/unused/documents".into(),
+        },
+    };
+
+    let result = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/unknown"),
+        RunScope {
+            flow_id: "flow-unknown".into(),
+            storage,
+        },
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert!(calls.lock().unwrap().is_empty());
+}

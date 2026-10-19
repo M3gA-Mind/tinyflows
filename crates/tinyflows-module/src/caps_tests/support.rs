@@ -250,6 +250,12 @@ impl ShellRequestFixture for runs::ShellRunRequest {
 }
 
 pub(super) async fn memory_bus() -> (Connection, Connection) {
+    let (module, host) = memory_bus_without_manifest().await;
+    announce_caps_contract(&host, 2).await;
+    (module, host)
+}
+
+pub(super) async fn memory_bus_without_manifest() -> (Connection, Connection) {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let module = Connection::connect(bus.connect().await.unwrap())
@@ -259,7 +265,6 @@ pub(super) async fn memory_bus() -> (Connection, Connection) {
         .await
         .unwrap();
     host.request_name("test.CapsHost").await.unwrap();
-    announce_caps_contract(&host, 2).await;
     (module, host)
 }
 
