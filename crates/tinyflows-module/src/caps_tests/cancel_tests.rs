@@ -2,7 +2,9 @@ use super::*;
 
 use std::sync::{Arc, Mutex};
 use tinybus::Connection;
-use tinyflows::caps::{AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunRequest, AgentRunner};
+use tinyflows::caps::{
+    AgentInput, AgentModelSelection, AgentRunIdentity, AgentRunRequest, AgentRunner,
+};
 use tinyflows_bus::runs::{
     self, AgentEventsRequest, AgentEventsResponse, AgentRunHandle, AgentRunOutcome, StopReason,
 };
@@ -55,10 +57,7 @@ impl CancelProbe {
         }
     }
 
-    async fn agent_cancel(
-        &self,
-        request: runs::AgentCancelRequest,
-    ) -> tinybus::Result<()> {
+    async fn agent_cancel(&self, request: runs::AgentCancelRequest) -> tinybus::Result<()> {
         *self.cancel_id.lock().unwrap() = Some(request.client_request_id);
         self.cancel_received.notify_one();
         Ok(())

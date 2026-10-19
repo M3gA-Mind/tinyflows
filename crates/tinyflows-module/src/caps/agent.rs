@@ -259,13 +259,11 @@ impl Drop for AgentRunCancellation {
             return;
         };
         runtime.spawn(async move {
-            let Ok(proxy) = connection
-                .proxy(
-                    &address.destination,
-                    &address.object_path,
-                    runs::CAPS_INTERFACE,
-                )
-            else {
+            let Ok(proxy) = connection.proxy(
+                &address.destination,
+                &address.object_path,
+                runs::CAPS_INTERFACE,
+            ) else {
                 return;
             };
             let _ = proxy
