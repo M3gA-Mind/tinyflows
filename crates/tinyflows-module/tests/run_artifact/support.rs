@@ -72,6 +72,13 @@ impl AgentCallback {
         })
     }
 
+    async fn agent_cancel(
+        &self,
+        _request: runs::AgentCancelRequest,
+    ) -> tinybus::Result<()> {
+        Ok(())
+    }
+
     async fn agent_events(
         &self,
         _request: AgentEventsRequest,
