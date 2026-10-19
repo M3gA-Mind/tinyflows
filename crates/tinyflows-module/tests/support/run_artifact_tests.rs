@@ -27,6 +27,9 @@ use run_artifact_poll::{assert_terminal_outcome, poll_until_done, poll_until_kin
 mod run_artifact_support;
 use run_artifact_support::*;
 
+#[path = "run_summary_tests.rs"]
+mod run_summary_tests;
+
 #[path = "../run_artifact/sandbox.rs"]
 mod sandbox;
 
@@ -358,29 +361,6 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
         .await
         .unwrap();
     assert!(!terminal_cancel.signalled);
-
-    let alice_summary: Option<catalog::Workflow> = catalog_proxy
-        .call(
-            "GetWorkflow",
-            &(alice.storage.clone(), alice_start.context.flow_id.clone()),
-        )
-        .await
-        .unwrap();
-    let bob_summary: Option<catalog::Workflow> = catalog_proxy
-        .call(
-            "GetWorkflow",
-            &(bob.storage.clone(), bob_start.context.flow_id.clone()),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        alice_summary.unwrap().last_status.as_deref(),
-        Some("cancelled"),
-        "active cancellation updates the owning workflow summary"
-    );
-    let bob_summary = bob_summary.unwrap();
-    assert_eq!(bob_summary.last_status.as_deref(), Some("completed"));
-    assert!(bob_summary.last_run_at.is_some());
 
     let insert_started = Arc::new(Notify::new());
     let release_insert = Arc::new(Notify::new());
