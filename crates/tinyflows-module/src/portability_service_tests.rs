@@ -102,9 +102,24 @@ async fn agent_helpers_keep_model_prompt_timeout_and_result_formatting_in_the_mo
         prepared.timeout_secs, 45,
         "explicit timeout is never scaled"
     );
-    assert!(prepared.prompt.starts_with("system: Custom persona"));
+    let context = prepared
+        .prompt
+        .find("Here is the data from the previous step")
+        .expect("module renders upstream data first");
+    let steering = prepared
+        .prompt
+        .find("Respond with a single JSON object only")
+        .expect("module adds structured-output steering");
+    let persona = prepared
+        .prompt
+        .find("system: Custom persona")
+        .expect("module prepends the host persona to the node messages");
+    let task = prepared
+        .prompt
+        .find("user: classify")
+        .expect("module preserves the node task");
+    assert!(context < steering && steering < persona && persona < task);
     assert!(prepared.prompt.contains("invoice"));
-    assert!(prepared.prompt.contains("classify"));
 
     let default_timeout = Portability
         .prepare_agent_run(tinyflows_bus::portability::PrepareAgentRun {
