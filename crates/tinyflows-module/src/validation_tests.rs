@@ -48,10 +48,7 @@ async fn trigger_only_validation_marks_the_graph_as_not_actionable() {
     let report = validate_graph(valid_graph(), None).await.unwrap();
 
     assert_eq!(report.warnings, Vec::<String>::new());
-    assert_eq!(
-        report.summary,
-        Some(json!({"trigger":"manual","steps":[]}))
-    );
+    assert_eq!(report.summary, Some(json!({"trigger":"manual","steps":[]})));
     assert_eq!(report.has_actionable_nodes, Some(false));
 }
 
