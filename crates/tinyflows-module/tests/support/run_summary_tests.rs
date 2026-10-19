@@ -42,10 +42,8 @@ async fn compiled_module_updates_workflow_summaries_after_run_settlement() {
         alice_events.events.last().unwrap().data["status"],
         "cancelled"
     );
-    let cancelled: runs::RunFinished = serde_json::from_value(
-        alice_events.events.last().unwrap().data.clone(),
-    )
-    .unwrap();
+    let cancelled: runs::RunFinished =
+        serde_json::from_value(alice_events.events.last().unwrap().data.clone()).unwrap();
     assert!(
         cancelled.output.unwrap().is_object(),
         "the module retains partial engine output after explicit cancellation"
