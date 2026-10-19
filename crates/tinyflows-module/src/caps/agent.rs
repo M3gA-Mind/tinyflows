@@ -28,7 +28,7 @@ impl AgentRunner for CapsHostPorts {
             tools: Vec::new(),
             connection_ref: conn.map(str::to_owned),
             working_dir: None,
-            client_request_id: uuid::Uuid::new_v4().simple().to_string(),
+            client_request_id: String::new(),
             identity: runs::AgentRunIdentity::default(),
             metadata: Default::default(),
             output_schema: None,

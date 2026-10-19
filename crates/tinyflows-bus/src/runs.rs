@@ -71,7 +71,6 @@ pub const CAPS_METHODS: &[&str] = &[
     caps::MEMORY_REMEMBER,
     caps::MEMORY_FORGET,
     caps::AGENT_RUN,
-    caps::AGENT_CANCEL,
     caps::AGENT_EVENTS,
     caps::RESOLVE_AGENT,
     caps::LIST_AGENTS,
@@ -80,6 +79,7 @@ pub const CAPS_METHODS: &[&str] = &[
     caps::RESOLVE_WORKDIR,
     caps::APPROVAL_DECIDE,
     caps::APPROVAL_CANCEL,
+    caps::AGENT_CANCEL,
 ];
 
 /// `StartRun` request. The host-supplied context, capabilities and storage
