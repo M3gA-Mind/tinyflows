@@ -248,7 +248,8 @@ pub struct RunFinished {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_run_id: Option<String>,
     /// Engine outcome returned to the caller, when an engine outcome exists.
-    /// Absent for recovery and pre-execution failure events.
+    /// Absent for recovery/pre-execution events or when output had to be
+    /// omitted so the terminal event itself could be persisted.
     #[serde(
         default,
         deserialize_with = "deserialize_present_value",
@@ -276,7 +277,8 @@ where
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RunParked {
     /// Engine outcome returned by the parked execution segment, when present.
-    /// Absent when reading a record written by an older module.
+    /// Absent for older records or when output had to be omitted so the
+    /// approval metadata could be persisted.
     #[serde(
         default,
         deserialize_with = "deserialize_present_value",

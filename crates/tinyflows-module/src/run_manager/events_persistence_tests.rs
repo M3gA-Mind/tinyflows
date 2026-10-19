@@ -171,11 +171,12 @@ async fn terminal_reconciliation_rejects_different_payload_at_the_same_sequence(
         .unwrap();
     let expected = json!({"status":"completed","successful":true});
 
-    let state = super::terminal_event_state(&setup.catalog, &setup.run_id, 1, &[&expected])
-        .await
-        .unwrap();
+    let state =
+        super::outcome_event_state(&setup.catalog, &setup.run_id, 1, "finished", &[&expected])
+            .await
+            .unwrap();
 
-    assert_eq!(state, super::TerminalEventState::Conflicting);
+    assert_eq!(state, super::OutcomeEventState::Conflicting);
 }
 
 #[tokio::test]
@@ -225,10 +226,11 @@ async fn recovered_terminal_retry_preserves_an_earlier_event_writer_error() {
     ))
     .unwrap();
 
-    let terminal_seq = persist_terminal(
+    let terminal_seq = persist_outcome_event(
         &setup.catalog,
         &setup.run_id,
         &mut seq,
+        "finished",
         data,
         &mut last_error,
     )
