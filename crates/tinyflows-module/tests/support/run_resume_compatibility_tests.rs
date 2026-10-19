@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
+use tinyflows::graph::checkpoint::Checkpointer as _;
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 
 fn parked_graph() -> Value {
@@ -75,7 +76,8 @@ async fn repin_parked_run(owner: &run_artifact_support::Owner, run_id: &str, gra
         .await
         .unwrap()
         .expect("the actor parked a real run");
-    let graph_hash = tinyflows_catalog::graph_hash::compute_graph_hash(graph, false)
+    let graph = tinyflows::migrate::deserialize_graph(graph.clone()).unwrap();
+    let graph_hash = tinyflows_catalog::graph_hash::compute_graph_hash(&graph, false)
         .expect("compatibility fixture graph hashes");
     assert!(
         documents
