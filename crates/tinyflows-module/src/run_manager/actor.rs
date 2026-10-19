@@ -13,7 +13,7 @@ use tinyflows::{
     },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::runs::{ResumeRun, RunContext, RunParked, StartRun};
+use tinyflows_bus::runs::{ResumeRun, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
 use tokio::time::sleep;
 
@@ -35,6 +35,7 @@ pub(super) fn drive(
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
+        &request.storage,
         &request.run_id,
         Arc::clone(&active),
     );
@@ -65,6 +66,7 @@ pub(super) fn drive_resume(
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
+        &request.storage,
         &request.run_id,
         Arc::clone(&active),
     );

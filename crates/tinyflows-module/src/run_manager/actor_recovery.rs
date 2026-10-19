@@ -3,10 +3,12 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
 use tinyflows_bus::runs::{RunContext, RunEvent};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 
-use super::actor::{delete_checkpoints, settle_dedup};
+use super::actor::delete_checkpoints;
+use super::dedup_settlement::DedupSettlementScope;
 use super::events::finished_payload;
 use super::{ActiveRun, TERMINAL, unregister};
 
@@ -19,6 +21,7 @@ const STOPPED_ACTOR_REASON: &str =
 pub(super) struct ActorRecoveryGuard {
     catalog: FlowCatalogDocuments,
     checkpointer: DriverCheckpointer<Value>,
+    storage: CatalogStorage,
     active: Arc<ActiveRun>,
     run_id: String,
     lease: String,
@@ -29,12 +32,14 @@ impl ActorRecoveryGuard {
     pub(super) fn new(
         catalog: &FlowCatalogDocuments,
         checkpointer: &DriverCheckpointer<Value>,
+        storage: &CatalogStorage,
         run_id: &str,
         active: Arc<ActiveRun>,
     ) -> Self {
         Self {
             catalog: catalog.clone(),
             checkpointer: checkpointer.clone(),
+            storage: storage.clone(),
             run_id: run_id.to_owned(),
             lease: active.lease.clone(),
             active,
@@ -65,6 +70,7 @@ impl Drop for ActorRecoveryGuard {
         let recovery = ActorRecovery {
             catalog: self.catalog.clone(),
             checkpointer: self.checkpointer.clone(),
+            storage: self.storage.clone(),
             active: Arc::clone(&self.active),
             run_id: self.run_id.clone(),
             lease: self.lease.clone(),
@@ -91,6 +97,7 @@ impl Drop for ActiveCleanupGuard {
 struct ActorRecovery {
     catalog: FlowCatalogDocuments,
     checkpointer: DriverCheckpointer<Value>,
+    storage: CatalogStorage,
     active: Arc<ActiveRun>,
     run_id: String,
     lease: String,
@@ -145,17 +152,27 @@ impl ActorRecovery {
             .store(TERMINAL, std::sync::atomic::Ordering::Release);
         super::record_settled_summary(&self.catalog, &self.run_id, "interrupted").await;
 
-        if let Some((graph, context)) = recovery_graph_context(&snapshot) {
-            settle_dedup(self.catalog.clone(), &context, &graph, false, &self.run_id).await;
+        let dedup_settlement = if let Some((graph, context)) = recovery_graph_context(&snapshot) {
+            let settlement = DedupSettlementScope::acquire(
+                &self.storage,
+                &context,
+                &graph,
+                &self.run_id,
+            )
+            .await;
+            settlement.settle(self.catalog.clone(), false).await;
+            Some(settlement)
         } else {
             tracing::warn!(
                 target: "workflows",
                 run_id = %self.run_id,
                 "actor recovery snapshot could not be decoded for dedup cleanup"
             );
-        }
+            None
+        };
         delete_checkpoints(&self.checkpointer, &self.run_id, &self.run_id).await;
         self.append_interrupted_event().await;
+        drop(dedup_settlement);
     }
 
     async fn append_interrupted_event(&self) {
