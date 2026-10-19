@@ -6,7 +6,9 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use tinyflows::model::WorkflowGraph;
 use tinyflows_catalog::Flow;
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Precondition, Query, Sort, Versioned};
+use tinystoragedrivers_core::{
+    DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort, Versioned,
+};
 use uuid::Uuid;
 
 use super::lineage::{INCARNATION, incarnation};
@@ -255,6 +257,67 @@ impl FlowCatalogDocuments {
         .ok_or_else(|| anyhow!("flow '{id}' not found"))?;
         tracing::debug!(flow_id = %id, status, "[flows] recorded run");
         Ok(())
+    }
+
+    /// Records a run outcome only while its run row still belongs to the
+    /// current incarnation of its workflow. A stale actor that settles after
+    /// a workflow was deleted and recreated must not update the replacement's
+    /// `last_run_at` or `last_status`.
+    ///
+    /// Returns `false` when the run no longer exists, is not settled to the
+    /// requested status, or belongs to a removed workflow incarnation.
+    pub async fn record_run_for_run(&self, run_id: &str, status: &str) -> Result<bool> {
+        let docs = self.docs().await?;
+        let Some(run) = docs.get(RUNS, run_id).await? else {
+            return Ok(false);
+        };
+        if text(&run.doc, "status") != Some(status) {
+            return Ok(false);
+        }
+        let Some(flow_id) = text(&run.doc, "flow_id") else {
+            return Ok(false);
+        };
+        let Some(mut flow) = docs.get(DEFINITIONS, flow_id).await? else {
+            return Ok(false);
+        };
+        if !belongs(&run.doc, Some(&flow.doc)) {
+            return Ok(false);
+        }
+
+        // Retry ordinary definition edits for fenced workflows, but bind
+        // legacy unfenced documents to the version we observed: without an
+        // incarnation id a replacement cannot otherwise be distinguished.
+        let incarnation = incarnation(&flow.doc).map(str::to_owned);
+        let legacy_version = flow.version.clone();
+        for _ in 0..super::CAS_ATTEMPTS {
+            let mut next = flow.doc.clone();
+            next["last_run_ms"] = json!(Utc::now().timestamp_millis());
+            next["last_status"] = json!(status);
+            match docs
+                .put(DEFINITIONS, flow_id, next, flow.unchanged())
+                .await
+            {
+                Ok(()) => {
+                    tracing::debug!(flow_id, run_id, status, "recorded settled flow run");
+                    return Ok(true);
+                }
+                Err(error) if error.kind() == ErrorKind::Conflict => {
+                    let Some(current) = docs.get(DEFINITIONS, flow_id).await? else {
+                        return Ok(false);
+                    };
+                    let same_flow = match incarnation.as_deref() {
+                        Some(expected) => incarnation(&current.doc) == Some(expected),
+                        None => current.version == legacy_version,
+                    };
+                    if !same_flow {
+                        return Ok(false);
+                    }
+                    flow = current;
+                }
+                Err(error) => return Err(error).context("Failed to record flow run"),
+            }
+        }
+        Ok(false)
     }
 
     /// Test-only: overwrites a flow's stored graph with arbitrary text, to
