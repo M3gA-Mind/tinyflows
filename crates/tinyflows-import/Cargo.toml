@@ -34,6 +34,8 @@ schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", 
 # `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
 # replays them through the scheduler module. Links neither the scheduler
 # implementation nor the cron store.
+# `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
+# replays them through the scheduler module. Links neither implementation crate.
 schedule-read = ["dep:tinyflows-bus"]
 
 [dependencies]
