@@ -48,6 +48,18 @@ jobs:
       - name: Clippy the schedule-only importer build
         run: cargo clippy -p tinyflows-import --all-targets --no-default-features --features schedule -- -D warnings
 
+      - name: Check the schedule-read importer has no driver dependency
+        run: |
+          cargo check -p tinyflows-import --no-default-features --features schedule-read
+          if cargo tree -p tinyflows-import --no-default-features --features schedule-read -e normal | grep -q 'tinyflows-drivers'; then
+            echo "schedule-read unexpectedly links tinyflows-drivers" >&2
+            exit 1
+          fi
+
+      - name: Check the schedule importer enables its driver dependency
+        run: |
+          cargo tree -p tinyflows-import --no-default-features --features schedule -e features | grep -q 'tinyflows-drivers feature "schedule"'
+
       - name: Build
         run: cargo build --all-targets
 
@@ -70,6 +82,10 @@ jobs:
       - name: Test the schedule-only importer build
         # Legacy cron jobs must import without the flows engine.
         run: cargo test -p tinyflows-import --no-default-features --features schedule
+
+      - name: Test the schedule-read importer build
+        # The bus DTO reader compiles without linking the scheduler or driver implementations.
+        run: cargo test -p tinyflows-import --no-default-features --features schedule-read
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 
