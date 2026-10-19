@@ -7,8 +7,10 @@ struct Portability;
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Portability")]
 impl Portability {
-    /// Return a safe summary and the optional host credential name before the
-    /// host resolves any secret.
+    /// Return a method/URL summary and optional credential name before the
+    /// host resolves any secret. The request may contain inline values; headers
+    /// and body are omitted from the result, but the URL may contain sensitive
+    /// data.
     async fn inspect_http_request(
         &self,
         request: tinyflows_bus::portability::InspectHttpRequest,

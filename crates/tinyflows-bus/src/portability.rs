@@ -48,12 +48,13 @@ pub struct InspectHttpRequest {
     pub connection_ref: Option<String>,
 }
 
-/// Safe request details for host credential lookup and approval.
+/// Credential lookup details and a method/URL summary for host approval.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct HttpRequestDetails {
     /// Name from a recognized `http_cred:<name>` reference.
     pub credential_name: Option<String>,
-    /// Method and URL only; request headers and body are omitted.
+    /// Method and URL only; request headers and body are omitted, though the
+    /// URL copied from the request may itself contain sensitive data.
     pub redacted_summary: String,
 }
 
