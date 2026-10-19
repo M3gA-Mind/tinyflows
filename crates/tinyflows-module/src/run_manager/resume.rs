@@ -79,6 +79,25 @@ pub(super) async fn resume(
         }
     }
 
+    // Resume is an authoritative compatibility boundary for the graph the
+    // approval was shown, including saved children resolved through this
+    // owner-scoped Catalog. Older hosts rejected these graphs before calling
+    // ResumeRun and settled the parked row as failed; keep that refusal and
+    // lifecycle result inside the module that owns the Catalog and run row.
+    if let Some(error) = compatibility_error(&catalog, &flow.graph).await {
+        refuse_parked_run(
+            connection,
+            &request,
+            &catalog,
+            &request.run_id,
+            &row.steps,
+            "failed",
+            &error,
+        )
+        .await?;
+        bail!(error)
+    }
+
     let graph_json = snapshot
         .get("graph")
         .cloned()
@@ -86,7 +105,19 @@ pub(super) async fn resume(
     let graph = tinyflows::migrate::deserialize_graph(graph_json)
         .map_err(anyhow::Error::msg)
         .context("decoding pinned execution graph")?;
-    tinyflows::compat::ensure_compatible(&graph).map_err(anyhow::Error::msg)?;
+    if let Some(error) = compatibility_error(&catalog, &graph).await {
+        refuse_parked_run(
+            connection,
+            &request,
+            &catalog,
+            &request.run_id,
+            &row.steps,
+            "failed",
+            &error,
+        )
+        .await?;
+        bail!(error)
+    }
     let compiled = compiler::compile(&graph).context("compiling pinned execution graph")?;
     let inputs: Map<String, Value> = serde_json::from_value(
         snapshot
@@ -202,21 +233,59 @@ async fn refuse_stale_graph(
     run_id: &str,
     steps: &[tinyflows_catalog::FlowRunStep],
 ) -> Result<()> {
+    refuse_parked_run(
+        connection,
+        request,
+        catalog,
+        run_id,
+        steps,
+        "cancelled",
+        GRAPH_CHANGED,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn compatibility_error(
+    catalog: &FlowCatalogDocuments,
+    graph: &tinyflows::model::WorkflowGraph,
+) -> Option<String> {
+    if let Err(error) = tinyflows::compat::ensure_compatible(graph) {
+        return Some(error);
+    }
+    let resolver = super::preparation::SavedWorkflowResolver {
+        catalog: catalog.clone(),
+    };
+    tinyflows::compat::referenced_workflow_errors_async(graph, &resolver)
+        .await
+        .into_iter()
+        .next()
+}
+
+async fn refuse_parked_run(
+    connection: &tinybus::Connection,
+    request: &ResumeRun,
+    catalog: &FlowCatalogDocuments,
+    run_id: &str,
+    steps: &[tinyflows_catalog::FlowRunStep],
+    status: &str,
+    error: &str,
+) -> Result<()> {
     let snapshot = match catalog.flow_run_snapshot(run_id).await {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            tracing::warn!(%error, run_id, "stale-graph refusal could not read execution snapshot");
+            tracing::warn!(%error, run_id, "parked-run compatibility refusal could not read execution snapshot");
             None
         }
     };
     if !catalog
         .finish_parked_flow_run(
             run_id,
-            "cancelled",
+            status,
             &chrono::Utc::now().to_rfc3339(),
             steps,
             &[],
-            Some(GRAPH_CHANGED),
+            Some(error),
             None,
         )
         .await?
@@ -228,6 +297,7 @@ async fn refuse_stale_graph(
     {
         unregister(&active);
     }
+    super::record_settled_summary(catalog, run_id, status).await;
     let dedup_settlement =
         super::sweeps::settle_snapshot_dedup(&request.storage, catalog, snapshot.as_ref(), run_id)
             .await;
@@ -235,10 +305,10 @@ async fn refuse_stale_graph(
         Ok(documents) => {
             let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
             if let Err(error) = checkpointer.delete_thread(run_id).await {
-                tracing::warn!(%error, run_id, "stale-graph refusal checkpoint cleanup failed");
+                tracing::warn!(%error, run_id, "parked-run compatibility refusal checkpoint cleanup failed");
             }
         }
-        Err(error) => tracing::warn!(%error, run_id, "opening stale-run checkpoint scope failed"),
+        Err(error) => tracing::warn!(%error, run_id, "opening refused-run checkpoint scope failed"),
     }
     let seq = catalog
         .flow_run_event_last_seq(run_id)
@@ -251,8 +321,8 @@ async fn refuse_stale_graph(
                 seq,
                 kind: "finished".into(),
                 data: serde_json::to_value(super::events::finished_payload(
-                    "cancelled",
-                    Some(GRAPH_CHANGED.to_owned()),
+                    status,
+                    Some(error.to_owned()),
                     None,
                     None,
                     false,
@@ -262,7 +332,7 @@ async fn refuse_stale_graph(
         )
         .await?;
     if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
-        bail!("stale-graph refusal terminal event cursor was not committed")
+        bail!("parked-run refusal terminal event cursor was not committed")
     }
     drop(dedup_settlement);
     Ok(())
