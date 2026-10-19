@@ -157,7 +157,11 @@ async fn terminal_event_stops_cleanly_when_output_and_fallback_writes_fail() {
         .await
         .expect_err("backend failures must remain visible to the actor");
 
-    assert!(error.to_string().contains("injected terminal write failure"));
+    assert!(
+        error
+            .to_string()
+            .contains("injected terminal write failure")
+    );
     assert!(writer.flush().await.is_some());
     let page = poll(&setup).await;
     assert!(!page.done);
@@ -209,12 +213,18 @@ async fn setup(mode: FaultMode) -> TestSetup {
 
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
-    let host = Connection::connect(bus.connect().await.unwrap()).await.unwrap();
-    let module = Connection::connect(bus.connect().await.unwrap()).await.unwrap();
+    let host = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let module = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
     host.serve_at("/terminal-docs".parse().unwrap(), StorageReader(docs))
         .await
         .unwrap();
-    host.request_name("test.TerminalCatalogStorage").await.unwrap();
+    host.request_name("test.TerminalCatalogStorage")
+        .await
+        .unwrap();
     TestSetup {
         catalog,
         run_id,
@@ -287,7 +297,10 @@ impl DocumentStore for FaultingDocuments {
         self.inner.capabilities()
     }
 
-    async fn ensure_collection(&self, spec: &CollectionSpec) -> tinystoragedrivers_core::Result<()> {
+    async fn ensure_collection(
+        &self,
+        spec: &CollectionSpec,
+    ) -> tinystoragedrivers_core::Result<()> {
         self.inner.ensure_collection(spec).await
     }
 
@@ -325,7 +338,9 @@ impl DocumentStore for FaultingDocuments {
                         && serde_json::to_vec(&doc).unwrap().len() > max_bytes =>
                 {
                     self.output_attempts.fetch_add(1, Ordering::SeqCst);
-                    return Err(StorageError::backend("injected terminal document size limit"));
+                    return Err(StorageError::backend(
+                        "injected terminal document size limit",
+                    ));
                 }
                 FaultMode::CommitThenLoseAck
                     if Self::terminal_output_event(collection, &doc)
