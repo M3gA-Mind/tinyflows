@@ -235,6 +235,7 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
             error: None,
             graph_run_id: Some("graph-run-1".into()),
             output: Some(serde_json::json!({"result":7})),
+            timed_out: false,
         },
         serde_json::json!({
             "status":"completed_with_warnings",
@@ -250,6 +251,7 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
             error: Some("cancelled by host".into()),
             graph_run_id: None,
             output: None,
+            timed_out: false,
         },
         serde_json::json!({
             "status":"cancelled",
@@ -261,6 +263,14 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
     let decoded: RunFinished = serde_json::from_value(legacy).unwrap();
     assert!(!decoded.successful, "missing legacy outcome fails closed");
     assert_eq!(decoded.output, None);
+    assert!(!decoded.timed_out);
+    let timed_out: RunFinished = serde_json::from_value(serde_json::json!({
+        "status":"cancelled",
+        "error":"deadline exceeded",
+        "timed_out":true
+    }))
+    .unwrap();
+    assert!(timed_out.timed_out);
 }
 
 #[test]

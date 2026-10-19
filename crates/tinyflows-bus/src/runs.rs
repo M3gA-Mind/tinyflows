@@ -250,6 +250,14 @@ pub struct RunFinished {
     /// Absent for recovery and pre-execution failure events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Value>,
+    /// True when the host-selected run deadline, rather than an explicit
+    /// cancellation, stopped the engine.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub timed_out: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// Outcome carried by a `parked` event while a run awaits human approval.
