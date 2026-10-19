@@ -14,6 +14,7 @@ use tinyflows_bus::runs::{
 use tokio::sync::Notify;
 
 mod actor;
+mod actor_recovery;
 mod cancellation;
 mod events;
 mod preparation;

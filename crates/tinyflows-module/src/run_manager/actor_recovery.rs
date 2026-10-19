@@ -10,7 +10,8 @@ use super::actor::{delete_checkpoints, settle_dedup};
 use super::events::finished_payload;
 use super::{ActiveRun, TERMINAL, unregister};
 
-const STOPPED_ACTOR_REASON: &str = "Run interrupted because its module actor stopped before settlement.";
+const STOPPED_ACTOR_REASON: &str =
+    "Run interrupted because its module actor stopped before settlement.";
 
 /// Captures recovery ownership before the actor future is returned to Tokio.
 /// The lease check in the driver's terminal CAS keeps an old guard from
@@ -139,18 +140,13 @@ impl ActorRecovery {
         if !interrupted {
             return;
         }
-        self.active.phase.store(TERMINAL, std::sync::atomic::Ordering::Release);
+        self.active
+            .phase
+            .store(TERMINAL, std::sync::atomic::Ordering::Release);
         super::record_settled_summary(&self.catalog, &self.run_id, "interrupted").await;
 
         if let Some((graph, context)) = recovery_graph_context(&snapshot) {
-            settle_dedup(
-                self.catalog.clone(),
-                &context,
-                &graph,
-                false,
-                &self.run_id,
-            )
-            .await;
+            settle_dedup(self.catalog.clone(), &context, &graph, false, &self.run_id).await;
         } else {
             tracing::warn!(
                 target: "workflows",
@@ -210,7 +206,11 @@ impl ActorRecovery {
                 return;
             }
         };
-        match self.catalog.append_flow_run_event(&self.run_id, event).await {
+        match self
+            .catalog
+            .append_flow_run_event(&self.run_id, event)
+            .await
+        {
             Ok(()) => match self
                 .catalog
                 .mark_flow_run_terminal_event(&self.run_id, seq)
