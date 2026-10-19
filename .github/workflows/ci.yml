@@ -54,16 +54,16 @@ jobs:
       - name: Check the schedule-read importer has no driver dependency
         run: |
           cargo check -p tinyflows-import --no-default-features --features schedule-read
-          schedule_read_tree=$(cargo tree -p tinyflows-import --no-default-features --features schedule-read -e normal)
-          if grep -q 'tinyflows-drivers' <<<"$schedule_read_tree"; then
+          schedule_read_tree=$(cargo tree -p tinyflows-import --no-default-features --features schedule-read -e normal --prefix none --format '{p} features=[{f}]')
+          if grep -q '^tinyflows-drivers ' <<<"$schedule_read_tree"; then
             echo "schedule-read unexpectedly links tinyflows-drivers" >&2
             exit 1
           fi
 
       - name: Check the schedule importer enables its driver dependency
         run: |
-          schedule_tree=$(cargo tree -p tinyflows-import --no-default-features --features schedule -e features)
-          grep -q 'tinyflows-drivers feature "schedule"' <<<"$schedule_tree"
+          schedule_tree=$(cargo tree -p tinyflows-import --no-default-features --features schedule -e normal --prefix none --format '{p} features=[{f}]')
+          grep -q '^tinyflows-drivers v.* features=\[schedule\]$' <<<"$schedule_tree"
 
       - name: Build
         run: cargo build --all-targets
