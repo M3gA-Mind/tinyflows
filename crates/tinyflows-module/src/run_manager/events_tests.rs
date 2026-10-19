@@ -74,7 +74,11 @@ fn resumed_node_replaces_its_parked_step_instead_of_retaining_stale_diagnostics(
 
 #[tokio::test]
 async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
-    let setup = setup(FaultMode::LimitTerminalDocument(4_096)).await;
+    let setup = setup(
+        FaultMode::LimitTerminalDocument(4_096),
+        "completed_with_warnings",
+    )
+    .await;
     let output = json!({"body":"x".repeat(8_192)});
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
     let result = writer
@@ -119,7 +123,7 @@ async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
 
 #[tokio::test]
 async fn terminal_event_lost_ack_retries_the_exact_payload_without_duplication() {
-    let setup = setup(FaultMode::CommitThenLoseAck).await;
+    let setup = setup(FaultMode::CommitThenLoseAck, "completed").await;
     let output = json!({"kept":true});
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
     let seq = writer
@@ -152,7 +156,7 @@ async fn terminal_event_lost_ack_retries_the_exact_payload_without_duplication()
 
 #[tokio::test]
 async fn terminal_event_stops_cleanly_when_output_and_fallback_writes_fail() {
-    let setup = setup(FaultMode::RejectEveryTerminalWrite).await;
+    let setup = setup(FaultMode::RejectEveryTerminalWrite, "failed").await;
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
     let error = writer
         .emit_terminal(finished_payload(
@@ -184,7 +188,7 @@ struct TestSetup {
     storage: CatalogStorage,
 }
 
-async fn setup(mode: FaultMode) -> TestSetup {
+async fn setup(mode: FaultMode, status: &str) -> TestSetup {
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = Arc::new(FaultingDocuments {
         inner: scoped.documents().clone(),
@@ -210,7 +214,7 @@ async fn setup(mode: FaultMode) -> TestSetup {
     catalog
         .finish_flow_run(
             &run_id,
-            "completed",
+            status,
             "2026-01-01T00:00:01Z",
             &[],
             &[],
