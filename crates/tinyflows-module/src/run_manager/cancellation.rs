@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::Value;
 use tinybus::Connection;
 use tinyflows::graph::checkpoint::Checkpointer as _;
@@ -11,6 +11,7 @@ use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
 use super::events::EventWriter;
+use super::dedup_settlement::{DedupSettlementScope, from_snapshot};
 use super::preparation::Prepared;
 use super::{ActiveRun, RUNNING, unregister};
 use crate::catalog_documents::Documents;
@@ -92,12 +93,12 @@ pub(super) async fn cancel_parked_or_stale(
         return Ok(CancelRunResponse { signalled: false });
     }
     super::record_settled_summary(&catalog, &request.run_id, "cancelled").await;
-    if let Err(error) =
-        cancel_snapshot(&catalog, &checkpointer, &request.run_id, &run.thread_id).await
-    {
-        tracing::warn!(%error, run_id = %request.run_id, "parked/stale cancellation cleanup failed");
+    let dedup_settlement = cancel_snapshot(&catalog, &request.storage, &request.run_id).await;
+    if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
+        tracing::warn!(%error, run_id = %request.run_id, "parked/stale cancellation checkpoint cleanup failed");
     }
     append_cancelled_event(&catalog, &request.run_id, error).await?;
+    drop(dedup_settlement);
     if let Some(active) = active {
         unregister(&active);
     }
@@ -106,6 +107,7 @@ pub(super) async fn cancel_parked_or_stale(
 
 pub(super) async fn cancel_parked(
     prepared: &Prepared,
+    storage: &tinyflows_bus::catalog::CatalogStorage,
     run_id: &str,
     writer: &EventWriter,
 ) -> Result<bool> {
@@ -132,15 +134,9 @@ pub(super) async fn cancel_parked(
         return Ok(false);
     }
     super::record_settled_summary(&prepared.catalog, run_id, "cancelled").await;
-    if let Err(error) = cancel_snapshot(
-        &prepared.catalog,
-        &prepared.checkpointer,
-        run_id,
-        &run.thread_id,
-    )
-    .await
-    {
-        tracing::warn!(%error, run_id, "parked cancellation cleanup failed");
+    let dedup_settlement = cancel_snapshot(&prepared.catalog, storage, run_id).await;
+    if let Err(error) = prepared.checkpointer.delete_thread(&run.thread_id).await {
+        tracing::warn!(%error, run_id, "parked cancellation checkpoint cleanup failed");
     }
     let seq = writer
         .emit_terminal(super::events::finished_payload(
@@ -158,34 +154,23 @@ pub(super) async fn cancel_parked(
     {
         anyhow::bail!("parked cancellation terminal cursor was not committed")
     }
+    drop(dedup_settlement);
     Ok(true)
 }
 
 async fn cancel_snapshot(
     catalog: &FlowCatalogDocuments,
-    checkpointer: &DriverCheckpointer<Value>,
+    storage: &tinyflows_bus::catalog::CatalogStorage,
     run_id: &str,
-    thread_id: &str,
-) -> Result<()> {
-    if let Some(snapshot) = catalog.flow_run_snapshot(run_id).await? {
-        let graph = snapshot
-            .get("graph")
-            .cloned()
-            .context("run snapshot omitted graph")?;
-        let graph = tinyflows::migrate::deserialize_graph(graph)
-            .map_err(anyhow::Error::msg)
-            .context("decoding executed graph snapshot")?;
-        let context: tinyflows_bus::runs::RunContext = serde_json::from_value(
-            snapshot
-                .get("context")
-                .cloned()
-                .context("run snapshot omitted context")?,
-        )
-        .context("decoding run context snapshot")?;
-        super::actor::settle_dedup(catalog.clone(), &context, &graph, false, run_id).await;
-    }
-    checkpointer.delete_thread(thread_id).await?;
-    Ok(())
+) -> Option<DedupSettlementScope> {
+    let snapshot = match catalog.flow_run_snapshot(run_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::warn!(%error, run_id, "cancelled run snapshot could not be read for dedup settlement");
+            None
+        }
+    };
+    from_snapshot(storage, catalog.clone(), snapshot.as_ref(), run_id, false).await
 }
 
 async fn append_cancelled_event(

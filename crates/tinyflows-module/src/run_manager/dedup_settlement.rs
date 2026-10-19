@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
+use serde_json::Value;
 use tokio::sync::OwnedMutexGuard;
 use tinyflows::{
     model::{NodeKind, WorkflowGraph},
@@ -104,6 +105,35 @@ impl DedupSettlementScope {
             }
         }
     }
+}
+
+/// Decode and settle the graph snapshot owned by a lifecycle cleanup path.
+/// Returning the scope lets the caller keep the same owner/flow lock held
+/// through checkpoint deletion and terminal event persistence.
+pub(super) async fn from_snapshot(
+    storage: &tinyflows_bus::catalog::CatalogStorage,
+    catalog: FlowCatalogDocuments,
+    snapshot: Option<&Value>,
+    run_id: &str,
+    success: bool,
+) -> Option<DedupSettlementScope> {
+    let Some(snapshot) = snapshot else {
+        return None;
+    };
+    let decoded = (|| {
+        Some((
+            tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?,
+            serde_json::from_value::<RunContext>(snapshot.get("context")?.clone()).ok()?,
+        ))
+    })();
+    let Some((graph, context)) = decoded else {
+        tracing::warn!(run_id, "run snapshot could not be decoded for dedup settlement");
+        return None;
+    };
+    let settlement =
+        DedupSettlementScope::acquire(storage, &context, &graph, run_id).await;
+    settlement.settle(catalog, success).await;
+    Some(settlement)
 }
 
 #[cfg(test)]

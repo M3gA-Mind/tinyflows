@@ -256,7 +256,13 @@ async fn drive_inner(
             .store(PARKED, std::sync::atomic::Ordering::Release);
         if active.token.is_cancelled() {
             if let Err(error) =
-                super::cancellation::cancel_parked(&prepared, &request.run_id, &writer).await
+                super::cancellation::cancel_parked(
+                    &prepared,
+                    &request.storage,
+                    &request.run_id,
+                    &writer,
+                )
+                .await
             {
                 tracing::error!(%error, run_id = %request.run_id, "settling cancellation after park");
             }

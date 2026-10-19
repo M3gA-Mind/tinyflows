@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
-use tinyflows_bus::runs::{RunContext, RunEvent};
+use tinyflows_bus::runs::RunEvent;
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 
 use super::actor::delete_checkpoints;
-use super::dedup_settlement::DedupSettlementScope;
+use super::dedup_settlement::from_snapshot;
 use super::events::finished_payload;
 use super::{ActiveRun, TERMINAL, unregister};
 
@@ -152,27 +152,17 @@ impl ActorRecovery {
             .store(TERMINAL, std::sync::atomic::Ordering::Release);
         super::record_settled_summary(&self.catalog, &self.run_id, "interrupted").await;
 
-        let dedup_settlement = if let Some((graph, context)) = recovery_graph_context(&snapshot) {
-            let settlement = DedupSettlementScope::acquire(
-                &self.storage,
-                &context,
-                &graph,
-                &self.run_id,
-            )
-            .await;
-            settlement.settle(self.catalog.clone(), false).await;
-            Some(settlement)
-        } else {
-            tracing::warn!(
-                target: "workflows",
-                run_id = %self.run_id,
-                "actor recovery snapshot could not be decoded for dedup cleanup"
-            );
-            None
-        };
+        let _dedup_settlement = from_snapshot(
+            &self.storage,
+            self.catalog.clone(),
+            Some(&snapshot),
+            &self.run_id,
+            false,
+        )
+        .await;
         delete_checkpoints(&self.checkpointer, &self.run_id, &self.run_id).await;
         self.append_interrupted_event().await;
-        drop(dedup_settlement);
+        drop(_dedup_settlement);
     }
 
     async fn append_interrupted_event(&self) {
@@ -256,10 +246,3 @@ impl ActorRecovery {
     }
 }
 
-fn recovery_graph_context(
-    snapshot: &Value,
-) -> Option<(tinyflows::model::WorkflowGraph, RunContext)> {
-    let graph = tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?;
-    let context = serde_json::from_value(snapshot.get("context")?.clone()).ok()?;
-    Some((graph, context))
-}
