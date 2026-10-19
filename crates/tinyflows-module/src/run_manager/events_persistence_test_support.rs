@@ -1,4 +1,3 @@
-use super::super::{EventWriter, finished_payload, persist_terminal};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::{
@@ -88,7 +87,7 @@ pub(super) async fn setup(mode: FaultMode, status: &str) -> TestSetup {
 }
 
 pub(super) async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
-    super::super::poll(
+    super::super::super::poll(
         &setup.module,
         RunControlRequest {
             storage: setup.storage.clone(),
