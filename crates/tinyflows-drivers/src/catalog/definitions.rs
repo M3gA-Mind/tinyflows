@@ -267,6 +267,11 @@ impl FlowCatalogDocuments {
     /// Returns `false` when the run no longer exists, is not settled to the
     /// requested status, or belongs to a removed workflow incarnation.
     pub async fn record_run_for_run(&self, run_id: &str, status: &str) -> Result<bool> {
+        if status != "pending_approval"
+            && !tinyflows_catalog::run_management::is_terminal_run_status(status)
+        {
+            return Ok(false);
+        }
         let docs = self.docs().await?;
         let Some(run) = docs.get(RUNS, run_id).await? else {
             return Ok(false);

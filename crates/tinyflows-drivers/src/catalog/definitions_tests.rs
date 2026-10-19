@@ -137,12 +137,13 @@ async fn a_run_from_a_removed_flow_incarnation_cannot_stamp_its_replacement() {
         .insert_flow_run("stale-summary-run", &original.id, "thread", "2026-01-01T00:00:00Z")
         .await
         .unwrap();
-    let stale_run = docs
+    let mut stale_run = docs
         .get(RUNS, "stale-summary-run")
         .await
         .unwrap()
         .unwrap()
         .doc;
+    stale_run["status"] = json!("completed");
     let original_definition = docs.get(DEFINITIONS, &original.id).await.unwrap().unwrap();
     let original_incarnation = original_definition.doc["incarnation"].clone();
 
@@ -159,7 +160,7 @@ async fn a_run_from_a_removed_flow_incarnation_cannot_stamp_its_replacement() {
 
     assert!(
         !store
-            .record_run_for_run("stale-summary-run", "running")
+            .record_run_for_run("stale-summary-run", "completed")
             .await
             .unwrap()
     );
