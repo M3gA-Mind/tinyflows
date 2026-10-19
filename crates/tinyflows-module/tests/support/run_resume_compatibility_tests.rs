@@ -69,16 +69,28 @@ async fn update_flow_graph(
     assert!(matches!(updated, catalog::PutWorkflowResponse::Ok(_)));
 }
 
-async fn repin_parked_run(owner: &run_artifact_support::Owner, run_id: &str, graph: &Value) {
+async fn repin_parked_run(
+    catalog_proxy: &tinybus::Proxy,
+    owner: &run_artifact_support::Owner,
+    flow_id: &str,
+    run_id: &str,
+) {
+    let flow: Option<catalog::Workflow> = catalog_proxy
+        .call("GetWorkflow", &(owner.storage.clone(), flow_id.to_owned()))
+        .await
+        .unwrap();
+    let flow = flow.expect("updated workflow remains in Catalog");
+    let graph: tinyflows::model::WorkflowGraph =
+        tinyflows::migrate::deserialize_graph(flow.graph.clone()).unwrap();
     let documents = FlowCatalogDocuments::new(owner.docs.clone());
     let row = documents
         .get_flow_run(run_id)
         .await
         .unwrap()
         .expect("the actor parked a real run");
-    let graph = tinyflows::migrate::deserialize_graph(graph.clone()).unwrap();
-    let graph_hash = tinyflows_catalog::graph_hash::compute_graph_hash(&graph, false)
-        .expect("compatibility fixture graph hashes");
+    let graph_hash =
+        tinyflows_catalog::graph_hash::compute_graph_hash(&graph, flow.require_approval)
+            .expect("compatibility fixture graph hashes");
     assert!(
         documents
             .finish_flow_run(
@@ -210,7 +222,7 @@ async fn resume_fails_and_settles_when_current_graph_is_engine_incompatible() {
     .await;
     let graph = incompatible_graph();
     update_flow_graph(&catalog_proxy, &owner.storage, &flow_id, graph.clone()).await;
-    repin_parked_run(&owner, run_id, &graph).await;
+    repin_parked_run(&catalog_proxy, &owner, &flow_id, run_id).await;
 
     let error = runs_proxy
         .call::<runs::ResumeRunResponse>(
@@ -288,7 +300,7 @@ async fn resume_fails_and_settles_when_current_graph_references_incompatible_chi
         ]
     });
     update_flow_graph(&catalog_proxy, &owner.storage, &flow_id, graph.clone()).await;
-    repin_parked_run(&owner, run_id, &graph).await;
+    repin_parked_run(&catalog_proxy, &owner, &flow_id, run_id).await;
 
     let error = runs_proxy
         .call::<runs::ResumeRunResponse>(
