@@ -80,6 +80,10 @@ fn private_host_detection_covers_loopback_names_and_ranges_but_not_lookalikes() 
 fn an_unrecognised_connection_ref_fails_closed_rather_than_sending_unauthenticated() {
     assert_eq!(http_cred_name(None).unwrap(), None);
     assert_eq!(http_cred_name(Some("http_cred:ci")).unwrap(), Some("ci"));
+    assert_eq!(
+        http_cred_name(Some("http_cred: ci ")).unwrap(),
+        Some("ci")
+    );
 
     // Silently dropping it would send the request anyway, without the
     // credential the author asked for.

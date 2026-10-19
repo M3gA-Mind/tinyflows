@@ -134,9 +134,14 @@ preflight-only `ToolInvoke` callback. The callback cannot replace the module's
 mock execution or produce simulated outputs.
 # Portability helpers
 
-`ai.tinyhumans.tinyflows.Portability` (contract v1) exposes the engine-owned
+`ai.tinyhumans.tinyflows.Portability` (contract v3) exposes the engine-owned
 HTTP credential preparation and trigger readers to hosts through the compiled
-module. `PrepareHttpRequest` accepts a request and a tagged Bearer, Basic,
+module. `InspectHttpRequest` accepts the request and optional connection
+reference before the host resolves any secret. Its result contains the
+recognized credential name and the standard method/URL summary only; request
+headers and body are omitted. Foreign references return no credential name,
+while an empty `http_cred:` name fails. `PrepareHttpRequest` accepts a request
+and a tagged Bearer, Basic,
 custom-header, or already-resolved credential template. The module renders the
 scheme, rejects malformed request/header shapes, and returns the prepared
 request; callers must keep credential values out of logs and recorded output.

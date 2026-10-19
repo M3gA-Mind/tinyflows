@@ -7,6 +7,32 @@ struct Portability;
 
 #[tinybus::interface(name = "ai.tinyhumans.tinyflows.Portability")]
 impl Portability {
+    /// Return a safe summary and the optional host credential name before the
+    /// host resolves any secret.
+    async fn inspect_http_request(
+        &self,
+        request: tinyflows_bus::portability::InspectHttpRequest,
+    ) -> Result<tinyflows_bus::portability::HttpRequestDetails> {
+        let credential_name = match request.connection_ref.as_deref() {
+            Some(connection_ref)
+                if connection_ref.starts_with(tinyflows::caps::http_credential::HTTP_CRED_PREFIX) =>
+            {
+                tinyflows::caps::http_credential::http_cred_name(Some(connection_ref))
+                    .map_err(|_| Error::failed("HTTP request inspection failed"))?
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+            }
+            _ => None,
+        };
+        Ok(tinyflows_bus::portability::HttpRequestDetails {
+            credential_name,
+            redacted_summary: tinyflows::caps::http_credential::redacted_summary(
+                &request.request,
+            ),
+        })
+    }
+
     /// Merge a host-resolved credential into a request, failing closed on bad
     /// request/header shapes. The credential value is never included in errors.
     async fn prepare_http_request(

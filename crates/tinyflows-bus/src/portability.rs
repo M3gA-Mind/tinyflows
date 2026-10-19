@@ -6,10 +6,11 @@ use serde_json::Value;
 /// Interface that exposes engine-owned preparation behavior to hosts.
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Portability";
 /// Contract version for this interface.
-pub const CONTRACT_VERSION: u32 = 2;
+pub const CONTRACT_VERSION: u32 = 3;
 /// Methods implemented by the compiled module.
 pub const METHODS: &[&str] = &[
     "PrepareHttpRequest",
+    "InspectHttpRequest",
     "AppEventBinding",
     "PinnedInputs",
     "DescribeTrigger",
@@ -22,6 +23,24 @@ pub struct PrepareHttpRequest {
     pub request: Value,
     /// Credential template selected by host credential policy.
     pub credential: HttpCredentialTemplate,
+}
+
+/// Inspect an HTTP request before the host resolves its credential.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct InspectHttpRequest {
+    /// Request object whose headers and body are never returned.
+    pub request: Value,
+    /// Opaque host-managed connection reference, if present.
+    pub connection_ref: Option<String>,
+}
+
+/// Safe request details for host credential lookup and approval.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct HttpRequestDetails {
+    /// Name from a recognized `http_cred:<name>` reference.
+    pub credential_name: Option<String>,
+    /// Method and URL only; request headers and body are omitted.
+    pub redacted_summary: String,
 }
 
 /// Portable HTTP credential forms. Secret fields are transport data and must
