@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
+use tinyflows_bus::catalog::CatalogStorage;
 use tinyflows_bus::runs::RunEvent;
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 
