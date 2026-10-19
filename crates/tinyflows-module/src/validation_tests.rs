@@ -44,6 +44,18 @@ async fn parseable_validation_includes_owner_graph_analysis() {
 }
 
 #[tokio::test]
+async fn trigger_only_validation_marks_the_graph_as_not_actionable() {
+    let report = validate_graph(valid_graph(), None).await.unwrap();
+
+    assert_eq!(report.warnings, Vec::<String>::new());
+    assert_eq!(
+        report.summary,
+        Some(json!({"trigger":"manual","steps":[]}))
+    );
+    assert_eq!(report.has_actionable_nodes, Some(false));
+}
+
+#[tokio::test]
 async fn unparseable_candidate_returns_structured_failure_without_graph() {
     let report = validate_graph(json!({"nodes": "invalid"}), None)
         .await
