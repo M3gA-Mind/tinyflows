@@ -199,18 +199,29 @@ async fn assert_reconciled(
     run_id: &str,
     storage: &CatalogStorage,
 ) {
-    let row = catalog
-        .get_flow_run(run_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let mut settled = None;
+    for _ in 0..128 {
+        let row = catalog.get_flow_run(run_id).await.unwrap().unwrap();
+        let events = catalog
+            .flow_run_events_after(run_id, 0, 20)
+            .await
+            .unwrap();
+        if row.status == "interrupted"
+            && catalog
+                .flow_run_terminal_event_seq(run_id)
+                .await
+                .unwrap()
+                .is_some()
+        {
+            settled = Some((row, events));
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let (row, events) = settled.expect("actor recovery must finish its durable cleanup");
     assert_eq!(row.status, "interrupted");
     assert!(row.error.as_deref().is_some_and(|error| error.contains("actor")));
 
-    let events = catalog
-        .flow_run_events_after(run_id, 0, 20)
-        .await
-        .unwrap();
     assert_eq!(events.len(), 1, "recovery emits exactly one terminal event");
     assert_eq!(events[0]["kind"], "finished");
     assert_eq!(events[0]["data"]["status"], "interrupted");
