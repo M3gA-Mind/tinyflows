@@ -64,14 +64,11 @@ impl Portability {
     ) -> Result<Value> {
         if tinyflows::nodes::integration::agent_prompt::structured_output_requested(
             &request.request,
-        ) {
-            if let Some(text) = request.response.get("text").and_then(Value::as_str) {
-                if let Some(value) =
-                    tinyflows::nodes::integration::agent_prompt::extract_structured_json(text)
-                {
-                    return Ok(value);
-                }
-            }
+        ) && let Some(text) = request.response.get("text").and_then(Value::as_str)
+            && let Some(value) =
+                tinyflows::nodes::integration::agent_prompt::extract_structured_json(text)
+        {
+            return Ok(value);
         }
         Ok(request.response)
     }
