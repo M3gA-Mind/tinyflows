@@ -434,3 +434,6 @@ pub(super) async fn cancel(
 #[cfg(test)]
 #[path = "run_manager_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "run_manager_actor_recovery_tests.rs"]
+mod actor_recovery_tests;

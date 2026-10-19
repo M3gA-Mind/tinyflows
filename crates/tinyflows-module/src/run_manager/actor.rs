@@ -82,6 +82,8 @@ async fn drive_inner(
     continuation: Continuation,
 ) {
     let _ = admitted.await;
+    #[cfg(test)]
+    super::actor_recovery_tests::pause_after_admission_for_test(&request.run_id).await;
     let initial_seq = prepared
         .catalog
         .flow_run_event_last_seq(&request.run_id)
