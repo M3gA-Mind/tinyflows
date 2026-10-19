@@ -57,4 +57,3 @@ fn resumed_node_replaces_its_parked_step_instead_of_retaining_stale_diagnostics(
         serde_json::json!([{"json":{"approved":true}}])
     );
 }
-
