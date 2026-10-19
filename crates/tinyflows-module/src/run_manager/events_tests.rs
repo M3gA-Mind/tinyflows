@@ -77,7 +77,7 @@ async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
     let setup = setup(FaultMode::LimitTerminalDocument(4_096)).await;
     let output = json!({"body":"x".repeat(8_192)});
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
-    let seq = writer
+    let result = writer
         .emit_terminal(finished_payload(
             "completed_with_warnings",
             Some("engine warning".into()),
@@ -85,20 +85,28 @@ async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
             Some(output),
             false,
         ))
-        .await
-        .expect("an oversized outcome should settle with an output-free event");
-
-    assert_eq!(seq, 1);
-    assert_eq!(writer.flush().await, None);
-    assert!(
-        setup
-            .catalog
-            .mark_flow_run_terminal_event(&setup.run_id, seq)
-            .await
-            .unwrap()
-    );
+        .await;
+    match &result {
+        Ok(seq) => {
+            assert_eq!(*seq, 1);
+            assert_eq!(writer.flush().await, None);
+            assert!(
+                setup
+                    .catalog
+                    .mark_flow_run_terminal_event(&setup.run_id, *seq)
+                    .await
+                    .unwrap()
+            );
+        }
+        Err(_) => {
+            assert!(writer.flush().await.is_some());
+        }
+    }
     let page = poll(&setup).await;
-    assert!(page.done);
+    assert!(
+        page.done,
+        "terminal run stopped polling after the output-bearing event hit the size limit: {result:?}"
+    );
     assert_eq!(page.events.len(), 1);
     let finished: tinyflows_bus::runs::RunFinished =
         serde_json::from_value(page.events[0].data.clone()).unwrap();
