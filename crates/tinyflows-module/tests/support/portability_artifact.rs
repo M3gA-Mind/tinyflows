@@ -27,8 +27,9 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
         inspection.redacted_summary,
         "POST https://api.example.test/charge"
     );
-    assert!(!inspection.to_string().contains("header-secret"));
-    assert!(!inspection.to_string().contains("body-secret"));
+    let serialized = serde_json::to_string(&inspection).unwrap();
+    assert!(!serialized.contains("header-secret"));
+    assert!(!serialized.contains("body-secret"));
 
     for connection_ref in [None, Some("composio:slack:account".into())] {
         let details: portability::HttpRequestDetails = proxy
