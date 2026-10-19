@@ -241,7 +241,7 @@ async fn resume_fails_and_settles_when_current_graph_is_engine_incompatible() {
         )
         .await
         .unwrap_err()
-        .to_string();
+        .wire_message();
     assert!(
         error.contains(tinyflows::compat::UNSUPPORTED_NESTED_CONDITIONAL_FAN_IN),
         "{error}"
@@ -319,7 +319,7 @@ async fn resume_fails_and_settles_when_current_graph_references_incompatible_chi
         )
         .await
         .unwrap_err()
-        .to_string();
+        .wire_message();
     assert!(error.contains(child_id.as_str()), "{error}");
     assert!(
         error.contains(tinyflows::compat::UNSUPPORTED_NESTED_CONDITIONAL_FAN_IN),
