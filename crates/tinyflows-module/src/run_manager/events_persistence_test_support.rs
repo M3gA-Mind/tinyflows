@@ -123,6 +123,15 @@ impl std::fmt::Debug for FaultingDocuments {
 }
 
 impl FaultingDocuments {
+    fn outcome_event(collection: &str, doc: &Value) -> bool {
+        collection == "flows.runs"
+            && doc["events"].as_array().is_some_and(|events| {
+                events.last().is_some_and(|event| {
+                    matches!(event["kind"].as_str(), Some("finished" | "parked"))
+                })
+            })
+    }
+
     fn outcome_output_event(collection: &str, doc: &Value) -> bool {
         collection == "flows.runs"
             && doc["events"].as_array().is_some_and(|events| {
@@ -197,7 +206,7 @@ impl DocumentStore for FaultingDocuments {
         precondition: Precondition,
         options: WriteOptions,
     ) -> tinystoragedrivers_core::Result<Version> {
-        if Self::terminal_event(collection, &doc) {
+        if Self::outcome_event(collection, &doc) {
             match self.mode {
                 FaultMode::LimitOutcomeDocument(max_bytes)
                     if Self::outcome_output_event(collection, &doc)
@@ -258,7 +267,8 @@ impl DocumentStore for FaultingDocuments {
                     ));
                 }
                 FaultMode::LimitOutputThenLoseFallbackAck(_)
-                    if !Self::terminal_output_event(collection, &doc)
+                    if Self::terminal_event(collection, &doc)
+                        && !Self::terminal_output_event(collection, &doc)
                         && self.lose_ack_once.swap(false, Ordering::SeqCst) =>
                 {
                     let _version = self
@@ -284,6 +294,12 @@ impl DocumentStore for FaultingDocuments {
                     ));
                 }
                 FaultMode::RejectEveryTerminalWrite => {
+                    if !Self::terminal_event(collection, &doc) {
+                        return self
+                            .inner
+                            .put_with(collection, id, doc, precondition, options)
+                            .await;
+                    }
                     return Err(StorageError::unavailable("injected terminal write failure"));
                 }
                 _ => {}
