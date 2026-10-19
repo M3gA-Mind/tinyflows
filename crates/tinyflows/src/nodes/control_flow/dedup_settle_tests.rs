@@ -6,7 +6,7 @@ use std::sync::Mutex;
 #[derive(Default)]
 struct MemKv {
     map: Mutex<HashMap<String, Value>>,
-    fail_set: bool,
+    fail_set: Option<&'static str>,
     fail_get: Option<&'static str>,
 }
 
@@ -18,7 +18,7 @@ impl DedupKv for MemKv {
         Ok(self.map.lock().unwrap().get(key).cloned())
     }
     fn kv_set(&self, key: &str, value: &Value) -> Result<(), String> {
-        if self.fail_set {
+        if self.fail_set == Some(key) {
             return Err("disk full".into());
         }
         self.map.lock().unwrap().insert(key.into(), value.clone());
@@ -79,7 +79,7 @@ fn nothing_tentative_is_a_no_op() {
 #[test]
 fn failed_committed_write_keeps_tentative_for_retry() {
     let mut kv = seeded();
-    kv.fail_set = true;
+    kv.fail_set = Some("dedup:n1:committed");
     assert_eq!(
         commit(&kv, "n1", None),
         CommitOutcome::CommitFailed("disk full".into())
@@ -185,4 +185,55 @@ fn settling_one_run_leaves_an_overlapping_runs_tentative_set_alone() {
     );
     assert!(!map.contains_key(&tentative_key("n1", Some("r1"))));
     assert!(!map.contains_key(&tentative_key("n1", Some("r2"))));
+}
+
+#[test]
+fn a_failed_run_scoped_commit_is_retried_by_the_next_successful_run() {
+    let mut kv = MemKv::default();
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", Some("r1")), json!(["a"]));
+    kv.fail_set = Some("dedup:n1:committed");
+    assert_eq!(
+        commit(&kv, "n1", Some("r1")),
+        CommitOutcome::CommitFailed("disk full".into())
+    );
+    assert_eq!(kv.map.lock().unwrap()["dedup:n1:uncommitted"], json!(["a"]));
+
+    kv.fail_set = None;
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", Some("r2")), json!(["b"]));
+    assert!(matches!(
+        commit(&kv, "n1", Some("r2")),
+        CommitOutcome::Committed { added: 2, .. }
+    ));
+    let map = kv.map.lock().unwrap();
+    assert_eq!(map["dedup:n1:committed"], json!(["a", "b"]));
+    assert!(!map.contains_key("dedup:n1:uncommitted"));
+    assert!(!map.contains_key(&tentative_key("n1", Some("r1"))));
+    assert!(!map.contains_key(&tentative_key("n1", Some("r2"))));
+}
+
+#[test]
+fn an_unreadable_carryover_neither_blocks_a_commit_nor_is_overwritten() {
+    let mut kv = MemKv::default();
+    kv.map
+        .lock()
+        .unwrap()
+        .insert("dedup:n1:uncommitted".into(), json!(["x"]));
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", Some("r1")), json!(["a"]));
+    kv.fail_get = Some("dedup:n1:uncommitted");
+    assert!(matches!(
+        commit(&kv, "n1", Some("r1")),
+        CommitOutcome::Committed { added: 1, .. }
+    ));
+    let map = kv.map.lock().unwrap();
+    assert_eq!(map["dedup:n1:committed"], json!(["a"]));
+    assert_eq!(map["dedup:n1:uncommitted"], json!(["x"]));
 }

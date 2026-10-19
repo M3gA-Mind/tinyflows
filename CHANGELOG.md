@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   seeded; the module run manager does. Tentative keys a pre-upgrade run wrote
   under the shared key are not settled by a post-upgrade finish; the node only
   reads `committed`, so those items are processed again once.
+- **Changed** a failed run-scoped commit to park that run's tentative keys in
+  `dedup:<node_id>:uncommitted`, which the node's next successful commit folds
+  into `committed`, so a successful run's keys are still retried once its own
+  tentative key can no longer be settled.
 
 ### Bounded occurrence lease records
 

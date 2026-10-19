@@ -7,7 +7,8 @@
 //! node the run executed through [`settle`], with that same run id:
 //!
 //! - **success** — union `tentative` into `committed`, then clear `tentative`
-//!   ([`commit`]);
+//!   ([`commit`]). If that fails for a run-scoped set, its keys are parked in
+//!   the node's carryover set and the next successful commit folds them in;
 //! - **anything else** — clear `tentative` only ([`release`]), so the keys are
 //!   exactly as unseen as before the run and the next run reprocesses them.
 //!
@@ -39,8 +40,10 @@ pub enum CommitOutcome {
     /// There were no tentative keys; nothing was written.
     NothingTentative,
     /// A stored set could not be read, or the committed set could not be
-    /// written; both sets were left in place so the next successful run
-    /// retries the commit.
+    /// written. `committed` is untouched and the tentative keys are kept for
+    /// the next successful run to retry: the shared set stays in place, and a
+    /// run-scoped set (which no later run settles) is parked in the node's
+    /// carryover set.
     CommitFailed(String),
     /// Tentative keys were unioned into `committed`.
     Committed {
@@ -85,17 +88,23 @@ pub fn settle(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>, success: bo
     }
 }
 
-/// Success path: union run `run_id`'s `tentative` set into `committed`, then
-/// clear that `tentative` set.
+/// Success path: union run `run_id`'s `tentative` set (plus any carryover a
+/// failed run-scoped commit parked) into `committed`, then clear both.
 pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOutcome {
     let tentative_key = tentative_key(node_id, run_id);
     let committed_key = committed_key(node_id);
+    let carryover_key = run_id.map(|_| carryover_key(node_id));
 
     let tentative = match load_key_set(kv, &tentative_key) {
         Ok(set) => set,
         Err(e) => return CommitOutcome::CommitFailed(e),
     };
-    if tentative.is_empty() {
+    // An unreadable carryover must not block this run's commit; it stays in
+    // place (`None`) for a later run, and is never overwritten.
+    let carryover = carryover_key
+        .as_deref()
+        .and_then(|key| load_key_set(kv, key).ok());
+    if tentative.is_empty() && carryover.as_ref().is_none_or(HashSet::is_empty) {
         return CommitOutcome::NothingTentative;
     }
 
@@ -104,21 +113,61 @@ pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOu
     // key and let those items through the dedup again.
     let mut committed = match load_key_set(kv, &committed_key) {
         Ok(set) => set,
-        Err(e) => return CommitOutcome::CommitFailed(e),
+        Err(e) => {
+            return park_for_retry(kv, &tentative_key, carryover_key, tentative, carryover, e);
+        }
     };
     let added = tentative
         .iter()
+        .chain(carryover.iter().flatten())
         .filter(|k| committed.insert((*k).clone()))
         .count();
 
     if let Err(e) = store_key_set(kv, &committed_key, &committed) {
-        return CommitOutcome::CommitFailed(e);
+        return park_for_retry(kv, &tentative_key, carryover_key, tentative, carryover, e);
+    }
+    let mut clear_error = kv.kv_delete(&tentative_key).err();
+    if let (Some(key), Some(set)) = (&carryover_key, &carryover) {
+        if !set.is_empty() {
+            if let Err(e) = kv.kv_delete(key) {
+                clear_error.get_or_insert(e);
+            }
+        }
     }
     CommitOutcome::Committed {
         added,
         committed_len: committed.len(),
-        clear_error: kv.kv_delete(&tentative_key).err(),
+        clear_error,
     }
+}
+
+/// The key where [`commit`] parks a run-scoped tentative set whose commit
+/// failed. Once its run is gone nothing would settle that run's own key again,
+/// so the node's next successful commit picks the keys up from here instead.
+fn carryover_key(node_id: &str) -> String {
+    format!("dedup:{node_id}:uncommitted")
+}
+
+/// Moves a run-scoped `tentative` set into the readable carryover set after a
+/// failed commit. Best effort: if the carryover is unreadable or cannot be
+/// written, the run's tentative key is left as it was.
+fn park_for_retry(
+    kv: &dyn DedupKv,
+    tentative_key: &str,
+    carryover_key: Option<String>,
+    tentative: HashSet<String>,
+    carryover: Option<HashSet<String>>,
+    error: String,
+) -> CommitOutcome {
+    if let (Some(key), Some(mut carryover)) = (carryover_key, carryover) {
+        if !tentative.is_empty() {
+            carryover.extend(tentative);
+            if store_key_set(kv, &key, &carryover).is_ok() {
+                let _ = kv.kv_delete(tentative_key);
+            }
+        }
+    }
+    CommitOutcome::CommitFailed(error)
 }
 
 /// Failure path: clear run `run_id`'s `tentative` set only, leaving
