@@ -242,4 +242,3 @@ async fn terminal_event_stops_cleanly_when_output_and_fallback_writes_fail() {
     assert!(!page.done);
     assert!(page.events.is_empty());
 }
-
