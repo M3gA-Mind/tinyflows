@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use serde_json::Value;
-use tokio::sync::OwnedMutexGuard;
 use tinyflows::{
     model::{NodeKind, WorkflowGraph},
     nodes::control_flow::dedup_settle,
 };
 use tinyflows_bus::runs::RunContext;
 use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
+use tokio::sync::OwnedMutexGuard;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct SettlementKey {
@@ -127,11 +127,13 @@ pub(super) async fn from_snapshot(
         ))
     })();
     let Some((graph, context)) = decoded else {
-        tracing::warn!(run_id, "run snapshot could not be decoded for dedup settlement");
+        tracing::warn!(
+            run_id,
+            "run snapshot could not be decoded for dedup settlement"
+        );
         return None;
     };
-    let settlement =
-        DedupSettlementScope::acquire(storage, &context, &graph, run_id).await;
+    let settlement = DedupSettlementScope::acquire(storage, &context, &graph, run_id).await;
     settlement.settle(catalog, success).await;
     Some(settlement)
 }

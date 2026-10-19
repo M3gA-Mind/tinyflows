@@ -5,12 +5,12 @@ use std::sync::Arc;
 use serde_json::Value;
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
 use tinyflows_bus::runs::RunEvent;
-use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
+use tinyflows_drivers::{catalog::FlowCatalogDocuments, DriverCheckpointer};
 
 use super::actor::delete_checkpoints;
 use super::dedup_settlement::from_snapshot;
 use super::events::finished_payload;
-use super::{ActiveRun, TERMINAL, unregister};
+use super::{unregister, ActiveRun, TERMINAL};
 
 const STOPPED_ACTOR_REASON: &str =
     "Run interrupted because its module actor stopped before settlement.";
@@ -245,4 +245,3 @@ impl ActorRecovery {
         }
     }
 }
-
