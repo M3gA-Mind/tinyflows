@@ -19,7 +19,7 @@ fn interfaces_share_one_bus_name_with_distinct_paths() {
 
 #[test]
 fn method_constants_match_advertised_members() {
-    assert_eq!(portability::CONTRACT_VERSION, 3);
+    assert_eq!(portability::CONTRACT_VERSION, 4);
     assert_eq!(
         portability::METHODS,
         &[
@@ -27,7 +27,11 @@ fn method_constants_match_advertised_members() {
             "InspectHttpRequest",
             "AppEventBinding",
             "PinnedInputs",
-            "DescribeTrigger"
+            "DescribeTrigger",
+            "PrepareLlmComplete",
+            "FormatLlmComplete",
+            "PrepareAgentRun",
+            "FormatAgentRun"
         ]
     );
     assert_eq!(copilot::CONTRACT_VERSION, 1);
