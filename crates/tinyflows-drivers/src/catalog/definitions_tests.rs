@@ -78,6 +78,116 @@ async fn enable_record_and_duplicate() {
 }
 
 #[tokio::test]
+async fn settled_run_updates_its_workflow_summary_only_for_the_winning_status() {
+    let store = catalog();
+    let flow = store
+        .create_flow("settled summary".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    store
+        .insert_flow_run(
+            "settled-summary-run",
+            &flow.id,
+            "thread",
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .finish_flow_run(
+                "settled-summary-run",
+                "completed",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &[],
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+    );
+
+    assert!(
+        store
+            .record_run_for_run("settled-summary-run", "completed")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .record_run_for_run("settled-summary-run", "failed")
+            .await
+            .unwrap(),
+        "a losing or stale status cannot overwrite the workflow summary"
+    );
+    let updated = store.get_flow(&flow.id).await.unwrap().unwrap();
+    assert_eq!(updated.last_status.as_deref(), Some("completed"));
+    assert!(updated.last_run_at.is_some());
+}
+
+#[tokio::test]
+async fn a_run_from_a_removed_flow_incarnation_cannot_stamp_its_replacement() {
+    use crate::catalog::{DEFINITIONS, RUNS, test_support::docs_in};
+    use tinystoragedrivers_core::{MemoryStorage, Precondition};
+
+    let storage = MemoryStorage::new();
+    let store = catalog_in(&storage, "incarnation-summary");
+    let docs = docs_in(&storage, "incarnation-summary");
+    let original = store
+        .create_flow("original".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    store
+        .insert_flow_run(
+            "stale-summary-run",
+            &original.id,
+            "thread",
+            "2026-01-01T00:00:00Z",
+        )
+        .await
+        .unwrap();
+    let mut stale_run = docs
+        .get(RUNS, "stale-summary-run")
+        .await
+        .unwrap()
+        .unwrap()
+        .doc;
+    stale_run["status"] = json!("completed");
+    let original_definition = docs.get(DEFINITIONS, &original.id).await.unwrap().unwrap();
+    let original_incarnation = original_definition.doc["incarnation"].clone();
+
+    store.remove_flow(&original.id).await.unwrap();
+    let mut replacement = store
+        .create_flow("replacement".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    replacement.id = original.id.clone();
+    store.upsert_flow(&replacement).await.unwrap();
+    docs.put(RUNS, "stale-summary-run", stale_run, Precondition::Absent)
+        .await
+        .unwrap();
+
+    assert!(
+        !store
+            .record_run_for_run("stale-summary-run", "completed")
+            .await
+            .unwrap()
+    );
+    let current = store.get_flow(&original.id).await.unwrap().unwrap();
+    assert_eq!(current.last_run_at, None);
+    assert_eq!(current.last_status, None);
+    assert_ne!(
+        docs.get(DEFINITIONS, &original.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .doc["incarnation"],
+        original_incarnation
+    );
+}
+
+#[tokio::test]
 async fn flows_list_oldest_first() {
     let store = catalog();
     let mut ids = Vec::new();

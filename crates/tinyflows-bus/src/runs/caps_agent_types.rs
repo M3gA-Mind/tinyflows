@@ -187,6 +187,9 @@ pub struct AgentRunIdentity {
 /// Fully resolved request sent to the host agent runner.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AgentRunRequest {
+    /// Opaque module-generated id used only to cancel this individual callback.
+    #[serde(default)]
+    pub client_request_id: String,
     /// Merged agent definition.
     pub agent: AgentDefinition,
     /// Model selection.
@@ -219,6 +222,13 @@ pub struct AgentRunRequest {
     /// Resolved node configuration, preserved for legacy harnesses.
     #[serde(default)]
     pub config: Value,
+}
+
+/// Cancel one in-flight or not-yet-admitted host agent callback.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentCancelRequest {
+    /// The exact id supplied in the matching `AgentRun` request.
+    pub client_request_id: String,
 }
 
 /// Opaque host-generated handle for an in-flight agent turn.

@@ -19,7 +19,7 @@ fn interfaces_share_one_bus_name_with_distinct_paths() {
 
 #[test]
 fn method_constants_match_advertised_members() {
-    assert_eq!(portability::CONTRACT_VERSION, 3);
+    assert_eq!(portability::CONTRACT_VERSION, 4);
     assert_eq!(
         portability::METHODS,
         &[
@@ -27,7 +27,11 @@ fn method_constants_match_advertised_members() {
             "InspectHttpRequest",
             "AppEventBinding",
             "PinnedInputs",
-            "DescribeTrigger"
+            "DescribeTrigger",
+            "PrepareLlmComplete",
+            "FormatLlmComplete",
+            "PrepareAgentRun",
+            "FormatAgentRun"
         ]
     );
     assert_eq!(copilot::CONTRACT_VERSION, 1);
@@ -63,7 +67,7 @@ fn method_constants_match_advertised_members() {
 
 #[test]
 fn authoring_contract_version_and_methods_pin_the_new_requests() {
-    assert_eq!(CONTRACT_VERSION, 3);
+    assert_eq!(CONTRACT_VERSION, 4);
     assert_eq!(
         METHODS,
         [
@@ -101,6 +105,37 @@ fn authoring_contract_version_and_methods_pin_the_new_requests() {
         serde_json::from_value(serde_json::to_value(import).unwrap()).unwrap();
     assert_eq!(imported.format.as_deref(), Some("auto"));
     wire_import_result_round_trip();
+}
+
+#[test]
+fn graph_validation_analysis_fields_round_trip_and_default_for_older_payloads() {
+    let validation = GraphValidation {
+        graph: Some(serde_json::json!({"nodes":[],"edges":[]})),
+        errors: Vec::new(),
+        warnings: vec!["trigger warning".into()],
+        summary: Some(serde_json::json!({"trigger":"webhook","steps":[]})),
+        has_actionable_nodes: Some(false),
+    };
+    let value = serde_json::to_value(&validation).unwrap();
+    assert_eq!(value["warnings"], serde_json::json!(["trigger warning"]));
+    assert_eq!(
+        value["summary"],
+        serde_json::json!({"trigger":"webhook","steps":[]})
+    );
+    assert_eq!(value["has_actionable_nodes"], false);
+    assert_eq!(
+        serde_json::from_value::<GraphValidation>(value).unwrap(),
+        validation
+    );
+
+    let older: GraphValidation = serde_json::from_value(serde_json::json!({
+        "graph": {"nodes": [], "edges": []},
+        "errors": []
+    }))
+    .unwrap();
+    assert!(older.warnings.is_empty());
+    assert_eq!(older.summary, None);
+    assert_eq!(older.has_actionable_nodes, None);
 }
 
 #[test]

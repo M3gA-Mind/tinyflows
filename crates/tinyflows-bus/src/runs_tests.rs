@@ -1,6 +1,9 @@
 use super::*;
 use crate::catalog;
 
+#[path = "runs_tests/caps_cancel_wire_tests.rs"]
+mod caps_cancel_wire_tests;
+
 fn pin<T>(value: T, expected: serde_json::Value)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
@@ -222,8 +225,8 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
             "SandboxRun"
         ]
     );
-    assert_eq!(CAPS_CONTRACT_VERSION, 1);
-    assert_eq!(CAPS_METHODS.len(), 19);
+    assert_eq!(CAPS_CONTRACT_VERSION, 2);
+    assert_eq!(CAPS_METHODS.len(), 20);
 }
 
 #[test]
@@ -234,11 +237,14 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
             successful: true,
             error: None,
             graph_run_id: Some("graph-run-1".into()),
+            output: Some(serde_json::json!({"result":7})),
+            timed_out: false,
         },
         serde_json::json!({
             "status":"completed_with_warnings",
             "successful":true,
-            "graph_run_id":"graph-run-1"
+            "graph_run_id":"graph-run-1",
+            "output":{"result":7}
         }),
     );
     pin(
@@ -247,6 +253,8 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
             successful: false,
             error: Some("cancelled by host".into()),
             graph_run_id: None,
+            output: None,
+            timed_out: false,
         },
         serde_json::json!({
             "status":"cancelled",
@@ -257,4 +265,34 @@ fn run_finished_payload_has_authoritative_success_and_optional_details() {
     let legacy = serde_json::json!({"status":"completed"});
     let decoded: RunFinished = serde_json::from_value(legacy).unwrap();
     assert!(!decoded.successful, "missing legacy outcome fails closed");
+    assert_eq!(decoded.output, None);
+    assert!(!decoded.timed_out);
+    let timed_out: RunFinished = serde_json::from_value(serde_json::json!({
+        "status":"cancelled",
+        "error":"deadline exceeded",
+        "timed_out":true
+    }))
+    .unwrap();
+    assert!(timed_out.timed_out);
+}
+
+#[test]
+fn parked_outcome_round_trips_and_accepts_legacy_events() {
+    let parked = RunParked {
+        output: Some(serde_json::json!({"answer":42})),
+        pending_approvals: vec!["approve".into()],
+        graph_hash: Some("graph-hash".into()),
+    };
+    pin(
+        parked.clone(),
+        serde_json::json!({
+            "output":{"answer":42},
+            "pending_approvals":["approve"],
+            "graph_hash":"graph-hash"
+        }),
+    );
+    let legacy = serde_json::json!({"pending_approvals":["approve"]});
+    let decoded: RunParked = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.output, None);
+    assert_eq!(decoded.pending_approvals, ["approve"]);
 }

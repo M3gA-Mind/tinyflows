@@ -42,7 +42,7 @@ fn request() -> AgentRunRequest {
 }
 
 #[test]
-fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
+fn agent_run_wire_adds_correlation_without_changing_engine_payload() {
     let engine_request = AgentRunRequest {
         agent: AgentDefinition {
             id: "researcher".into(),
@@ -94,7 +94,13 @@ fn agent_run_and_outcome_wire_mirrors_match_engine_serde_shapes() {
     };
     let engine_json = serde_json::to_value(&engine_request).unwrap();
     let wire_request: runs::AgentRunRequest = convert(engine_request).unwrap();
-    assert_eq!(serde_json::to_value(wire_request).unwrap(), engine_json);
+    let mut wire_json = serde_json::to_value(wire_request).unwrap();
+    assert_eq!(wire_json["client_request_id"], "");
+    wire_json
+        .as_object_mut()
+        .unwrap()
+        .remove("client_request_id");
+    assert_eq!(wire_json, engine_json);
 
     let engine_outcome = AgentRunOutcome {
         stop: StopReason::Paused {
@@ -140,4 +146,55 @@ async fn oversized_authoritative_terminal_transcript_fails_as_a_capability_error
     let port = ports(module, "/caps/large_transcript");
     let error = AgentRunner::run(&port, request()).await.unwrap_err();
     assert!(matches!(error, EngineError::Capability(_)));
+}
+
+#[tokio::test]
+async fn older_caps_host_peer_is_rejected_before_agent_callbacks_start() {
+    let (module, host) = support::memory_bus().await;
+    let calls = support::serve_caps(&host, "legacy", "/caps/legacy", false).await;
+    support::announce_caps_contract(&host, 1).await;
+    let storage = tinyflows_bus::catalog::CatalogStorage {
+        callback: tinyflows_bus::catalog::CallbackAddress {
+            destination: "test.CatalogStorage".into(),
+            object_path: "/unused/documents".into(),
+        },
+    };
+
+    let result = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/legacy"),
+        RunScope {
+            flow_id: "flow-legacy".into(),
+            storage,
+        },
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert!(calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn unannounced_caps_host_peer_is_rejected_before_agent_callbacks_start() {
+    let (module, host) = support::memory_bus_without_manifest().await;
+    let calls = support::serve_caps(&host, "unknown", "/caps/unknown", false).await;
+    let storage = tinyflows_bus::catalog::CatalogStorage {
+        callback: tinyflows_bus::catalog::CallbackAddress {
+            destination: "test.CatalogStorage".into(),
+            object_path: "/unused/documents".into(),
+        },
+    };
+
+    let result = CapsHostPorts::capabilities(
+        module,
+        support::caps_host("/caps/unknown"),
+        RunScope {
+            flow_id: "flow-unknown".into(),
+            storage,
+        },
+    )
+    .await;
+
+    assert!(result.is_err());
+    assert!(calls.lock().unwrap().is_empty());
 }

@@ -142,6 +142,10 @@ impl FakeHost {
             handle: format!("{}:{}", self.owner, request.identity.node_id),
         })
     }
+    async fn agent_cancel(&self, _request: runs::AgentCancelRequest) -> tinybus::Result<()> {
+        self.record("AgentCancel");
+        Ok(())
+    }
     async fn agent_events(
         &self,
         request: AgentEventsRequest,
@@ -246,6 +250,12 @@ impl ShellRequestFixture for runs::ShellRunRequest {
 }
 
 pub(super) async fn memory_bus() -> (Connection, Connection) {
+    let (module, host) = memory_bus_without_manifest().await;
+    announce_caps_contract(&host, 2).await;
+    (module, host)
+}
+
+pub(super) async fn memory_bus_without_manifest() -> (Connection, Connection) {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let module = Connection::connect(bus.connect().await.unwrap())
@@ -256,6 +266,14 @@ pub(super) async fn memory_bus() -> (Connection, Connection) {
         .unwrap();
     host.request_name("test.CapsHost").await.unwrap();
     (module, host)
+}
+
+pub(super) async fn announce_caps_contract(host: &Connection, version: u64) {
+    let interface = tinybus::InterfaceName::new(runs::CAPS_INTERFACE).unwrap();
+    let manifest = tinybus::PeerManifest::new("test-caps-host").provides(
+        tinybus::InterfaceVersion::provided(interface, tinybus::Version::new(version, 0, 0)),
+    );
+    host.announce(&manifest).await.unwrap();
 }
 
 pub(super) async fn serve_caps(

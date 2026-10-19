@@ -13,7 +13,7 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Authoring";
 /// Served authoring object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Authoring";
 /// Version of this wire contract.
-pub const CONTRACT_VERSION: u32 = 3;
+pub const CONTRACT_VERSION: u32 = 4;
 /// Authoring members provided by the module.
 pub const METHODS: &[&str] = &[
     "ValidateGraph",
@@ -418,7 +418,8 @@ pub struct ValidationError {
     pub field: Option<String>,
 }
 
-/// Result of migration and graph validation without persistence or host I/O.
+/// Result of migration, graph validation, and generic graph analysis without
+/// persistence or host I/O.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct GraphValidation {
     /// Migrated graph when parsing succeeded, including invalid graphs so an
@@ -426,6 +427,16 @@ pub struct GraphValidation {
     pub graph: Option<Value>,
     /// Every failure from the first failing stage (parse, structure, topology).
     pub errors: Vec<ValidationError>,
+    /// Non-fatal trigger warnings produced from the migrated graph.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Compact authoring summary for the migrated graph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Value>,
+    /// Whether the migrated graph has an actionable node reachable from its
+    /// trigger. `None` means the graph could not be analyzed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_actionable_nodes: Option<bool>,
 }
 
 impl GraphValidation {

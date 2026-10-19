@@ -169,15 +169,18 @@ bash scripts/verify-module-artifact.sh
 ```
 # Portability service
 
-The compiled module provides `ai.tinyhumans.tinyflows.Portability` from
-`tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
-credential-reference inspection and a method/URL summary, case-insensitive
-app-event binding, and literal pinned trigger inputs. Inspection accepts the
+The compiled module provides `ai.tinyhumans.tinyflows.Portability` contract v4
+from `tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
+credential-reference inspection and a method/URL summary, LLM and agent prompt
+preparation/result formatting, case-insensitive app-event binding, and literal
+pinned trigger inputs. Inspection accepts the
 request but no resolved-credential argument. Its result omits request headers
 and body, including any inline values in them; the summarized URL may itself
 contain sensitive data. The credential name is the exact value parsed by the
 TinyFlows helper; the module applies no additional suffix normalization. The
 host continues to resolve and authorize credentials, then may apply its own
 lookup policy before sending a resolved header through `PrepareHttpRequest` for
-injection.
+injection. The LLM/agent methods keep generic request normalization, prompt
+composition, timeout precedence and structured-output formatting in the module;
+the host retains provider selection and its execution policy.
 

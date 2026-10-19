@@ -28,6 +28,7 @@ impl AgentRunner for CapsHostPorts {
             tools: Vec::new(),
             connection_ref: conn.map(str::to_owned),
             working_dir: None,
+            client_request_id: String::new(),
             identity: runs::AgentRunIdentity::default(),
             metadata: Default::default(),
             output_schema: None,
@@ -39,7 +40,14 @@ impl AgentRunner for CapsHostPorts {
 
     async fn run(&self, request: AgentRunRequest) -> Result<AgentRunOutcome> {
         let node_id = request.identity.node_id.clone();
-        let wire_request: runs::AgentRunRequest = convert(request)?;
+        let client_request_id = uuid::Uuid::new_v4().simple().to_string();
+        let mut wire_request: runs::AgentRunRequest = convert(request)?;
+        wire_request.client_request_id = client_request_id.clone();
+        let mut cancellation = AgentRunCancellation::new(
+            self.connection.clone(),
+            self.address.clone(),
+            client_request_id,
+        );
         let started = tokio::time::Instant::now();
         let handle: runs::AgentRunHandle = self
             .call_one_timeout(members::AGENT_RUN, &wire_request, CALLBACK_TIMEOUT)
@@ -130,6 +138,7 @@ impl AgentRunner for CapsHostPorts {
                             })
                             .collect();
                     }
+                    cancellation.disarm();
                     return Ok(outcome);
                 }
                 (false, None) if !had_events => {
@@ -204,5 +213,66 @@ impl AgentRunner for CapsHostPorts {
             Ok(runs::WorkdirCheck::Refused(reason)) => WorkdirCheck::Refused(reason),
             Err(error) => WorkdirCheck::Refused(error.to_string()),
         }
+    }
+}
+
+/// Best-effort cancellation of a host agent callback if this polling future
+/// exits before accepting a valid terminal response.
+struct AgentRunCancellation {
+    connection: Connection,
+    address: runs::CallbackAddress,
+    client_request_id: String,
+    armed: bool,
+}
+
+impl AgentRunCancellation {
+    fn new(
+        connection: Connection,
+        address: runs::CallbackAddress,
+        client_request_id: String,
+    ) -> Self {
+        Self {
+            connection,
+            address,
+            client_request_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for AgentRunCancellation {
+    fn drop(&mut self) {
+        const CANCEL_TIMEOUT: Duration = Duration::from_secs(5);
+        if !self.armed {
+            return;
+        }
+        let (Ok(runtime), connection, address, client_request_id) = (
+            tokio::runtime::Handle::try_current(),
+            self.connection.clone(),
+            self.address.clone(),
+            self.client_request_id.clone(),
+        ) else {
+            return;
+        };
+        runtime.spawn(async move {
+            let Ok(proxy) = connection.proxy(
+                &address.destination,
+                &address.object_path,
+                runs::CAPS_INTERFACE,
+            ) else {
+                return;
+            };
+            let _ = proxy
+                .with_timeout(CANCEL_TIMEOUT)
+                .call::<()>(
+                    members::AGENT_CANCEL,
+                    &(runs::AgentCancelRequest { client_request_id },),
+                )
+                .await;
+        });
     }
 }

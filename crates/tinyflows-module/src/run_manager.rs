@@ -14,7 +14,9 @@ use tinyflows_bus::runs::{
 use tokio::sync::Notify;
 
 mod actor;
+mod actor_recovery;
 mod cancellation;
+mod dedup_settlement;
 mod events;
 mod preparation;
 mod resume;
@@ -49,6 +51,27 @@ pub(super) struct ActiveRun {
 
 static ACTIVE: LazyLock<Mutex<HashMap<ScopedRunId, Arc<ActiveRun>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Updates workflow summary fields only after the matching run has won its
+/// lifecycle compare-and-swap. The catalog method also checks incarnation so
+/// a late actor cannot stamp a replacement workflow.
+pub(super) async fn record_settled_summary(
+    catalog: &tinyflows_drivers::catalog::FlowCatalogDocuments,
+    run_id: &str,
+    status: &str,
+) {
+    match catalog.record_run_for_run(run_id, status).await {
+        Ok(true) => {}
+        Ok(false) => tracing::debug!(
+            run_id,
+            status,
+            "workflow summary no longer belongs to settled run"
+        ),
+        Err(error) => {
+            tracing::warn!(%error, run_id, status, "recording settled workflow summary failed")
+        }
+    }
+}
 
 fn owner(storage: &tinyflows_bus::catalog::CatalogStorage) -> OwnerKey {
     OwnerKey {
@@ -245,6 +268,7 @@ async fn finish_admission_failure(
     {
         return Ok(());
     }
+    record_settled_summary(catalog, run_id, "failed").await;
     let seq = catalog
         .flow_run_event_last_seq(run_id)
         .await?
@@ -259,6 +283,8 @@ async fn finish_admission_failure(
                     "failed",
                     Some(message.to_owned()),
                     None,
+                    None,
+                    false,
                 ))?,
                 graph_run_id: None,
             })?,
@@ -407,6 +433,9 @@ pub(super) async fn cancel(
     cancellation::cancel_parked_or_stale(connection, request, active(&scoped)).await
 }
 
+#[cfg(test)]
+#[path = "run_manager_actor_recovery_tests.rs"]
+mod actor_recovery_tests;
 #[cfg(test)]
 #[path = "run_manager_tests.rs"]
 mod tests;

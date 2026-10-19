@@ -39,7 +39,9 @@
 //! `import_file_state`), `engine` (checkpoints) and `store`
 //! (`import_workflow_store`) are all on by default. A host without the flows
 //! engine builds with `default-features = false, features = ["schedule"]` and
-//! still imports its legacy cron jobs.
+//! still imports its legacy cron jobs. A host that only needs legacy cron
+//! records can use `schedule-read`; it exposes bus DTOs without linking the
+//! scheduler or `tinyflows-drivers` implementations.
 //!
 //! The host decides when to run this and records that it has (a marker in its
 //! own storage); this crate keeps no state of its own.
@@ -64,7 +66,15 @@ mod state;
 #[cfg(feature = "store")]
 mod workflow_store;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(
+        feature = "engine",
+        feature = "catalog",
+        feature = "schedule",
+        feature = "store"
+    )
+))]
 mod test_support;
 
 #[cfg(feature = "catalog")]

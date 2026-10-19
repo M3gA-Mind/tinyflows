@@ -52,7 +52,7 @@ pub mod methods {
 /// Interface the host serves so the module can reach every host capability.
 pub const CAPS_INTERFACE: &str = "ai.tinyhumans.tinyflows.CapsHost";
 /// Version of the host-served capability callback contract.
-pub const CAPS_CONTRACT_VERSION: u32 = 1;
+pub const CAPS_CONTRACT_VERSION: u32 = 2;
 /// Maximum progress records accepted in one `AgentEvents` page.
 pub const MAX_AGENT_EVENTS_PAGE: usize = 256;
 /// Maximum progress records folded into one agent transcript.
@@ -79,6 +79,7 @@ pub const CAPS_METHODS: &[&str] = &[
     caps::RESOLVE_WORKDIR,
     caps::APPROVAL_DECIDE,
     caps::APPROVAL_CANCEL,
+    caps::AGENT_CANCEL,
 ];
 
 /// `StartRun` request. The host-supplied context, capabilities and storage
@@ -246,6 +247,33 @@ pub struct RunFinished {
     /// Graph runtime id, distinct from the durable flow run id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_run_id: Option<String>,
+    /// Engine outcome returned to the caller, when an engine outcome exists.
+    /// Absent for recovery and pre-execution failure events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<Value>,
+    /// True when the host-selected run deadline, rather than an explicit
+    /// cancellation, stopped the engine.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub timed_out: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+/// Outcome carried by a `parked` event while a run awaits human approval.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct RunParked {
+    /// Engine outcome returned by the parked execution segment, when present.
+    /// Absent when reading a record written by an older module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<Value>,
+    /// Nodes whose approval is required to resume the run.
+    #[serde(default)]
+    pub pending_approvals: Vec<String>,
+    /// Graph hash pinned by this approval gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_hash: Option<String>,
 }
 
 /// `PollRun` response.
@@ -324,6 +352,8 @@ pub mod caps {
     pub const MEMORY_FORGET: &str = "MemoryForget";
     /// Start a host-owned agent turn; returns an opaque event handle.
     pub const AGENT_RUN: &str = "AgentRun";
+    /// Cancel a host-owned agent turn by its module-generated request id.
+    pub const AGENT_CANCEL: &str = "AgentCancel";
     /// Read agent events after a cursor.
     pub const AGENT_EVENTS: &str = "AgentEvents";
     /// Resolve a host agent definition; `None` means ordinary absence.

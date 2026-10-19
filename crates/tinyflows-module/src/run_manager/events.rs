@@ -18,12 +18,16 @@ pub(super) fn finished_payload(
     status: &str,
     error: Option<String>,
     graph_run_id: Option<String>,
+    output: Option<Value>,
+    timed_out: bool,
 ) -> RunFinished {
     RunFinished {
         status: status.to_owned(),
         successful: tinyflows::nodes::control_flow::dedup_settle::is_success_status(status),
         error,
         graph_run_id,
+        output,
+        timed_out,
     }
 }
 

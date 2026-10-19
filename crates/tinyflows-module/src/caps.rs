@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tinybus::Connection;
+use tinybus::{InterfaceName, InterfaceVersion, PeerManifest, Version};
 use tinyflows::{
     caps::{
         self, ApprovalDecision, ApprovalOutcome, ApprovalProvider, ApprovalRequest, CodeLanguage,
@@ -75,6 +76,7 @@ impl CapsHostPorts {
         scope: RunScope,
         progress: Option<RunProgressSink>,
     ) -> Result<caps::Capabilities> {
+        require_caps_host_v2(&connection, &host.callback.destination).await?;
         let documents =
             super::catalog_documents::Documents::new(connection.clone(), scope.storage.callback)
                 .await
@@ -173,6 +175,34 @@ impl CapsHostPorts {
             .await
             .map_err(capability_error)
     }
+}
+
+async fn require_caps_host_v2(connection: &Connection, destination: &str) -> Result<()> {
+    let interface = InterfaceName::new(runs::CAPS_INTERFACE).map_err(capability_error)?;
+    let manifest = connection
+        .manifest_of(destination)
+        .await
+        .map_err(capability_error)?
+        .ok_or_else(|| capability_error("CapsHost v2 peer has not announced a manifest"))?;
+    if manifest.provided(&interface).is_none() {
+        return Err(capability_error(
+            "CapsHost v2 is required for cancellable agent callbacks",
+        ));
+    }
+    let local = PeerManifest::new("tinyflows-module").consumes(InterfaceVersion::consumed(
+        interface,
+        Version::new(u64::from(runs::CAPS_CONTRACT_VERSION), 0, 0),
+    ));
+    let compatibility = connection
+        .compatibility(destination, runs::CAPS_INTERFACE, &local)
+        .await
+        .map_err(capability_error)?;
+    if !compatibility.is_compatible() {
+        return Err(capability_error(format!(
+            "CapsHost v2 is required for cancellable agent callbacks; peer compatibility is {compatibility:?}"
+        )));
+    }
+    Ok(())
 }
 
 struct CatalogResolver {
