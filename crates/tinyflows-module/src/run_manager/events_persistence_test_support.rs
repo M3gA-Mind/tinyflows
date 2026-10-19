@@ -2,7 +2,7 @@ use super::super::{EventWriter, finished_payload, persist_terminal};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tinybus::Connection;
@@ -14,21 +14,22 @@ use tinystoragedrivers_core::{
     Scope, Sort, StorageBackend, StorageError, Version, Versioned, WriteOptions,
 };
 
-struct TestSetup {
-    catalog: FlowCatalogDocuments,
-    run_id: String,
-    module: Connection,
-    _host: Connection,
-    storage: CatalogStorage,
+pub(super) struct TestSetup {
+    pub(super) catalog: FlowCatalogDocuments,
+    pub(super) run_id: String,
+    pub(super) module: Connection,
+    pub(super) _host: Connection,
+    pub(super) storage: CatalogStorage,
 }
 
-async fn setup(mode: FaultMode, status: &str) -> TestSetup {
+pub(super) async fn setup(mode: FaultMode, status: &str) -> TestSetup {
     let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = Arc::new(FaultingDocuments {
         inner: scoped.documents().clone(),
         mode,
         output_attempts: AtomicUsize::new(0),
         lose_ack_once: AtomicBool::new(true),
+        late_original: Mutex::new(None),
     });
     let catalog = FlowCatalogDocuments::new(docs.clone());
     let graph = tinyflows::migrate::deserialize_graph(json!({
@@ -86,7 +87,7 @@ async fn setup(mode: FaultMode, status: &str) -> TestSetup {
     }
 }
 
-async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
+pub(super) async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
     super::super::poll(
         &setup.module,
         RunControlRequest {
@@ -100,9 +101,10 @@ async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
 }
 
 #[derive(Clone, Copy)]
-enum FaultMode {
+pub(super) enum FaultMode {
     LimitTerminalDocument(usize),
     LimitOutputThenLoseFallbackAck(usize),
+    LimitOutputThenOriginalWins(usize),
     CommitThenLoseAck,
     RejectEveryTerminalWrite,
 }
@@ -112,6 +114,7 @@ struct FaultingDocuments {
     mode: FaultMode,
     output_attempts: AtomicUsize,
     lose_ack_once: AtomicBool,
+    late_original: Mutex<Option<Value>>,
 }
 
 impl std::fmt::Debug for FaultingDocuments {
@@ -201,6 +204,45 @@ impl DocumentStore for FaultingDocuments {
                     self.output_attempts.fetch_add(1, Ordering::SeqCst);
                     return Err(StorageError::backend(
                         "injected terminal document size limit",
+                    ));
+                }
+                FaultMode::LimitOutputThenOriginalWins(max_bytes)
+                    if Self::terminal_output_event(collection, &doc)
+                        && serde_json::to_vec(&doc).unwrap().len() > max_bytes =>
+                {
+                    let original = doc["events"].as_array().unwrap().last().unwrap().clone();
+                    *self
+                        .late_original
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(original);
+                    self.output_attempts.fetch_add(1, Ordering::SeqCst);
+                    return Err(StorageError::backend(
+                        "injected terminal document size limit",
+                    ));
+                }
+                FaultMode::LimitOutputThenOriginalWins(_)
+                    if Self::terminal_event(collection, &doc)
+                        && !Self::terminal_output_event(collection, &doc) =>
+                {
+                    let original = self
+                        .late_original
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone()
+                        .expect("the output-bearing terminal write was rejected first");
+                    let stored = self
+                        .inner
+                        .get(collection, id)
+                        .await?
+                        .expect("the settled run row exists");
+                    let mut winner = stored.doc.clone();
+                    winner["events"].as_array_mut().unwrap().push(original);
+                    let _version = self
+                        .inner
+                        .put_with(collection, id, winner, stored.unchanged(), options)
+                        .await?;
+                    return Err(StorageError::conflict(
+                        "injected original terminal payload winning the fallback race",
                     ));
                 }
                 FaultMode::LimitOutputThenLoseFallbackAck(_)
