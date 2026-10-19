@@ -206,7 +206,8 @@ impl DocumentStore for FaultingDocuments {
                     ));
                 }
                 FaultMode::RejectOutputThenOriginalWins
-                    if Self::terminal_output_event(collection, &doc) =>
+                    if Self::terminal_output_event(collection, &doc)
+                        && doc.get("terminal_event_seq").is_none() =>
                 {
                     let original = doc["events"].as_array().unwrap().last().unwrap().clone();
                     *self
@@ -220,6 +221,7 @@ impl DocumentStore for FaultingDocuments {
                 }
                 FaultMode::RejectOutputThenOriginalWins
                     if Self::terminal_event(collection, &doc)
+                        && doc.get("terminal_event_seq").is_none()
                         && !Self::terminal_output_event(collection, &doc) =>
                 {
                     let original = self
