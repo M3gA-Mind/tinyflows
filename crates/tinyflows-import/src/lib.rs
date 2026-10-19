@@ -66,7 +66,15 @@ mod state;
 #[cfg(feature = "store")]
 mod workflow_store;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(
+        feature = "engine",
+        feature = "catalog",
+        feature = "schedule",
+        feature = "store"
+    )
+))]
 mod test_support;
 
 #[cfg(feature = "catalog")]

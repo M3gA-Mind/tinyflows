@@ -48,6 +48,9 @@ jobs:
       - name: Clippy the schedule-only importer build
         run: cargo clippy -p tinyflows-import --all-targets --no-default-features --features schedule -- -D warnings
 
+      - name: Clippy the schedule-read importer build
+        run: cargo clippy -p tinyflows-import --all-targets --no-default-features --features schedule-read -- -D warnings
+
       - name: Check the schedule-read importer has no driver dependency
         run: |
           cargo check -p tinyflows-import --no-default-features --features schedule-read
