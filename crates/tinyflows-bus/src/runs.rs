@@ -52,7 +52,7 @@ pub mod methods {
 /// Interface the host serves so the module can reach every host capability.
 pub const CAPS_INTERFACE: &str = "ai.tinyhumans.tinyflows.CapsHost";
 /// Version of the host-served capability callback contract.
-pub const CAPS_CONTRACT_VERSION: u32 = 1;
+pub const CAPS_CONTRACT_VERSION: u32 = 2;
 /// Maximum progress records accepted in one `AgentEvents` page.
 pub const MAX_AGENT_EVENTS_PAGE: usize = 256;
 /// Maximum progress records folded into one agent transcript.
@@ -71,6 +71,7 @@ pub const CAPS_METHODS: &[&str] = &[
     caps::MEMORY_REMEMBER,
     caps::MEMORY_FORGET,
     caps::AGENT_RUN,
+    caps::AGENT_CANCEL,
     caps::AGENT_EVENTS,
     caps::RESOLVE_AGENT,
     caps::LIST_AGENTS,
@@ -351,6 +352,8 @@ pub mod caps {
     pub const MEMORY_FORGET: &str = "MemoryForget";
     /// Start a host-owned agent turn; returns an opaque event handle.
     pub const AGENT_RUN: &str = "AgentRun";
+    /// Cancel a host-owned agent turn by its module-generated request id.
+    pub const AGENT_CANCEL: &str = "AgentCancel";
     /// Read agent events after a cursor.
     pub const AGENT_EVENTS: &str = "AgentEvents";
     /// Resolve a host agent definition; `None` means ordinary absence.

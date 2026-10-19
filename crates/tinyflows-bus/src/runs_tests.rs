@@ -222,8 +222,8 @@ fn run_control_and_poll_contracts_match_literal_fixtures() {
             "SandboxRun"
         ]
     );
-    assert_eq!(CAPS_CONTRACT_VERSION, 1);
-    assert_eq!(CAPS_METHODS.len(), 19);
+    assert_eq!(CAPS_CONTRACT_VERSION, 2);
+    assert_eq!(CAPS_METHODS.len(), 20);
 }
 
 #[test]
