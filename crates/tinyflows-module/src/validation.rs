@@ -24,6 +24,9 @@ pub(crate) async fn validate_graph(
                     node_id: None,
                     field: None,
                 }],
+                warnings: Vec::new(),
+                summary: None,
+                has_actionable_nodes: None,
             });
         }
     };
@@ -61,9 +64,15 @@ pub(crate) async fn validate_graph(
             })
             .collect();
     }
+    let warnings = tinyflows::triggers::graph_trigger_warnings(&graph);
+    let summary = tinyflows::summary::summarize(&graph);
+    let has_actionable_nodes = tinyflows_catalog::graph_policy::graph_has_actionable_nodes(&graph);
     Ok(GraphValidation {
         graph: migrated.ok(),
         errors,
+        warnings,
+        summary: Some(summary),
+        has_actionable_nodes: Some(has_actionable_nodes),
     })
 }
 
