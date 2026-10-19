@@ -235,7 +235,7 @@ impl DocumentStore for FaultingDocuments {
                         .await?
                         .expect("the settled run row exists");
                     let mut winner = stored.doc.clone();
-                    winner["events"].as_array_mut().unwrap().push(original);
+                    winner["events"] = json!([original]);
                     let _version = self
                         .inner
                         .put_with(collection, id, winner, stored.unchanged(), options)

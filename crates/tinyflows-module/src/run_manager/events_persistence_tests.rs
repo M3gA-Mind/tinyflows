@@ -133,7 +133,7 @@ async fn late_original_terminal_commit_wins_over_the_output_free_fallback() {
 
 #[tokio::test]
 async fn terminal_reconciliation_rejects_different_payload_at_the_same_sequence() {
-    let setup = setup(FaultMode::RejectEveryTerminalWrite, "completed").await;
+    let setup = setup(FaultMode::LimitTerminalDocument(4_096), "completed").await;
     let different = json!({"status":"failed","successful":false});
     setup
         .catalog
