@@ -293,7 +293,7 @@ impl FlowCatalogDocuments {
         // legacy unfenced documents to the version we observed: without an
         // incarnation id a replacement cannot otherwise be distinguished.
         let expected_incarnation = incarnation(&flow.doc).map(str::to_owned);
-        let legacy_version = flow.version.clone();
+        let legacy_version = flow.version;
         for _ in 0..super::CAS_ATTEMPTS {
             let mut next = flow.doc.clone();
             next["last_run_ms"] = json!(Utc::now().timestamp_millis());
