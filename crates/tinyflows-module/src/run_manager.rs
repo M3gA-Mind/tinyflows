@@ -281,6 +281,7 @@ async fn finish_admission_failure(
                     "failed",
                     Some(message.to_owned()),
                     None,
+                    None,
                 ))?,
                 graph_run_id: None,
             })?,

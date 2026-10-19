@@ -34,7 +34,7 @@ async fn terminal_event_seals_cloned_progress_sinks() {
     let observer = super::events::Observer::new(writer.clone(), Vec::new());
     let late_progress = observer.progress_sink();
     let terminal_seq = writer
-        .emit_terminal(events::finished_payload("completed", None, None))
+        .emit_terminal(events::finished_payload("completed", None, None, None))
         .await
         .unwrap();
     late_progress("agent_progress".into(), serde_json::json!({"text":"late"}));

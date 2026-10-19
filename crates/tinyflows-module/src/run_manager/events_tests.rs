@@ -10,7 +10,7 @@ fn terminal_payload_uses_the_engine_success_vocabulary() {
         ("interrupted", false),
         ("future_terminal_status", false),
     ] {
-        let payload = finished_payload(status, None, None);
+        let payload = finished_payload(status, None, None, None);
         assert_eq!(payload.status, status);
         assert_eq!(payload.successful, successful, "status: {status}");
     }

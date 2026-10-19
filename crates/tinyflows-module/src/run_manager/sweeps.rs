@@ -207,6 +207,7 @@ async fn settle_terminal_event(
                     status,
                     Some(error.to_owned()),
                     None,
+                    None,
                 ))?,
                 graph_run_id: None,
             })?,
