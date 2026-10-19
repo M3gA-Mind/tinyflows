@@ -11,6 +11,7 @@ use tinyflows_bus::runs::{
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
+use super::dedup_settlement::{DedupSettlementScope, from_snapshot};
 use super::preparation::catalog;
 use super::{PARKED, active, active_lease, key, unregister};
 use crate::catalog_documents::Documents;
@@ -71,7 +72,8 @@ pub(super) async fn expire_parked(
         {
             unregister(&actor);
         }
-        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
+        let dedup_settlement =
+            settle_snapshot_dedup(&request.storage, &catalog, snapshot.as_ref(), &run_id).await;
         let run = match catalog.get_flow_run(&run_id).await {
             Ok(run) => run,
             Err(error) => {
@@ -100,6 +102,7 @@ pub(super) async fn expire_parked(
             terminal_error
                 .get_or_insert_with(|| anyhow::anyhow!("settling expired run {run_id}: {error:#}"));
         }
+        drop(dedup_settlement);
     }
     if let Some(error) = terminal_error {
         return Err(error);
@@ -168,7 +171,8 @@ pub(super) async fn boot_sweep(
             continue;
         }
         super::record_settled_summary(&catalog, &run_id, "interrupted").await;
-        settle_snapshot_dedup(&catalog, snapshot.as_ref(), &run_id).await;
+        let dedup_settlement =
+            settle_snapshot_dedup(&request.storage, &catalog, snapshot.as_ref(), &run_id).await;
         if let Err(error) = checkpointer.delete_thread(&run.thread_id).await {
             tracing::warn!(%error, run_id, "orphaned run checkpoint cleanup failed");
         }
@@ -179,6 +183,7 @@ pub(super) async fn boot_sweep(
                 anyhow::anyhow!("settling interrupted run {run_id}: {error:#}")
             });
         }
+        drop(dedup_settlement);
         interrupted.push(run_id);
     }
     if let Some(error) = terminal_error {
@@ -221,28 +226,10 @@ async fn settle_terminal_event(
 }
 
 pub(super) async fn settle_snapshot_dedup(
+    storage: &tinyflows_bus::catalog::CatalogStorage,
     catalog: &FlowCatalogDocuments,
     snapshot: Option<&Value>,
     run_id: &str,
-) {
-    let Some(snapshot) = snapshot else {
-        return;
-    };
-    let decoded = (|| {
-        Some((
-            tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?,
-            serde_json::from_value::<tinyflows_bus::runs::RunContext>(
-                snapshot.get("context")?.clone(),
-            )
-            .ok()?,
-        ))
-    })();
-    if let Some((graph, context)) = decoded {
-        super::actor::settle_dedup(catalog.clone(), &context, &graph, false, run_id).await;
-    } else {
-        tracing::warn!(
-            run_id,
-            "run snapshot could not be decoded for dedup cleanup"
-        );
-    }
+) -> Option<DedupSettlementScope> {
+    from_snapshot(storage, catalog.clone(), snapshot, run_id, false).await
 }

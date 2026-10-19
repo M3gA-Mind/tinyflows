@@ -228,7 +228,9 @@ async fn refuse_stale_graph(
     {
         unregister(&active);
     }
-    super::sweeps::settle_snapshot_dedup(catalog, snapshot.as_ref(), run_id).await;
+    let dedup_settlement =
+        super::sweeps::settle_snapshot_dedup(&request.storage, catalog, snapshot.as_ref(), run_id)
+            .await;
     match Documents::new(connection.clone(), request.storage.callback.clone()).await {
         Ok(documents) => {
             let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
@@ -262,5 +264,6 @@ async fn refuse_stale_graph(
     if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
         bail!("stale-graph refusal terminal event cursor was not committed")
     }
+    drop(dedup_settlement);
     Ok(())
 }
