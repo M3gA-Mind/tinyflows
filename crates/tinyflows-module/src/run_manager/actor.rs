@@ -26,237 +26,7 @@ use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
 
-const STOPPED_ACTOR_REASON: &str =
-    "Run interrupted because its module actor stopped before settlement.";
-
-/// A drop guard for the module-owned actor task. Its cleanup is scheduled when
-/// the future is constructed, outside the future body, so aborting the task
-/// before its first poll still retains the actor's lease and recovery work.
-struct ActorRecoveryGuard {
-    catalog: FlowCatalogDocuments,
-    checkpointer: DriverCheckpointer<Value>,
-    active: Arc<ActiveRun>,
-    run_id: String,
-    lease: String,
-    armed: bool,
-}
-
-impl ActorRecoveryGuard {
-    fn new(prepared: &Prepared, request: &StartRun, active: Arc<ActiveRun>) -> Self {
-        Self {
-            catalog: prepared.catalog.clone(),
-            checkpointer: prepared.checkpointer.clone(),
-            run_id: request.run_id.clone(),
-            lease: active.lease.clone(),
-            active,
-            armed: true,
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for ActorRecoveryGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            tracing::warn!(
-                target: "workflows",
-                run_id = %self.run_id,
-                "actor stopped without a Tokio runtime; boot recovery will reconcile the run"
-            );
-            unregister(&self.active);
-            return;
-        };
-
-        let recovery = ActorRecovery {
-            catalog: self.catalog.clone(),
-            checkpointer: self.checkpointer.clone(),
-            active: Arc::clone(&self.active),
-            run_id: self.run_id.clone(),
-            lease: self.lease.clone(),
-        };
-        let active_cleanup = ActiveCleanupGuard(Arc::clone(&self.active));
-        runtime.spawn(async move {
-            let _active_cleanup = active_cleanup;
-            recovery.reconcile().await;
-        });
-    }
-}
-
-/// Owns the active registry entry until best-effort recovery completes. The
-/// identity-aware unregister protects a replacement actor if one has already
-/// registered for this owner/run key.
-struct ActiveCleanupGuard(Arc<ActiveRun>);
-
-impl Drop for ActiveCleanupGuard {
-    fn drop(&mut self) {
-        unregister(&self.0);
-    }
-}
-
-struct ActorRecovery {
-    catalog: FlowCatalogDocuments,
-    checkpointer: DriverCheckpointer<Value>,
-    active: Arc<ActiveRun>,
-    run_id: String,
-    lease: String,
-}
-
-impl ActorRecovery {
-    async fn reconcile(self) {
-        let snapshot = match self.catalog.flow_run_snapshot(&self.run_id).await {
-            Ok(Some(snapshot))
-                if snapshot.get("lease").and_then(Value::as_str) == Some(&self.lease) =>
-            {
-                snapshot
-            }
-            Ok(_) => return,
-            Err(error) => {
-                tracing::warn!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    %error,
-                    "actor recovery could not read its execution snapshot"
-                );
-                return;
-            }
-        };
-        let now = chrono::Utc::now().to_rfc3339();
-        let interrupted = match self
-            .catalog
-            .interrupt_running_flow_run_for_lease(
-                &self.run_id,
-                &self.lease,
-                &now,
-                STOPPED_ACTOR_REASON,
-            )
-            .await
-        {
-            Ok(interrupted) => interrupted,
-            Err(error) => {
-                tracing::warn!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    %error,
-                    "actor recovery could not settle its leased run"
-                );
-                return;
-            }
-        };
-        if !interrupted {
-            return;
-        }
-        self.active
-            .phase
-            .store(super::TERMINAL, std::sync::atomic::Ordering::Release);
-        super::record_settled_summary(&self.catalog, &self.run_id, "interrupted").await;
-
-        if let Some((graph, context)) = recovery_graph_context(&snapshot) {
-            settle_dedup(self.catalog.clone(), &context, &graph, false, &self.run_id).await;
-        } else {
-            tracing::warn!(
-                target: "workflows",
-                run_id = %self.run_id,
-                "actor recovery snapshot could not be decoded for dedup cleanup"
-            );
-        }
-        delete_checkpoints(&self.checkpointer, &self.run_id, &self.run_id).await;
-        self.append_interrupted_event().await;
-    }
-
-    async fn append_interrupted_event(&self) {
-        let seq = match self.catalog.flow_run_event_last_seq(&self.run_id).await {
-            Ok(seq) => seq.saturating_add(1),
-            Err(error) => {
-                tracing::warn!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    %error,
-                    "actor recovery could not read the terminal event cursor"
-                );
-                return;
-            }
-        };
-        let event = RunEvent {
-            seq,
-            kind: "finished".into(),
-            data: match serde_json::to_value(finished_payload(
-                "interrupted",
-                Some(STOPPED_ACTOR_REASON.to_owned()),
-                None,
-                None,
-                false,
-            )) {
-                Ok(event) => event,
-                Err(error) => {
-                    tracing::error!(
-                        target: "workflows",
-                        run_id = %self.run_id,
-                        %error,
-                        "actor recovery could not encode its terminal event"
-                    );
-                    return;
-                }
-            },
-            graph_run_id: None,
-        };
-        let event = match serde_json::to_value(event) {
-            Ok(event) => event,
-            Err(error) => {
-                tracing::error!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    %error,
-                    "actor recovery could not serialize its terminal event"
-                );
-                return;
-            }
-        };
-        match self
-            .catalog
-            .append_flow_run_event(&self.run_id, event)
-            .await
-        {
-            Ok(()) => match self
-                .catalog
-                .mark_flow_run_terminal_event(&self.run_id, seq)
-                .await
-            {
-                Ok(true) => {}
-                Ok(false) => tracing::error!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    "actor recovery terminal event cursor was not committed"
-                ),
-                Err(error) => tracing::error!(
-                    target: "workflows",
-                    run_id = %self.run_id,
-                    %error,
-                    "actor recovery could not commit its terminal event cursor"
-                ),
-            },
-            Err(error) => tracing::error!(
-                target: "workflows",
-                run_id = %self.run_id,
-                %error,
-                "actor recovery could not persist its terminal event"
-            ),
-        }
-    }
-}
-
-fn recovery_graph_context(
-    snapshot: &Value,
-) -> Option<(tinyflows::model::WorkflowGraph, RunContext)> {
-    let graph = tinyflows::migrate::deserialize_graph(snapshot.get("graph")?.clone()).ok()?;
-    let context = serde_json::from_value(snapshot.get("context")?.clone()).ok()?;
-    Some((graph, context))
-}
+use super::actor_recovery::ActorRecoveryGuard;
 
 pub(super) fn drive(
     connection: tinybus::Connection,
@@ -265,7 +35,12 @@ pub(super) fn drive(
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
 ) -> impl Future<Output = ()> + Send + 'static {
-    let recovery = ActorRecoveryGuard::new(&prepared, &request, Arc::clone(&active));
+    let recovery = ActorRecoveryGuard::new(
+        &prepared.catalog,
+        &prepared.checkpointer,
+        &request.run_id,
+        Arc::clone(&active),
+    );
     async move {
         let mut recovery = recovery;
         drive_inner(
@@ -290,7 +65,12 @@ pub(super) fn drive_resume(
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
 ) -> impl Future<Output = ()> + Send + 'static {
-    let recovery = ActorRecoveryGuard::new(&prepared, &request, Arc::clone(&active));
+    let recovery = ActorRecoveryGuard::new(
+        &prepared.catalog,
+        &prepared.checkpointer,
+        &request.run_id,
+        Arc::clone(&active),
+    );
     async move {
         let mut recovery = recovery;
         drive_inner(
