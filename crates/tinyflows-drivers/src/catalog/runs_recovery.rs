@@ -246,4 +246,45 @@ impl FlowCatalogDocuments {
         }
         Ok(flipped.is_some())
     }
+
+    /// Interrupts an actor that stopped while it still owned this exact run
+    /// lease. Status and lease are checked in one document compare-and-swap so
+    /// an old actor's recovery cannot overwrite a resumed actor or a parked
+    /// approval row.
+    pub async fn interrupt_running_flow_run_for_lease(
+        &self,
+        id: &str,
+        expected_lease: &str,
+        now: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        if expected_lease.trim().is_empty() {
+            return Ok(false);
+        }
+        let docs = self.docs().await?;
+        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
+            if status(doc) != "running"
+                || doc
+                    .pointer("/execution_snapshot/lease")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(expected_lease)
+            {
+                return None;
+            }
+            let mut next = doc.clone();
+            next["status"] = json!("interrupted");
+            set_finished(&mut next, Some(now));
+            next["pending_approvals"] = json!([]);
+            set_optional(&mut next, "graph_hash", None);
+            set_optional(&mut next, "error", Some(reason));
+            Some(next)
+        })
+        .await
+        .context("Failed to interrupt a stopped flow actor")?;
+        Ok(flipped.is_some())
+    }
 }
+
+#[cfg(test)]
+#[path = "runs_recovery_lease_tests.rs"]
+mod lease_tests;
