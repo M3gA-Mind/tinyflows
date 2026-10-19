@@ -97,11 +97,11 @@ async fn output_free_fallback_lost_ack_is_reconciled_without_duplicate_event() {
 #[tokio::test]
 async fn late_original_terminal_commit_wins_over_the_output_free_fallback() {
     let setup = setup(
-        FaultMode::LimitOutputThenOriginalWins(4_096),
+        FaultMode::RejectOutputThenOriginalWins,
         "completed_with_warnings",
     )
     .await;
-    let output = json!({"body":"x".repeat(8_192)});
+    let output = json!({"kept":"small outcome"});
     let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
     let seq = writer
         .emit_terminal(finished_payload(

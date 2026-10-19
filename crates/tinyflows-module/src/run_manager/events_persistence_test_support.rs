@@ -103,7 +103,7 @@ pub(super) async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
 pub(super) enum FaultMode {
     LimitTerminalDocument(usize),
     LimitOutputThenLoseFallbackAck(usize),
-    LimitOutputThenOriginalWins(usize),
+    RejectOutputThenOriginalWins,
     CommitThenLoseAck,
     RejectEveryTerminalWrite,
 }
@@ -205,9 +205,8 @@ impl DocumentStore for FaultingDocuments {
                         "injected terminal document size limit",
                     ));
                 }
-                FaultMode::LimitOutputThenOriginalWins(max_bytes)
-                    if Self::terminal_output_event(collection, &doc)
-                        && serde_json::to_vec(&doc).unwrap().len() > max_bytes =>
+                FaultMode::RejectOutputThenOriginalWins
+                    if Self::terminal_output_event(collection, &doc) =>
                 {
                     let original = doc["events"].as_array().unwrap().last().unwrap().clone();
                     *self
@@ -216,10 +215,10 @@ impl DocumentStore for FaultingDocuments {
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(original);
                     self.output_attempts.fetch_add(1, Ordering::SeqCst);
                     return Err(StorageError::backend(
-                        "injected terminal document size limit",
+                        "injected delayed original terminal write",
                     ));
                 }
-                FaultMode::LimitOutputThenOriginalWins(_)
+                FaultMode::RejectOutputThenOriginalWins
                     if Self::terminal_event(collection, &doc)
                         && !Self::terminal_output_event(collection, &doc) =>
                 {
