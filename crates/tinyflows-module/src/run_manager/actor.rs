@@ -15,10 +15,10 @@ use tinyflows::{
 };
 use tinyflows_bus::runs::{ResumeRun, RunContext, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
-use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tokio::time::sleep;
 
 use super::events::{EventWriter, Observer};
+use super::dedup_settlement::DedupSettlementScope;
 use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
@@ -268,14 +268,16 @@ async fn drive_inner(
         .store(super::TERMINAL, std::sync::atomic::Ordering::Release);
 
     let success = dedup_settle::is_success_status(status);
-    settle_dedup(
-        prepared.catalog.clone(),
+    let _dedup_settlement = DedupSettlementScope::acquire(
+        &request.storage,
         &request.context,
         &prepared.compiled.graph,
-        success,
         &request.run_id,
     )
     .await;
+    _dedup_settlement
+        .settle(prepared.catalog.clone(), success)
+        .await;
     if cancelled || timed_out {
         delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
     }
@@ -384,38 +386,6 @@ async fn execute(
         })
         .map(|outcome| (outcome.outcome, Some(outcome.graph_run_ids.run_id)));
     (result, timed_out)
-}
-
-pub(super) async fn settle_dedup(
-    catalog: FlowCatalogDocuments,
-    context: &RunContext,
-    graph: &tinyflows::model::WorkflowGraph,
-    success: bool,
-    run_id: &str,
-) {
-    let ids = graph
-        .nodes
-        .iter()
-        .filter(|node| node.kind == tinyflows::model::NodeKind::Dedup)
-        .map(|node| node.id.clone())
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return;
-    }
-    let namespace = format!("flow:{}", context.flow_id);
-    let run_id = run_id.to_owned();
-    match tokio::task::spawn_blocking(move || {
-        let state = FlowStateDocuments::new(catalog, namespace);
-        for node in ids {
-            let settled = dedup_settle::settle(&state, &node, success);
-            tracing::debug!(run_id, node_id = node, ?settled, "settled dedup node state");
-        }
-    })
-    .await
-    {
-        Ok(()) => {}
-        Err(error) => tracing::error!(%error, "dedup settlement worker failed"),
-    }
 }
 
 pub(super) async fn delete_checkpoints(
