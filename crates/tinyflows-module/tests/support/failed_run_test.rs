@@ -38,6 +38,10 @@ async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nod
             .any(|event| event.kind == "graph_observation" && event.graph_run_id.is_some())
     );
     assert_eq!(events.events.last().unwrap().data["status"], "failed");
+    assert!(
+        events.events.last().unwrap().data.get("output").is_none(),
+        "a failed engine call has no fabricated outcome"
+    );
     let finished: runs::RunFinished =
         serde_json::from_value(events.events.last().unwrap().data.clone()).unwrap();
     assert!(!finished.successful);

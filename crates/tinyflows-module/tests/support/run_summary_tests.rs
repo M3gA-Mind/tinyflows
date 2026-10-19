@@ -42,6 +42,10 @@ async fn compiled_module_updates_workflow_summaries_after_run_settlement() {
         alice_events.events.last().unwrap().data["status"],
         "cancelled"
     );
+    assert_eq!(
+        alice_events.events.last().unwrap().data["output"],
+        serde_json::Value::Null
+    );
 
     let alice_summary: Option<catalog::Workflow> = catalog_proxy
         .call("GetWorkflow", &(alice.storage.clone(), alice_flow))
