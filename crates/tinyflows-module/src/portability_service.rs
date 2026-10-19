@@ -18,6 +18,7 @@ impl Portability {
         let credential_name = match request.connection_ref.as_deref() {
             Some(connection_ref)
                 if connection_ref
+                    .trim()
                     .starts_with(tinyflows::caps::http_credential::HTTP_CRED_PREFIX) =>
             {
                 tinyflows::caps::http_credential::http_cred_name(Some(connection_ref))
