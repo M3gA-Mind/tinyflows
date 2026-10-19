@@ -51,6 +51,25 @@ pub async fn verify_surface(proxy: &Proxy, catalog_proxy: &Proxy) -> Value {
         .unwrap();
     assert!(imported.errors.is_empty(), "{:?}", imported.errors);
     assert!(imported.graph.is_some());
+
+    let trigger_import: tinyflows_bus::ImportGraphResult = proxy
+        .call(
+            tinyflows_bus::methods::IMPORT_GRAPH,
+            (tinyflows_bus::ImportGraphRequest {
+                graph: json!({
+                    "nodes": [{"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"webhook"}}],
+                    "edges": []
+                }),
+                format: Some("native".into()),
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(trigger_import.errors.is_empty());
+    assert_eq!(
+        trigger_import.warnings,
+        vec!["Trigger kind 'webhook' does not fire automatically yet — this flow will be saved and can be enabled, but nothing will run it on its own until that trigger is wired up. Run it manually with flows_run, or switch to a `schedule` or `app_event` trigger."]
+    );
     graph
 }
 
