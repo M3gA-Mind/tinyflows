@@ -448,3 +448,6 @@ fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "events_persistence_tests.rs"]
+mod persistence_tests;
