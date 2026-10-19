@@ -10,6 +10,8 @@ mod failed_run_test;
 mod legacy_null_graph_hash_test;
 #[path = "run_lifecycle_tests.rs"]
 mod run_lifecycle_tests;
+#[path = "run_resume_compatibility_tests.rs"]
+mod run_resume_compatibility_tests;
 #[path = "run_resume_tests.rs"]
 mod run_resume_tests;
 use std::sync::{
