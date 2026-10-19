@@ -60,7 +60,7 @@ async fn completion_helpers_keep_prompt_and_response_formatting_in_the_module() 
     let formatted = Portability
         .format_llm_complete(tinyflows_bus::portability::FormatLlmComplete {
             request: request.clone(),
-            response: json!({"text": "The result is {\\"ok\\":true}", "usage": {"input_tokens": 4}}),
+            response: json!({"text": r#"The result is {"ok":true}"#, "usage": {"input_tokens": 4}}),
         })
         .await
         .unwrap();
