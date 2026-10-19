@@ -7,6 +7,31 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
     let proxy = connection
         .proxy(BUS_NAME, OBJECT_PATH, portability::INTERFACE)
         .unwrap();
+    let inspection: Value = proxy
+        .call(
+            "InspectHttpRequest",
+            (json!({
+                "request": {
+                    "method": "post",
+                    "url": "https://api.example.test/charge",
+                    "headers": {"X-Private": "header-secret"},
+                    "body": "body-secret"
+                },
+                "connection_ref": "http_cred:payments"
+            }),),
+        )
+        .await
+        .expect("compiled module should inspect HTTP requests");
+    assert_eq!(
+        inspection,
+        json!({
+            "credential_name": "payments",
+            "redacted_summary": "POST https://api.example.test/charge"
+        })
+    );
+    assert!(!inspection.to_string().contains("header-secret"));
+    assert!(!inspection.to_string().contains("body-secret"));
+
     let prepared: Value = proxy
         .call(
             "PrepareHttpRequest",
