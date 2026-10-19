@@ -53,7 +53,7 @@ impl DedupSettlementScope {
         graph: &WorkflowGraph,
         run_id: &str,
     ) -> Self {
-        let node_ids = graph
+        let node_ids: Vec<String> = graph
             .nodes
             .iter()
             .filter(|node| node.kind == NodeKind::Dedup)
