@@ -20,12 +20,9 @@ impl Portability {
                 if connection_ref
                     .starts_with(tinyflows::caps::http_credential::HTTP_CRED_PREFIX) =>
             {
-                let name = tinyflows::caps::http_credential::http_cred_name(Some(connection_ref))
+                tinyflows::caps::http_credential::http_cred_name(Some(connection_ref))
                     .map_err(|_| Error::failed("HTTP request inspection failed"))?
-                    .map(str::trim)
-                    .filter(|name| !name.is_empty())
-                    .ok_or_else(|| Error::failed("HTTP request inspection failed"))?;
-                Some(name.to_owned())
+                    .map(str::to_owned)
             }
             _ => None,
         };
