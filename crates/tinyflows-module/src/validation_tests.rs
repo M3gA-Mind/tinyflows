@@ -16,6 +16,32 @@ async fn valid_candidate_returns_migrated_graph_without_errors() {
 }
 
 #[tokio::test]
+async fn parseable_validation_includes_owner_graph_analysis() {
+    let graph = json!({
+        "nodes": [
+            {"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"webhook"}},
+            {"id":"parse","name":"Parse","kind":"output_parser","config":{}}
+        ],
+        "edges": [{"from_node":"start","to_node":"parse"}]
+    });
+    let report = validate_graph(graph, None).await.unwrap();
+    let wire = serde_json::to_value(report).unwrap();
+
+    assert_eq!(
+        wire["warnings"],
+        json!(["Trigger kind 'webhook' does not fire automatically yet — this flow will be saved and can be enabled, but nothing will run it on its own until that trigger is wired up. Run it manually with flows_run, or switch to a `schedule` or `app_event` trigger."])
+    );
+    assert_eq!(
+        wire["summary"],
+        json!({
+            "trigger": "webhook",
+            "steps": [{"kind":"output_parser","name":"Parse"}]
+        })
+    );
+    assert_eq!(wire["has_actionable_nodes"], true);
+}
+
+#[tokio::test]
 async fn unparseable_candidate_returns_structured_failure_without_graph() {
     let report = validate_graph(json!({"nodes": "invalid"}), None)
         .await
