@@ -29,7 +29,9 @@ async fn parseable_validation_includes_owner_graph_analysis() {
 
     assert_eq!(
         wire["warnings"],
-        json!(["Trigger kind 'webhook' does not fire automatically yet — this flow will be saved and can be enabled, but nothing will run it on its own until that trigger is wired up. Run it manually with flows_run, or switch to a `schedule` or `app_event` trigger."])
+        json!([
+            "Trigger kind 'webhook' does not fire automatically yet — this flow will be saved and can be enabled, but nothing will run it on its own until that trigger is wired up. Run it manually with flows_run, or switch to a `schedule` or `app_event` trigger."
+        ])
     );
     assert_eq!(
         wire["summary"],
