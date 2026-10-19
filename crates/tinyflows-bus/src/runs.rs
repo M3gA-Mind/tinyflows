@@ -19,7 +19,7 @@ pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Runs";
 /// Run-control object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Runs";
 /// Version of the run-control contract.
-pub const CONTRACT_VERSION: u32 = 5;
+pub const CONTRACT_VERSION: u32 = 6;
 /// Run-control members, in stable interface order.
 pub const METHODS: &[&str] = &[
     "StartRun",
