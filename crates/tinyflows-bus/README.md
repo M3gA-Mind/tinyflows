@@ -134,9 +134,9 @@ preflight-only `ToolInvoke` callback. The callback cannot replace the module's
 mock execution or produce simulated outputs.
 # Portability helpers
 
-`ai.tinyhumans.tinyflows.Portability` (contract v3) exposes the engine-owned
-HTTP credential preparation and trigger readers to hosts through the compiled
-module. `InspectHttpRequest` accepts the request and optional connection
+`ai.tinyhumans.tinyflows.Portability` (contract v4) exposes engine-owned
+request preparation and trigger readers to hosts through the compiled module.
+`InspectHttpRequest` accepts the request and optional connection
 reference before the host resolves any secret; it has no resolved-credential
 argument. Its result contains the exact credential name parsed by the engine
 helper and a method/URL summary; it applies no additional name normalization.
@@ -151,4 +151,13 @@ request; callers must keep credential values out of logs and recorded output.
 `AppEventBinding` tests the sole trigger against toolkit and slug
 case-insensitively. `PinnedInputs` returns literal object values from that
 trigger, without evaluating expressions.
+
+`PrepareLlmComplete` normalizes a generic completion request into ordered
+role/content messages, reports structured-output intent, and returns the node's
+model pin for host-specific routing. `FormatLlmComplete` applies the module's
+structured JSON extraction to the host response and otherwise returns that
+response unchanged, preserving provider usage and other fields. `PrepareAgentRun`
+applies the module's prompt, model-precedence, structured-output, and timeout
+rules using the host's registry overrides and effective iteration cap.
+`FormatAgentRun` applies the node's stable result shape to the host's final text.
 
