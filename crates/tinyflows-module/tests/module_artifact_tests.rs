@@ -145,6 +145,12 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert!(info.manifest.requires.iter().any(|dependency| {
         dependency.optional
             && dependency.interface.interface.as_str() == tinyflows_bus::runs::CAPS_INTERFACE
+            && dependency.interface.speaks
+                == tinybus::Version::new(
+                    u64::from(tinyflows_bus::runs::CAPS_CONTRACT_VERSION),
+                    0,
+                    0,
+                )
     }));
     let runs_interface = info
         .manifest

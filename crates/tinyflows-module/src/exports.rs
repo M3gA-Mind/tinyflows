@@ -86,7 +86,11 @@ fn manifest() -> TbSlice {
                     interface: InterfaceVersion::consumed(
                         InterfaceName::new(tinyflows_bus::runs::CAPS_INTERFACE)
                             .expect("static interface"),
-                        version.clone(),
+                        Version::new(
+                            u64::from(tinyflows_bus::runs::CAPS_CONTRACT_VERSION),
+                            0,
+                            0,
+                        ),
                     ),
                     optional: true,
                     reason: "Runs call the exact host callback address bound to their owner scope"
