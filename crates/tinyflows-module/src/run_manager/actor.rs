@@ -150,6 +150,9 @@ async fn drive_inner(
             failure = Some(format!("{error:#}"));
         }
     }
+    if cancelled && !timed_out && output.is_none() {
+        output = Some(Value::Null);
+    }
     if let Some(error) = writer.flush().await {
         tracing::error!(%error, run_id = %request.run_id, "run observer writes did not drain cleanly");
         failure.get_or_insert(error);
