@@ -8,8 +8,8 @@ use tokio::sync::Notify;
 
 struct CancelProbe {
     request_id: Arc<Mutex<Option<String>>>,
-    events_started: Notify,
-    cancel_received: Notify,
+    events_started: Arc<Notify>,
+    cancel_received: Arc<Notify>,
     cancel_id: Arc<Mutex<Option<String>>>,
 }
 
@@ -58,18 +58,21 @@ async fn dropping_agent_poll_sends_cancel_for_the_started_request_id() {
     let cancel_id = Arc::new(Mutex::new(None));
     let probe = CancelProbe {
         request_id: request_id.clone(),
-        events_started: Notify::new(),
-        cancel_received: Notify::new(),
+        events_started: Arc::new(Notify::new()),
+        cancel_received: Arc::new(Notify::new()),
         cancel_id: cancel_id.clone(),
     };
-    let events_started = probe.events_started.notified();
-    let cancel_received = probe.cancel_received.notified();
+    let events_notify = Arc::clone(&probe.events_started);
+    let cancel_notify = Arc::clone(&probe.cancel_received);
+    let events_started = events_notify.notified();
+    let cancel_received = cancel_notify.notified();
     host.serve_at("/caps/cancel_probe".parse().unwrap(), probe)
         .await
         .unwrap();
     let runner = tokio::spawn(async move {
+        let port = ports(module, "/caps/cancel_probe");
         AgentRunner::run(
-            &ports(module, "/caps/cancel_probe"),
+            &port,
             AgentRunRequest {
                 agent: tinyflows::model::AgentDefinition::new("agent"),
                 model: AgentModelSelection::default(),
