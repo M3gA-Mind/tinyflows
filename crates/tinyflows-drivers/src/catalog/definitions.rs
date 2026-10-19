@@ -287,7 +287,7 @@ impl FlowCatalogDocuments {
         // Retry ordinary definition edits for fenced workflows, but bind
         // legacy unfenced documents to the version we observed: without an
         // incarnation id a replacement cannot otherwise be distinguished.
-        let incarnation = incarnation(&flow.doc).map(str::to_owned);
+        let expected_incarnation = incarnation(&flow.doc).map(str::to_owned);
         let legacy_version = flow.version.clone();
         for _ in 0..super::CAS_ATTEMPTS {
             let mut next = flow.doc.clone();
@@ -297,7 +297,7 @@ impl FlowCatalogDocuments {
                 .put(DEFINITIONS, flow_id, next, flow.unchanged())
                 .await
             {
-                Ok(()) => {
+                Ok(_) => {
                     tracing::debug!(flow_id, run_id, status, "recorded settled flow run");
                     return Ok(true);
                 }
@@ -305,7 +305,7 @@ impl FlowCatalogDocuments {
                     let Some(current) = docs.get(DEFINITIONS, flow_id).await? else {
                         return Ok(false);
                     };
-                    let same_flow = match incarnation.as_deref() {
+                    let same_flow = match expected_incarnation.as_deref() {
                         Some(expected) => incarnation(&current.doc) == Some(expected),
                         None => current.version == legacy_version,
                     };
