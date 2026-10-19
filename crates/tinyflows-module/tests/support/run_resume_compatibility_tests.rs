@@ -204,7 +204,7 @@ async fn resume_fails_and_settles_when_current_graph_is_engine_incompatible() {
         &catalog_proxy,
         &runs_proxy,
         &owner,
-        "Incompatible current graph",
+        "resume-incompatible-graph",
         run_id,
     )
     .await;
@@ -265,7 +265,7 @@ async fn resume_fails_and_settles_when_current_graph_references_incompatible_chi
         &catalog_proxy,
         &runs_proxy,
         &owner,
-        "Incompatible saved child",
+        "resume-incompatible-child",
         run_id,
     )
     .await;
