@@ -14,7 +14,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 
 | Surface | Status | Members |
 | --- | --- | --- |
-| Authoring | served, v3 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, import, gates, preflight, advisory wiring) |
+| Authoring | served, v4 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, graph analysis, import, gates, preflight, advisory wiring) |
 | Schedule | served, v4 | scheduler start/stop/tick/drain, durable occurrence leases, queued `RunJobNow`, two-phase `Send`/terminal `Deliver`, captured-job `ScheduleTrigger`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
 | CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
@@ -34,12 +34,18 @@ editors keep the author's work. A request may include the scope-bound
 compatibility walk checks saved sub-workflow children; missing or unavailable
 children retain the engine's existing runtime-diagnostic behavior.
 
+For parseable graphs the v4 result also carries the module's trigger warnings,
+compact authoring summary, and whether an actionable node is reachable from
+the trigger. These values use the same graph helpers as execution and catalog
+policy. Unparseable graphs leave summary and actionability absent.
+
 `ImportGraph` normalizes native and n8n documents without persistence. `auto`
 detects n8n exports, while `native`/`tinyflows` and `n8n` select a format
 explicitly. Format names are trimmed and case-insensitive; an empty format is
 the same as `auto`. The module returns importer warnings separately from
-structural and engine compatibility errors; product trigger warnings remain
-host-owned.
+structural and engine compatibility errors. Its warnings include both
+importer-specific diagnostics and the same module-generated trigger warnings
+as `ValidateGraph`.
 
 ### Run / resume / cancel
 

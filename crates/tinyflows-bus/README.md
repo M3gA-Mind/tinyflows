@@ -8,7 +8,10 @@ engine to invoke these operations.
 errors, then checks engine topology compatibility. Invalid graphs are ordinary
 typed results; malformed JSON graph shapes carry `unparseable_graph`. A parsed
 candidate is returned even when validation fails so editors can retain it.
-No operation persists a graph or executes a production workflow capability.
+Parseable results also include module-generated trigger warnings, the compact
+authoring summary, and an actionable-node flag. Older payloads deserialize
+with these analysis fields absent/defaulted. No operation persists a graph or
+executes a production workflow capability.
 `BuilderFailures` may call the host lookup and authoring-policy ports described below.
 
 `BindingFailures(graph)` reports node-output bindings missing their required
