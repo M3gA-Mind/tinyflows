@@ -101,7 +101,7 @@ pub(super) async fn poll(setup: &TestSetup) -> tinyflows_bus::runs::PollRun {
 
 #[derive(Clone, Copy)]
 pub(super) enum FaultMode {
-    LimitTerminalDocument(usize),
+    LimitOutcomeDocument(usize),
     LimitOutputThenLoseFallbackAck(usize),
     RejectOutputThenOriginalWins,
     CommitThenLoseAck,
@@ -123,6 +123,18 @@ impl std::fmt::Debug for FaultingDocuments {
 }
 
 impl FaultingDocuments {
+    fn outcome_output_event(collection: &str, doc: &Value) -> bool {
+        collection == "flows.runs"
+            && doc["events"].as_array().is_some_and(|events| {
+                events.last().is_some_and(|event| {
+                    matches!(event["kind"].as_str(), Some("finished" | "parked"))
+                        && event["data"]
+                            .get("output")
+                            .is_some_and(|value| !value.is_null())
+                })
+            })
+    }
+
     fn terminal_output_event(collection: &str, doc: &Value) -> bool {
         collection == "flows.runs"
             && doc["events"].as_array().is_some_and(|events| {
@@ -187,8 +199,8 @@ impl DocumentStore for FaultingDocuments {
     ) -> tinystoragedrivers_core::Result<Version> {
         if Self::terminal_event(collection, &doc) {
             match self.mode {
-                FaultMode::LimitTerminalDocument(max_bytes)
-                    if Self::terminal_output_event(collection, &doc)
+                FaultMode::LimitOutcomeDocument(max_bytes)
+                    if Self::outcome_output_event(collection, &doc)
                         && serde_json::to_vec(&doc).unwrap().len() > max_bytes =>
                 {
                     self.output_attempts.fetch_add(1, Ordering::SeqCst);

@@ -7,7 +7,7 @@ use support::{FaultMode, poll, setup};
 #[tokio::test]
 async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
     let setup = setup(
-        FaultMode::LimitTerminalDocument(4_096),
+        FaultMode::LimitOutcomeDocument(4_096),
         "completed_with_warnings",
     )
     .await;
@@ -51,6 +51,32 @@ async fn oversized_terminal_output_falls_back_to_one_pollable_finished_event() {
     assert_eq!(finished.error.as_deref(), Some("engine warning"));
     assert_eq!(finished.output, None);
     assert!(!finished.timed_out);
+}
+
+#[tokio::test]
+async fn oversized_parked_output_preserves_approval_metadata_and_remains_nonterminal() {
+    let setup = setup(FaultMode::LimitOutcomeDocument(4_096), "pending_approval").await;
+    let writer = EventWriter::new(setup.catalog.clone(), setup.run_id.clone(), 0);
+    writer.emit(
+        "parked",
+        serde_json::to_value(tinyflows_bus::runs::RunParked {
+            output: Some(json!({"body":"x".repeat(8_192)})),
+            pending_approvals: vec!["approve-node".into()],
+            graph_hash: Some("pinned-graph".into()),
+        })
+        .unwrap(),
+    );
+
+    assert_eq!(writer.flush().await, None);
+    let page = poll(&setup).await;
+    assert!(!page.done, "parked runs remain nonterminal");
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.events[0].kind, "parked");
+    let parked: tinyflows_bus::runs::RunParked =
+        serde_json::from_value(page.events[0].data.clone()).unwrap();
+    assert_eq!(parked.output, None);
+    assert_eq!(parked.pending_approvals, ["approve-node"]);
+    assert_eq!(parked.graph_hash.as_deref(), Some("pinned-graph"));
 }
 
 #[tokio::test]
@@ -133,7 +159,7 @@ async fn late_original_terminal_commit_wins_over_the_output_free_fallback() {
 
 #[tokio::test]
 async fn terminal_reconciliation_rejects_different_payload_at_the_same_sequence() {
-    let setup = setup(FaultMode::LimitTerminalDocument(4_096), "completed").await;
+    let setup = setup(FaultMode::LimitOutcomeDocument(4_096), "completed").await;
     let different = json!({"status":"failed","successful":false});
     setup
         .catalog
