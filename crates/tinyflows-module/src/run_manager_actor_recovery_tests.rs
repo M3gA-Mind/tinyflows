@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryTransport};
 use tinyflows::graph::{Checkpoint, Checkpointer as _};
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
-use tinyflows_bus::runs::{FlowRunTrigger, RunContext, StartRun};
+use tinyflows_bus::runs::{CallbackAddress as CapsCallbackAddress, FlowRunTrigger, RunContext, StartRun};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 use tokio::sync::oneshot;
@@ -115,7 +115,7 @@ async fn running_fixture() -> RunningFixture {
             origin: Some(json!({"kind":"workflow"})),
         },
         caps_host: tinyflows_bus::runs::CapsHost {
-            callback: CallbackAddress {
+            callback: CapsCallbackAddress {
                 destination: "host.caps".into(),
                 object_path: format!("/caps/{run_id}"),
             },
@@ -207,8 +207,7 @@ async fn assert_reconciled(
     assert_eq!(row.status, "interrupted");
     assert!(row.error.as_deref().is_some_and(|error| error.contains("actor")));
 
-    let events = fixture
-        .catalog
+    let events = catalog
         .flow_run_events_after(run_id, 0, 20)
         .await
         .unwrap();
@@ -216,8 +215,7 @@ async fn assert_reconciled(
     assert_eq!(events[0]["kind"], "finished");
     assert_eq!(events[0]["data"]["status"], "interrupted");
     assert_eq!(
-        fixture
-            .catalog
+        catalog
             .flow_run_terminal_event_seq(run_id)
             .await
             .unwrap(),
@@ -226,7 +224,7 @@ async fn assert_reconciled(
 
     let flow = catalog.get_flow(flow_id).await.unwrap().unwrap();
     assert_eq!(flow.last_status.as_deref(), Some("interrupted"));
-    assert!(fixture
+    assert!(checkpointer
         .get_thread(run_id)
         .await
         .unwrap()
