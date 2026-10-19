@@ -1,8 +1,8 @@
 //! Execution, persistence and settlement for a single admitted run.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use std::future::Future;
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -15,7 +15,10 @@ use tinyflows::{
 };
 use tinyflows_bus::runs::{ResumeRun, RunContext, RunEvent, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
-use tinyflows_drivers::{DriverCheckpointer, catalog::{FlowCatalogDocuments, FlowStateDocuments}};
+use tinyflows_drivers::{
+    DriverCheckpointer,
+    catalog::{FlowCatalogDocuments, FlowStateDocuments},
+};
 use tokio::time::sleep;
 
 use super::events::{EventWriter, Observer, finished_payload};
@@ -23,7 +26,8 @@ use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
 
-const STOPPED_ACTOR_REASON: &str = "Run interrupted because its module actor stopped before settlement.";
+const STOPPED_ACTOR_REASON: &str =
+    "Run interrupted because its module actor stopped before settlement.";
 
 /// A drop guard for the module-owned actor task. Its cleanup is scheduled when
 /// the future is constructed, outside the future body, so aborting the task
@@ -38,11 +42,7 @@ struct ActorRecoveryGuard {
 }
 
 impl ActorRecoveryGuard {
-    fn new(
-        prepared: &Prepared,
-        request: &StartRun,
-        active: Arc<ActiveRun>,
-    ) -> Self {
+    fn new(prepared: &Prepared, request: &StartRun, active: Arc<ActiveRun>) -> Self {
         Self {
             catalog: prepared.catalog.clone(),
             checkpointer: prepared.checkpointer.clone(),
@@ -157,14 +157,7 @@ impl ActorRecovery {
         super::record_settled_summary(&self.catalog, &self.run_id, "interrupted").await;
 
         if let Some((graph, context)) = recovery_graph_context(&snapshot) {
-            settle_dedup(
-                self.catalog.clone(),
-                &context,
-                &graph,
-                false,
-                &self.run_id,
-            )
-            .await;
+            settle_dedup(self.catalog.clone(), &context, &graph, false, &self.run_id).await;
         } else {
             tracing::warn!(
                 target: "workflows",
@@ -224,7 +217,11 @@ impl ActorRecovery {
                 return;
             }
         };
-        match self.catalog.append_flow_run_event(&self.run_id, event).await {
+        match self
+            .catalog
+            .append_flow_run_event(&self.run_id, event)
+            .await
+        {
             Ok(()) => match self
                 .catalog
                 .mark_flow_run_terminal_event(&self.run_id, seq)

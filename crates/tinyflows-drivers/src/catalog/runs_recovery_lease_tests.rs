@@ -54,17 +54,20 @@ async fn actor_recovery_interrupts_only_the_running_row_with_its_lease() {
 #[tokio::test]
 async fn actor_recovery_cannot_interrupt_a_replacement_resume_lease() {
     let (catalog, run_id) = running_with_lease("old-actor").await;
-    assert!(catalog.finish_flow_run(
-        &run_id,
-        "pending_approval",
-        "2026-01-01T00:00:01Z",
-        &[],
-        &["gate".into()],
-        None,
-        Some("graph-pin"),
-    )
-    .await
-    .unwrap());
+    assert!(
+        catalog
+            .finish_flow_run(
+                &run_id,
+                "pending_approval",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &["gate".into()],
+                None,
+                Some("graph-pin"),
+            )
+            .await
+            .unwrap()
+    );
     assert!(
         catalog
             .claim_parked_flow_run_for_resume(&run_id, "new-actor")
@@ -94,17 +97,20 @@ async fn actor_recovery_cannot_interrupt_a_replacement_resume_lease() {
 #[tokio::test]
 async fn actor_recovery_does_not_interrupt_a_parked_or_terminal_row() {
     let (catalog, parked_id) = running_with_lease("parked-actor").await;
-    assert!(catalog.finish_flow_run(
-        &parked_id,
-        "pending_approval",
-        "2026-01-01T00:00:01Z",
-        &[],
-        &["gate".into()],
-        None,
-        Some("graph-pin"),
-    )
-    .await
-    .unwrap());
+    assert!(
+        catalog
+            .finish_flow_run(
+                &parked_id,
+                "pending_approval",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &["gate".into()],
+                None,
+                Some("graph-pin"),
+            )
+            .await
+            .unwrap()
+    );
     assert!(
         !catalog
             .interrupt_running_flow_run_for_lease(
@@ -117,25 +123,33 @@ async fn actor_recovery_does_not_interrupt_a_parked_or_terminal_row() {
             .unwrap()
     );
     assert_eq!(
-        catalog.get_flow_run(&parked_id).await.unwrap().unwrap().status,
+        catalog
+            .get_flow_run(&parked_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
         "pending_approval"
     );
 
     let (catalog, terminal_id) = running_with_lease("terminal-actor").await;
-    assert!(catalog.finish_flow_run(
-        &terminal_id,
-        "completed",
-        "2026-01-01T00:00:01Z",
-        &[FlowRunStep {
-            node_id: "finished".into(),
-            ..Default::default()
-        }],
-        &[],
-        None,
-        None,
-    )
-    .await
-    .unwrap());
+    assert!(
+        catalog
+            .finish_flow_run(
+                &terminal_id,
+                "completed",
+                "2026-01-01T00:00:01Z",
+                &[FlowRunStep {
+                    node_id: "finished".into(),
+                    ..Default::default()
+                }],
+                &[],
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+    );
     assert!(
         !catalog
             .interrupt_running_flow_run_for_lease(

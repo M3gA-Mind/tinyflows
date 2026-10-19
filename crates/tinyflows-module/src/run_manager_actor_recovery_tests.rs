@@ -5,10 +5,12 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryTransport};
 use tinyflows::graph::{Checkpoint, Checkpointer as _};
-use tinyflows_bus::runs::RunFinished;
-use tinyflows_catalog::FlowRunStep;
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
-use tinyflows_bus::runs::{CallbackAddress as CapsCallbackAddress, FlowRunTrigger, RunContext, StartRun};
+use tinyflows_bus::runs::RunFinished;
+use tinyflows_bus::runs::{
+    CallbackAddress as CapsCallbackAddress, FlowRunTrigger, RunContext, StartRun,
+};
+use tinyflows_catalog::FlowRunStep;
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 use tokio::sync::oneshot;
@@ -82,19 +84,21 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
         Arc::clone(&parked.active),
         parked_rx,
     );
-    assert!(parked
-        .catalog
-        .finish_flow_run(
-            &parked.run_id,
-            "pending_approval",
-            "2026-01-01T00:00:01Z",
-            &[],
-            &["gate".into()],
-            None,
-            Some("graph-pin"),
-        )
-        .await
-        .unwrap());
+    assert!(
+        parked
+            .catalog
+            .finish_flow_run(
+                &parked.run_id,
+                "pending_approval",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &["gate".into()],
+                None,
+                Some("graph-pin"),
+            )
+            .await
+            .unwrap()
+    );
     parked
         .active
         .phase
@@ -108,18 +112,22 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
         .unwrap()
         .unwrap();
     assert_eq!(row.status, "pending_approval");
-    assert!(parked
-        .catalog
-        .flow_run_events_after(&parked.run_id, 0, 10)
-        .await
-        .unwrap()
-        .is_empty());
-    assert!(!parked
-        .checkpointer
-        .get_thread(&parked.run_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        parked
+            .catalog
+            .flow_run_events_after(&parked.run_id, 0, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !parked
+            .checkpointer
+            .get_thread(&parked.run_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let terminal = running_fixture().await;
     let (_terminal_admission, terminal_rx) = oneshot::channel();
@@ -130,22 +138,24 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
         Arc::clone(&terminal.active),
         terminal_rx,
     );
-    assert!(terminal
-        .catalog
-        .finish_flow_run(
-            &terminal.run_id,
-            "completed",
-            "2026-01-01T00:00:01Z",
-            &[FlowRunStep {
-                node_id: "finished".into(),
-                ..Default::default()
-            }],
-            &[],
-            None,
-            None,
-        )
-        .await
-        .unwrap());
+    assert!(
+        terminal
+            .catalog
+            .finish_flow_run(
+                &terminal.run_id,
+                "completed",
+                "2026-01-01T00:00:01Z",
+                &[FlowRunStep {
+                    node_id: "finished".into(),
+                    ..Default::default()
+                }],
+                &[],
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+    );
     drop(terminal_actor);
     wait_for_no_active(&terminal.storage, &terminal.run_id).await;
     let row = terminal
@@ -156,12 +166,14 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
         .unwrap();
     assert_eq!(row.status, "completed");
     assert_eq!(row.steps[0].node_id, "finished");
-    assert!(terminal
-        .catalog
-        .flow_run_events_after(&terminal.run_id, 0, 10)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        terminal
+            .catalog
+            .flow_run_events_after(&terminal.run_id, 0, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let replacement = running_fixture().await;
     let (_replacement_admission, replacement_rx) = oneshot::channel();
@@ -172,29 +184,33 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
         Arc::clone(&replacement.active),
         replacement_rx,
     );
-    assert!(replacement
-        .catalog
-        .finish_flow_run(
-            &replacement.run_id,
-            "pending_approval",
-            "2026-01-01T00:00:01Z",
-            &[],
-            &["gate".into()],
-            None,
-            Some("graph-pin"),
-        )
-        .await
-        .unwrap());
+    assert!(
+        replacement
+            .catalog
+            .finish_flow_run(
+                &replacement.run_id,
+                "pending_approval",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &["gate".into()],
+                None,
+                Some("graph-pin"),
+            )
+            .await
+            .unwrap()
+    );
     replacement
         .active
         .phase
         .store(PARKED, std::sync::atomic::Ordering::Release);
     let new_actor = reserve_resume(key(&replacement.storage, &replacement.run_id)).unwrap();
-    assert!(replacement
-        .catalog
-        .claim_parked_flow_run_for_resume(&replacement.run_id, &new_actor.lease)
-        .await
-        .unwrap());
+    assert!(
+        replacement
+            .catalog
+            .claim_parked_flow_run_for_resume(&replacement.run_id, &new_actor.lease)
+            .await
+            .unwrap()
+    );
     drop(stale_actor);
     wait_for_owner(&replacement.storage, &replacement.run_id, &new_actor).await;
     assert_eq!(
@@ -207,12 +223,14 @@ async fn a_late_actor_guard_preserves_parked_terminal_and_replacement_runs() {
             .status,
         "running"
     );
-    assert!(replacement
-        .catalog
-        .flow_run_events_after(&replacement.run_id, 0, 10)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        replacement
+            .catalog
+            .flow_run_events_after(&replacement.run_id, 0, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     unregister(&new_actor);
 }
 
@@ -287,7 +305,10 @@ async fn running_fixture() -> RunningFixture {
         checkpointer: checkpointer.clone(),
         require_approval: false,
     };
-    prepared.persist_snapshot(&request, &active.lease).await.unwrap();
+    prepared
+        .persist_snapshot(&request, &active.lease)
+        .await
+        .unwrap();
     active.phase.store(RUNNING, Ordering::Release);
 
     // Model durable partial state so recovery must clear both the checkpoint
@@ -349,10 +370,7 @@ async fn assert_reconciled(
     let mut settled = None;
     for _ in 0..128 {
         let row = catalog.get_flow_run(run_id).await.unwrap().unwrap();
-        let events = catalog
-            .flow_run_events_after(run_id, 0, 20)
-            .await
-            .unwrap();
+        let events = catalog.flow_run_events_after(run_id, 0, 20).await.unwrap();
         if row.status == "interrupted"
             && catalog
                 .flow_run_terminal_event_seq(run_id)
@@ -367,7 +385,11 @@ async fn assert_reconciled(
     }
     let (row, events) = settled.expect("actor recovery must finish its durable cleanup");
     assert_eq!(row.status, "interrupted");
-    assert!(row.error.as_deref().is_some_and(|error| error.contains("actor")));
+    assert!(
+        row.error
+            .as_deref()
+            .is_some_and(|error| error.contains("actor"))
+    );
 
     assert_eq!(events.len(), 1, "recovery emits exactly one terminal event");
     assert_eq!(events[0]["kind"], "finished");
@@ -377,20 +399,13 @@ async fn assert_reconciled(
     assert!(!finished.timed_out);
     assert!(finished.output.is_none());
     assert_eq!(
-        catalog
-            .flow_run_terminal_event_seq(run_id)
-            .await
-            .unwrap(),
+        catalog.flow_run_terminal_event_seq(run_id).await.unwrap(),
         events[0]["seq"].as_u64()
     );
 
     let flow = catalog.get_flow(flow_id).await.unwrap().unwrap();
     assert_eq!(flow.last_status.as_deref(), Some("interrupted"));
-    assert!(checkpointer
-        .get_thread(run_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(checkpointer.get_thread(run_id).await.unwrap().is_empty());
     assert_eq!(
         catalog
             .kv_get(
