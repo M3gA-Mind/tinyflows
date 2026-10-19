@@ -17,7 +17,7 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
                     "headers": {"X-Private": "header-secret"},
                     "body": "body-secret"
                 }),
-                connection_ref: Some("http_cred: payments ".into()),
+                connection_ref: Some("http_cred:payments".into()),
             },),
         )
         .await
@@ -30,6 +30,18 @@ pub async fn verify_surface(connection: &tinybus::Connection) {
     let serialized = serde_json::to_string(&inspection).unwrap();
     assert!(!serialized.contains("header-secret"));
     assert!(!serialized.contains("body-secret"));
+
+    let padded_name: portability::HttpRequestDetails = proxy
+        .call(
+            portability::methods::INSPECT_HTTP_REQUEST,
+            (portability::InspectHttpRequest {
+                request: json!({"url":"https://api.example.test"}),
+                connection_ref: Some("http_cred: payments ".into()),
+            },),
+        )
+        .await
+        .expect("inspection uses the credential name parsed by the engine helper");
+    assert_eq!(padded_name.credential_name.as_deref(), Some(" payments"));
 
     for connection_ref in [
         None,

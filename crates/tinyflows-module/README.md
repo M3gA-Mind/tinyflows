@@ -175,7 +175,9 @@ credential-reference inspection and a method/URL summary, case-insensitive
 app-event binding, and literal pinned trigger inputs. Inspection accepts the
 request but no resolved-credential argument. Its result omits request headers
 and body, including any inline values in them; the summarized URL may itself
-contain sensitive data. The host continues to resolve and authorize
-credentials, then may send its resolved header through `PrepareHttpRequest` for
+contain sensitive data. The credential name is the exact value parsed by the
+TinyFlows helper; the module applies no additional suffix normalization. The
+host continues to resolve and authorize credentials, then may apply its own
+lookup policy before sending a resolved header through `PrepareHttpRequest` for
 injection.
 
