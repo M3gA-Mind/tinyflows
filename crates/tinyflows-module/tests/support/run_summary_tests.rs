@@ -71,6 +71,11 @@ async fn compiled_module_updates_workflow_summaries_after_run_settlement() {
         bob_events.events.last().unwrap().data["status"],
         "completed"
     );
+    assert_eq!(
+        bob_events.events.last().unwrap().data["output"],
+        json!({"declared":"declared-value","payload":"trigger-value"}),
+        "PollRun retains the exact engine outcome for the legacy run response"
+    );
 
     let bob_summary: Option<catalog::Workflow> = catalog_proxy
         .call("GetWorkflow", &(bob.storage.clone(), bob_flow))
@@ -79,4 +84,40 @@ async fn compiled_module_updates_workflow_summaries_after_run_settlement() {
     let bob_summary = bob_summary.unwrap();
     assert_eq!(bob_summary.last_status.as_deref(), Some("completed"));
     assert!(bob_summary.last_run_at.is_some());
+
+    let parked_owner = owner(&connection, "summary-park", None, None, None, None).await;
+    let parked_graph = parked_graph();
+    let parked_flow = create_flow_with_graph(
+        &catalog_proxy,
+        &parked_owner.storage,
+        "Parked summary",
+        parked_graph.clone(),
+    )
+    .await;
+    let parked_agent = serve_agent(&connection, "summary-park").await;
+    let mut parked_run = request(
+        &parked_owner,
+        parked_flow,
+        "summary-park-run",
+        parked_graph,
+        20_000,
+    );
+    parked_run.trigger_data = json!({"id":"summary-park-item","payload":"review-value"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (parked_run,))
+        .await
+        .unwrap();
+    wait_notify(&parked_agent.approval_started, "summary approval callback").await;
+    let parked_events = poll_until_kind(
+        &runs_proxy,
+        &parked_owner.storage,
+        "summary-park-run",
+        "parked",
+    )
+    .await;
+    let parked = parked_events
+        .last()
+        .expect("parked event is available through PollRun");
+    assert!(parked.data.get("output").is_some());
+    assert_eq!(parked.data["pending_approvals"], json!(["approval"]));
 }
