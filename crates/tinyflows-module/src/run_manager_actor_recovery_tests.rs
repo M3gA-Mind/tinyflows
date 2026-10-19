@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryTransport};
 use tinyflows::graph::{Checkpoint, Checkpointer as _};
+use tinyflows_bus::runs::RunFinished;
 use tinyflows_catalog::FlowRunStep;
 use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage};
 use tinyflows_bus::runs::{CallbackAddress as CapsCallbackAddress, FlowRunTrigger, RunContext, StartRun};
@@ -371,6 +372,10 @@ async fn assert_reconciled(
     assert_eq!(events.len(), 1, "recovery emits exactly one terminal event");
     assert_eq!(events[0]["kind"], "finished");
     assert_eq!(events[0]["data"]["status"], "interrupted");
+    let finished: RunFinished = serde_json::from_value(events[0]["data"].clone()).unwrap();
+    assert!(!finished.successful);
+    assert!(!finished.timed_out);
+    assert!(finished.output.is_none());
     assert_eq!(
         catalog
             .flow_run_terminal_event_seq(run_id)
