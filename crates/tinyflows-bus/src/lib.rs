@@ -418,7 +418,8 @@ pub struct ValidationError {
     pub field: Option<String>,
 }
 
-/// Result of migration and graph validation without persistence or host I/O.
+/// Result of migration, graph validation, and generic graph analysis without
+/// persistence or host I/O.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct GraphValidation {
     /// Migrated graph when parsing succeeded, including invalid graphs so an
