@@ -81,7 +81,7 @@ async fn continue_policy_persists_step_failure_in_the_terminal_event_and_run_row
         .error
         .as_deref()
         .expect("continued failure is explained");
-    assert!(error.contains("continue-agent"), "got: {error}");
+    assert_eq!(error, "node(s) failed after retries: agent");
     assert!(
         finished
             .output
