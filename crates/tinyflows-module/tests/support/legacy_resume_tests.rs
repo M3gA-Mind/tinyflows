@@ -189,23 +189,22 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
     assert!(raw.doc.get("terminal_event_seq").is_none());
     assert_ne!("legacy-imported-run", checkpoint_thread);
 
-    runs_proxy
-        .call::<runs::ResumeRunResponse>(
-            "ResumeRun",
-            (runs::ResumeRun {
-                run_id: "legacy-imported-run".into(),
-                flow_id: target_flow,
-                storage: target.storage.clone(),
-                caps_host: runs::CapsHost {
-                    callback: target.caps.clone(),
-                },
-                approvals: vec!["approval".into()],
-                rejections: Vec::new(),
-                timeout_ms: 20_000,
-            },),
-        )
-        .await
-        .unwrap();
+    let resume = runs::ResumeRun {
+        run_id: "legacy-imported-run".into(),
+        flow_id: target_flow,
+        storage: target.storage.clone(),
+        caps_host: runs::CapsHost {
+            callback: target.caps.clone(),
+        },
+        approvals: vec!["approval".into()],
+        rejections: Vec::new(),
+        timeout_ms: 20_000,
+    };
+    let (first, second) = tokio::join!(
+        runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (resume.clone(),)),
+        runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (resume,)),
+    );
+    assert_ne!(first.is_ok(), second.is_ok(), "exactly one resume may claim the imported row");
     let terminal = poll_until_done(&runs_proxy, &target.storage, "legacy-imported-run").await;
     assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     let resumed = terminal
