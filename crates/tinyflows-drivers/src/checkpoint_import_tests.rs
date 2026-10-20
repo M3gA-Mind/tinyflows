@@ -118,15 +118,16 @@ async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_
     );
     let interjection: crate::catalog::test_support::Interjection = Box::new(move |inner| {
         Box::pin(async move {
-            let current = inner.get("graph.writes", &writes_id).await.unwrap().unwrap();
-            let mut document = current.doc;
-            document["writes"]
-                .as_array_mut()
+            let current = inner
+                .get("graph.writes", &writes_id)
+                .await
                 .unwrap()
-                .push(json!({
-                    "node":"node","task_id":"new","idx":0,
-                    "channel":"result","payload":"concurrent-live"
-                }));
+                .unwrap();
+            let mut document = current.doc;
+            document["writes"].as_array_mut().unwrap().push(json!({
+                "node":"node","task_id":"new","idx":0,
+                "channel":"result","payload":"concurrent-live"
+            }));
             inner
                 .put_with(
                     "graph.writes",
