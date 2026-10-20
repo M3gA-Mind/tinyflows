@@ -103,7 +103,7 @@ pub enum JobOrigin {
         /// the host must compare it with its trusted dispatch context before
         /// using it. Absent on legacy jobs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        channel_session: Option<ChannelSessionIdentity>,
+        channel_session: Option<Box<ChannelSessionIdentity>>,
     },
 }
 

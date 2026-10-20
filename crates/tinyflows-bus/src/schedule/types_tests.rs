@@ -317,7 +317,7 @@ fn job_origin_channel_roundtrips_with_and_without_optionals() {
         history_key: "telegram:chat-42".into(),
         sender: Some("alice".into()),
         thread_id: Some("topic-7".into()),
-        channel_session: Some(ChannelSessionIdentity {
+        channel_session: Some(Box::new(ChannelSessionIdentity {
             tenant_key: "profile:v1:local".into(),
             agent_id: "telegram-agent".into(),
             session_key: "main:telegram:account-a:group:room-42:topic:topic-7".into(),
@@ -331,7 +331,7 @@ fn job_origin_channel_roundtrips_with_and_without_optionals() {
                 thread_id: Some("topic-7".into()),
                 topic_id: Some("topic-7".into()),
             },
-        }),
+        })),
     };
     let v = serde_json::to_value(&full).unwrap();
     assert_eq!(v["kind"], "channel");
