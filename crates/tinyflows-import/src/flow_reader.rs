@@ -136,10 +136,10 @@ where
 }
 
 #[derive(Default)]
-struct BatchSender { current: Vec<LegacyImportRecord>, bytes: usize }
+pub(crate) struct BatchSender { current: Vec<LegacyImportRecord>, bytes: usize }
 
 impl BatchSender {
-    async fn push<F, Fut>(&mut self, mut record: LegacyImportRecord, send: &mut F) -> Result<()>
+    pub(crate) async fn push<F, Fut>(&mut self, mut record: LegacyImportRecord, send: &mut F) -> Result<()>
     where F: FnMut(Vec<LegacyImportRecord>) -> Fut, Fut: Future<Output = Result<()>> {
         let mut size = serde_json::to_vec(&record)?.len();
         if size > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
@@ -156,7 +156,7 @@ impl BatchSender {
         Ok(())
     }
 
-    async fn flush<F, Fut>(&mut self, send: &mut F) -> Result<()>
+    pub(crate) async fn flush<F, Fut>(&mut self, send: &mut F) -> Result<()>
     where F: FnMut(Vec<LegacyImportRecord>) -> Fut, Fut: Future<Output = Result<()>> {
         if self.current.is_empty() { return Ok(()); }
         self.bytes = 0;
