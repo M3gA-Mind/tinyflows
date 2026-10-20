@@ -13,14 +13,7 @@
     feature = "store"
 ))]
 use std::collections::BTreeMap;
-#[cfg(any(
-    feature = "engine",
-    feature = "catalog",
-    feature = "schedule",
-    feature = "store"
-))]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(any(
     feature = "engine",
     feature = "catalog",
