@@ -304,6 +304,7 @@ async fn running_fixture() -> RunningFixture {
         inputs: Map::new(),
         checkpointer: checkpointer.clone(),
         require_approval: false,
+        checkpoint_thread_id: run_id.clone(),
     };
     prepared
         .persist_snapshot(&request, &active.lease)
