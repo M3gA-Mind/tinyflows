@@ -65,6 +65,13 @@ pub(super) async fn resume(
             refuse_stale_graph(connection, &request, &catalog, &request.run_id, &row.steps).await?;
             bail!(GRAPH_CHANGED)
         }
+    } else {
+        tracing::warn!(
+            target: "flows",
+            flow_id = %request.flow_id,
+            run_id = %request.run_id,
+            "parked run has no graph hash; allowing resume against its available workflow state"
+        );
     }
 
     // Resume is an authoritative compatibility boundary for the graph the
@@ -123,11 +130,6 @@ pub(super) async fn resume(
             }
             (graph, context, require_approval, thread_id, snapshot.clone())
         } else {
-            tracing::warn!(
-                target: "flows",
-                run_id = %request.run_id,
-                "legacy parked run has no graph hash; allowing resume against the current saved workflow"
-            );
             let context = RunContext {
                 flow_id: request.flow_id.clone(),
                 origin: None,
