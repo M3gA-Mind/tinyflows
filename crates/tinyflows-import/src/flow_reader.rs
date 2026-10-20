@@ -1,7 +1,7 @@
 //! Bounded, host-side readers for the retired flow catalog and draft files.
 
 use std::future::Future;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,7 +14,50 @@ use tinyflows_bus::catalog::{
 
 use crate::legacy_db::{LegacyDb, column_or};
 
-const SQLITE_PAGE_ROWS: i64 = 8;
+const SQLITE_PAGE_ROWS: i64 = 1;
+
+fn fields(names: &[&str]) -> Vec<(String, String)> {
+    names
+        .iter()
+        .map(|name| ((*name).to_string(), (*name).to_string()))
+        .collect()
+}
+
+fn bounded_page_query(
+    table: &str,
+    fields: &[(String, String)],
+    _size_fields: &[&str],
+    order: &str,
+) -> String {
+    let projection = fields
+        .iter()
+        .map(|(expression, alias)| {
+            let expression = expression
+                .split_once(" AS ")
+                .map_or(expression.as_str(), |(expression, _)| expression);
+            format!("{expression} AS {alias}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let size = fields
+        .iter()
+        .map(|(expression, _)| {
+            let expression = expression
+                .split_once(" AS ")
+                .map_or(expression.as_str(), |(expression, _)| expression);
+            format!("COALESCE(octet_length(CAST(({expression}) AS BLOB)), 0)")
+        })
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let guarded = fields
+        .iter()
+        .map(|(_, alias)| format!("CASE WHEN __bytes <= ?1 THEN {alias} END"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "WITH source AS (SELECT {projection}, ({size}) AS __bytes FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2) SELECT {guarded}, (__bytes > ?1) FROM source"
+    )
+}
 
 /// Reads legacy flow database rows and draft files as bounded ordered batches.
 ///
@@ -274,10 +317,17 @@ where
     batches.flush(&mut send).await
 }
 
+enum BoundedRow<T> {
+    Valid(T),
+    Oversized,
+}
+
 async fn page_rows<T, ToRecord, F, Fut>(
     db: &LegacyDb,
     what: &'static str,
     query: &str,
+    field_count: usize,
+    kind: LegacyImportKind,
     decode: impl Fn(
         &tinystoragedrivers_sqlite::rusqlite::Row<'_>,
     ) -> tinystoragedrivers_sqlite::rusqlite::Result<T>
@@ -303,7 +353,16 @@ where
         let rows = db
             .read(what, move |conn| {
                 let mut statement = conn.prepare(&statement_query)?;
-                let mapped = statement.query_map([64_i64, offset], |row| decode(row))?;
+                let mapped = statement.query_map(
+                    [MAX_IMPORT_RECORD_PAYLOAD_BYTES as i64, offset],
+                    |row| {
+                        if row.get::<_, bool>(field_count)? {
+                            Ok(BoundedRow::Oversized)
+                        } else {
+                            decode(row).map(BoundedRow::Valid)
+                        }
+                    },
+                )?;
                 mapped.collect::<std::result::Result<Vec<_>, _>>()
             })
             .await?;
@@ -312,7 +371,15 @@ where
         }
         offset += rows.len() as i64;
         for row in rows {
-            batches.push(to_record(row), send).await?;
+            let record = match row {
+                BoundedRow::Valid(row) => to_record(row),
+                BoundedRow::Oversized => LegacyImportRecord::Invalid {
+                    record_kind: kind,
+                    identity: None,
+                    message: "legacy source row exceeds the import byte limit".into(),
+                },
+            };
+            batches.push(record, send).await?;
         }
     }
     Ok(())
@@ -340,16 +407,27 @@ where
         .collect();
     paths.sort();
     for path in paths {
-        let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
         let file_name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let file = std::fs::File::open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        let mut bytes = Vec::new();
+        file.take((MAX_IMPORT_RECORD_PAYLOAD_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let record = if bytes.len() > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
+            LegacyImportRecord::Invalid {
+                record_kind: LegacyImportKind::Draft,
+                identity: Some(file_name.chars().take(128).collect()),
+                message: "draft file exceeds the import byte limit".into(),
+            }
+        } else {
+            LegacyImportRecord::Draft(LegacyDraftRecord { file_name, bytes })
+        };
         batches
-            .push(
-                LegacyImportRecord::Draft(LegacyDraftRecord { file_name, bytes }),
-                send,
-            )
+            .push(record, send)
             .await?;
     }
     Ok(())
@@ -447,14 +525,14 @@ fn serialized_size<T: serde::Serialize>(value: &T, limit: usize) -> Result<Optio
 
 fn record_identity(record: &LegacyImportRecord) -> Option<String> {
     let value = match record {
-        LegacyImportRecord::Flow(row) => Some(row.id.clone()),
-        LegacyImportRecord::Revision(row) => Some(row.id.clone()),
-        LegacyImportRecord::Run(row) => Some(row.id.clone()),
-        LegacyImportRecord::State(row) => Some(row.key.clone()),
-        LegacyImportRecord::Suggestion(row) => Some(row.id.clone()),
-        LegacyImportRecord::Draft(row) => Some(row.file_name.clone()),
-        LegacyImportRecord::FileCheckpointWrite { thread_id, .. } => Some(thread_id.clone()),
-        LegacyImportRecord::SqliteCheckpointWrite(row) => Some(row.task_id.clone()),
+        LegacyImportRecord::Flow(row) => Some(row.id.as_str()),
+        LegacyImportRecord::Revision(row) => Some(row.id.as_str()),
+        LegacyImportRecord::Run(row) => Some(row.id.as_str()),
+        LegacyImportRecord::State(row) => Some(row.key.as_str()),
+        LegacyImportRecord::Suggestion(row) => Some(row.id.as_str()),
+        LegacyImportRecord::Draft(row) => Some(row.file_name.as_str()),
+        LegacyImportRecord::FileCheckpointWrite { thread_id, .. } => Some(thread_id.as_str()),
+        LegacyImportRecord::SqliteCheckpointWrite(row) => Some(row.task_id.as_str()),
         LegacyImportRecord::Checkpoint { .. } | LegacyImportRecord::Invalid { .. } => None,
     };
     value.map(|identity| identity.chars().take(128).collect())

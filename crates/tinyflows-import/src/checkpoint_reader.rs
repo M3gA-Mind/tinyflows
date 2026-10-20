@@ -13,7 +13,9 @@ use tinyflows_bus::catalog::{
 use crate::flow_reader::BatchSender;
 use crate::legacy_db::LegacyDb;
 
-const SQLITE_PAGE_ROWS: i64 = 8;
+// Read one source row at a time so a page cannot retain several maximum-sized
+// payloads while waiting to be converted into bounded callback batches.
+const SQLITE_PAGE_ROWS: i64 = 1;
 
 /// Reads SQLite and file/JSONL checkpoint sources as bounded callback batches.
 ///
