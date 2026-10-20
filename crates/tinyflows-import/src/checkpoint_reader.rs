@@ -192,10 +192,15 @@ where
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error).with_context(|| format!("listing {}", dir.display())),
     };
-    let mut files: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_file())
-        .collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("reading an entry under {}", dir.display()))?
+            .path();
+        if path.is_file() {
+            files.push(path);
+        }
+    }
     files.sort();
     for path in files {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
