@@ -344,7 +344,7 @@ fn read_bounded_line<R: BufRead>(reader: &mut R) -> io::Result<Option<(Vec<u8>, 
         saw_bytes = true;
         let newline = available.iter().position(|byte| *byte == b'\n');
         let consumed = newline.map_or(available.len(), |index| index + 1);
-        let content_len = newline.map_or(consumed, |index| index);
+        let content_len = newline.unwrap_or(consumed);
         if !oversized {
             if line.len() + content_len > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
                 oversized = true;
