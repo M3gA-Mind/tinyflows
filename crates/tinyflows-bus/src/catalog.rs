@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 mod extended_types;
+mod legacy_import;
 mod storage_types;
 mod types;
 
@@ -19,6 +20,7 @@ pub use storage_types::{
 };
 
 pub use extended_types::*;
+pub use legacy_import::*;
 pub use types::{
     CallbackAddress, CatalogStorage, DeleteWorkflowResult, FlowUpdateError, GetRevisionRequest,
     ListRevisionsRequest, ListWorkflowsResult, PutWorkflowRequest, PutWorkflowResponse,
@@ -29,9 +31,9 @@ pub use types::{
 pub const INTERFACE: &str = "ai.tinyhumans.tinyflows.Catalog";
 /// Catalog object path.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyflows/Catalog";
-/// Version of the served catalog contract. Version 5 adds scoped schema
-/// migration and record-metadata support to the host document callback.
-pub const CONTRACT_VERSION: u32 = 5;
+/// Version of the served catalog contract. Version 6 adds bounded legacy import
+/// batches over the existing scoped storage callback.
+pub const CONTRACT_VERSION: u32 = 6;
 /// Exact members served by the catalog module.
 pub const METHODS: &[&str] = &[
     members::LIST_WORKFLOWS,
@@ -58,6 +60,7 @@ pub const METHODS: &[&str] = &[
     members::APPLY_GRAPH_OPS,
     members::APPROVAL_MANIFEST,
     members::MIGRATE_STORAGE,
+    members::IMPORT_LEGACY_BATCH,
 ];
 
 /// Callback interface implemented by the scope-owning host.
@@ -122,6 +125,8 @@ pub mod members {
     pub const APPROVAL_MANIFEST: &str = "ApprovalManifest";
     /// `(CatalogStorage) -> ()`; migrates this callback scope's v1 catalog data.
     pub const MIGRATE_STORAGE: &str = "MigrateStorage";
+    /// `(ImportLegacyBatchRequest) -> ImportLegacyBatchResponse`.
+    pub const IMPORT_LEGACY_BATCH: &str = "ImportLegacyBatch";
 }
 
 /// Pure structural graph edit request. The graph and tagged operations use
