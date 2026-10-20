@@ -21,8 +21,9 @@ pub use store_types::{
     AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, StoreOperation, TRUNCATED_OUTPUT_MARKER,
 };
 pub use types::{
-    ActiveHours, CronJob, CronJobPatch, CronRun, DeliveryConfig, DeliveryStatus, JobOrigin,
-    JobPolicy, JobType, Schedule, SessionTarget, delivery_mode,
+    ActiveHours, ChannelConversationIdentity, ChannelSessionIdentity, CronJob, CronJobPatch,
+    CronRun, DeliveryConfig, DeliveryStatus, JobOrigin, JobPolicy, JobType, Schedule,
+    SessionTarget, delivery_mode,
 };
 
 /// The module has one bus identity and separately served authoring/schedule objects.
@@ -44,8 +45,9 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// send/terminal delivery phases. 6 adds prepared handles and host-owned
 /// lifecycle observation for detached manual workers. 7 adds `TickSchedulerAt`,
 /// a manual pass at a host-supplied calendar instant, so a host can step a
-/// schedule forward instead of waiting for it.
-pub const CONTRACT_VERSION: u32 = 7;
+/// schedule forward instead of waiting for it. 8 adds an optional opaque
+/// durable channel-session identity to channel job origins.
+pub const CONTRACT_VERSION: u32 = 8;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
     members::SCHEDULE_STORE,
