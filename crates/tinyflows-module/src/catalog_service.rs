@@ -7,11 +7,12 @@ use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
     self, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest, CatalogStorage,
     CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion,
-    FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest, ListRunsRequest,
-    ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest, PromoteDraftResponse,
-    PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult, RunIdRequest,
-    SetEnabledRequest, SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest,
-    Workflow, WorkflowRevision,
+    FlowUpdateError, ImportLegacyBatchRequest, ImportLegacyBatchResponse, ListAllRunsRequest,
+    ListRevisionsRequest, ListRunsRequest, ListSuggestionsRequest, ListWorkflowsResult,
+    PromoteDraftRequest, PromoteDraftResponse, PruneRunsRequest, PutWorkflowRequest,
+    PutWorkflowResponse, PutWorkflowResult, RunIdRequest, SetEnabledRequest,
+    SetSuggestionStatusRequest, UpdateDraftRequest, UpsertSuggestionsRequest, Workflow,
+    WorkflowRevision,
 };
 use tinyflows_catalog::Flow as StoredFlow;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
@@ -449,6 +450,13 @@ impl CatalogService {
             .await
             .map_err(failure)
     }
+
+    async fn import_legacy_batch(
+        &self,
+        request: ImportLegacyBatchRequest,
+    ) -> tinybus::Result<ImportLegacyBatchResponse> {
+        super::catalog_legacy_import::import(&self.connection, request).await
+    }
 }
 
 pub(super) async fn setup(connection: &Connection) -> Result<()> {
@@ -478,3 +486,7 @@ mod operations_tests;
 #[cfg(test)]
 #[path = "catalog_authoring_tests.rs"]
 mod authoring_tests;
+
+#[cfg(test)]
+#[path = "catalog_legacy_import_tests.rs"]
+mod legacy_import_tests;

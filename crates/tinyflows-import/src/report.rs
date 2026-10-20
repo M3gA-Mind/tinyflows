@@ -2,6 +2,24 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(all(
+    feature = "flow-read",
+    any(feature = "flow-write", feature = "checkpoint-write")
+))]
+fn legacy_kind_name(kind: tinyflows_bus::catalog::LegacyImportKind) -> &'static str {
+    use tinyflows_bus::catalog::LegacyImportKind as Kind;
+    match kind {
+        Kind::Flow => "flows",
+        Kind::Revision => "revisions",
+        Kind::Run => "runs",
+        Kind::State => "state",
+        Kind::Suggestion => "suggestions",
+        Kind::Draft => "drafts",
+        Kind::Checkpoint => "checkpoints",
+        Kind::Write => "writes",
+    }
+}
+
 /// How many records of one kind an import wrote, found already present, or
 /// could not decode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +40,46 @@ pub struct ImportReport {
 }
 
 impl ImportReport {
+    #[cfg(all(
+        feature = "flow-read",
+        any(feature = "flow-write", feature = "checkpoint-write")
+    ))]
+    pub(crate) fn merge_legacy_batch(
+        &mut self,
+        response: tinyflows_bus::catalog::ImportLegacyBatchResponse,
+    ) {
+        for tally in response.tallies {
+            let kind = legacy_kind_name(tally.kind);
+            let total = self.kinds.entry(kind).or_default();
+            total.written += tally.written as usize;
+            total.existing += tally.existing as usize;
+            total.invalid += tally.invalid as usize;
+        }
+        for problem in response.problems {
+            let identity = problem.identity.map_or_else(String::new, |id| {
+                let label = match problem.kind {
+                    tinyflows_bus::catalog::LegacyImportKind::Flow => "flow",
+                    tinyflows_bus::catalog::LegacyImportKind::Revision => "revision",
+                    tinyflows_bus::catalog::LegacyImportKind::Run => "run",
+                    tinyflows_bus::catalog::LegacyImportKind::State => "state",
+                    tinyflows_bus::catalog::LegacyImportKind::Suggestion => "suggestion",
+                    tinyflows_bus::catalog::LegacyImportKind::Draft => "draft",
+                    tinyflows_bus::catalog::LegacyImportKind::Checkpoint => "checkpoint",
+                    tinyflows_bus::catalog::LegacyImportKind::Write => "write",
+                };
+                format!(" {label} '{id}'")
+            });
+            let message = format!(
+                "{}{}: {}",
+                legacy_kind_name(problem.kind),
+                identity,
+                problem.message
+            );
+            tracing::warn!(target: "tinyflows_import", "[import] skipped an unreadable record: {message}");
+            self.problems.push(message);
+        }
+    }
+
     pub fn wrote(&mut self, kind: &'static str, written: bool) {
         let tally = self.kinds.entry(kind).or_default();
         if written {

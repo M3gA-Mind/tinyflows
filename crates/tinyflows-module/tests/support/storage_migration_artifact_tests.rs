@@ -10,7 +10,7 @@ use tinystoragedrivers_core::{
     CollectionSpec, DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend, WriteOptions,
 };
 
-struct CatalogCallback(Arc<dyn DocumentStore>);
+pub(super) struct CatalogCallback(pub(super) Arc<dyn DocumentStore>);
 
 fn catalog_reply<T: serde::Serialize>(result: tinystoragedrivers_core::Result<T>) -> Value {
     match result {

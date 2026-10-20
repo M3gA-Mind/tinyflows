@@ -13,7 +13,10 @@ use tinyflows::{
     },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::runs::{ResumeRun, RunParked, StartRun};
+use tinyflows_bus::{
+    catalog::CatalogStorage,
+    runs::{CapsHost, FlowRunTrigger, ResumeRun, RunContext, RunParked, StartRun},
+};
 use tinyflows_catalog::{FlowRunStep, run_summary};
 use tokio::time::sleep;
 
@@ -25,6 +28,28 @@ use crate::caps::{CapsHostPorts, RunScope};
 
 use super::actor_recovery::ActorRecoveryGuard;
 
+pub(super) struct ActorRunRequest {
+    pub run_id: String,
+    pub context: RunContext,
+    pub caps_host: CapsHost,
+    pub storage: CatalogStorage,
+    pub timeout_ms: u64,
+    pub trigger: Option<(FlowRunTrigger, Value)>,
+}
+
+impl From<StartRun> for ActorRunRequest {
+    fn from(request: StartRun) -> Self {
+        Self {
+            run_id: request.run_id,
+            context: request.context,
+            caps_host: request.caps_host,
+            storage: request.storage,
+            timeout_ms: request.timeout_ms,
+            trigger: Some((request.trigger_kind, request.trigger_data)),
+        }
+    }
+}
+
 pub(super) fn drive(
     connection: tinybus::Connection,
     request: StartRun,
@@ -32,11 +57,13 @@ pub(super) fn drive(
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
 ) -> impl Future<Output = ()> + Send + 'static {
+    let request = ActorRunRequest::from(request);
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
         &request.storage,
         &request.run_id,
+        &prepared.checkpoint_thread_id,
         Arc::clone(&active),
     );
     async move {
@@ -56,18 +83,20 @@ pub(super) fn drive(
 
 pub(super) fn drive_resume(
     connection: tinybus::Connection,
-    request: StartRun,
+    request: ActorRunRequest,
     prepared: Prepared,
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
 ) -> impl Future<Output = ()> + Send + 'static {
+    let legacy = request.trigger.is_none();
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
         &request.storage,
         &request.run_id,
+        &prepared.checkpoint_thread_id,
         Arc::clone(&active),
     );
     async move {
@@ -82,6 +111,7 @@ pub(super) fn drive_resume(
                 approvals: resume.approvals,
                 rejections: resume.rejections,
                 previous_steps,
+                legacy,
             },
         )
         .await;
@@ -95,12 +125,13 @@ enum Continuation {
         approvals: Vec<String>,
         rejections: Vec<String>,
         previous_steps: Vec<FlowRunStep>,
+        legacy: bool,
     },
 }
 
 async fn drive_inner(
     connection: tinybus::Connection,
-    request: StartRun,
+    request: ActorRunRequest,
     prepared: Prepared,
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
@@ -123,10 +154,27 @@ async fn drive_inner(
         Continuation::Start => Vec::new(),
         Continuation::Resume { previous_steps, .. } => previous_steps.clone(),
     };
-    writer.emit(
-        if matches!(&continuation, Continuation::Start) { "started" } else { "resumed" },
-        json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
-    );
+    let (kind, data) = match &continuation {
+        Continuation::Start => ("started", {
+            let (trigger_kind, _) = request
+                .trigger
+                .as_ref()
+                .expect("new runs carry trigger metadata");
+            json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
+        }),
+        Continuation::Resume { legacy: true, .. } => (
+            "resumed",
+            json!({"flow_id":request.context.flow_id,"legacy_resume":true}),
+        ),
+        Continuation::Resume { .. } => ("resumed", {
+            let (trigger_kind, _) = request
+                .trigger
+                .as_ref()
+                .expect("snapshot resumes carry trigger metadata");
+            json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
+        }),
+    };
+    writer.emit(kind, data);
     if matches!(&continuation, Continuation::Resume { .. })
         && let Some(error) = writer.flush().await
     {
@@ -286,7 +334,12 @@ async fn drive_inner(
         .settle(prepared.catalog.clone(), success)
         .await;
     if cancelled || timed_out {
-        delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
+        delete_checkpoints(
+            &prepared.checkpointer,
+            &prepared.checkpoint_thread_id,
+            &request.run_id,
+        )
+        .await;
     }
     match writer
         .emit_terminal(super::events::finished_payload(
@@ -322,7 +375,7 @@ async fn drive_inner(
 }
 
 async fn execute(
-    request: &StartRun,
+    request: &ActorRunRequest,
     prepared: &Prepared,
     capabilities: &tinyflows::caps::Capabilities,
     active: &ActiveRun,
@@ -338,8 +391,17 @@ async fn execute(
     let run = async {
         match continuation {
             Continuation::Start => {
-                let input = RunInput::new(request.trigger_data.clone())
-                    .with_inputs(prepared.inputs.clone())
+                let (_, trigger_data) = request
+                    .trigger
+                    .as_ref()
+                    .expect("new runs carry trigger metadata");
+                let inputs = prepared
+                    .inputs
+                    .as_ref()
+                    .expect("new runs carry declared inputs")
+                    .clone();
+                let input = RunInput::new(trigger_data.clone())
+                    .with_inputs(inputs)
                     .with_run_id(request.run_id.clone())
                     .with_approvals(Vec::new());
                 run_cancellable_with_checkpointer_journaled_observed(
@@ -349,7 +411,7 @@ async fn execute(
                     tinyflows::engine::JournaledRunOptions {
                         token: active.token.clone(),
                         checkpointer,
-                        thread_id: request.run_id.clone(),
+                        thread_id: prepared.checkpoint_thread_id.clone(),
                         journal,
                     },
                     &observer_dyn,
@@ -365,7 +427,7 @@ async fn execute(
                     &prepared.compiled,
                     capabilities,
                     checkpointer,
-                    &request.run_id,
+                    &prepared.checkpoint_thread_id,
                     approvals.clone(),
                     rejections.clone(),
                     journal,

@@ -35,13 +35,12 @@
 //!
 //! # Features
 //!
-//! `schedule` (`import_cron`), `catalog` (`import_flow_catalog`,
-//! `import_file_state`), `engine` (checkpoints) and `store`
-//! (`import_workflow_store`) are all on by default. A host without the flows
-//! engine builds with `default-features = false, features = ["schedule"]` and
-//! still imports its legacy cron jobs. A host that only needs legacy cron
-//! records can use `schedule-read`; it exposes bus DTOs without linking the
-//! scheduler or `tinyflows-drivers` implementations.
+//! `schedule`, `catalog`, `engine`, `store`, and `checkpoint-read` plus
+//! `checkpoint-write` are enabled by default. Hosts that only need to read
+//! legacy records for a compiled module use `flow-read`, `checkpoint-read`, or
+//! `schedule-read` without linking TinyFlows implementation crates. The
+//! `flow-write` and `checkpoint-write` features provide shared semantic
+//! writers for the owning module and established importer APIs.
 //!
 //! The host decides when to run this and records that it has (a marker in its
 //! own storage); this crate keeps no state of its own.
@@ -53,12 +52,29 @@
 
 #[cfg(feature = "catalog")]
 mod catalog;
-#[cfg(feature = "engine")]
+#[cfg(feature = "checkpoint-read")]
+mod checkpoint_reader;
+#[cfg(all(
+    feature = "engine",
+    feature = "checkpoint-read",
+    feature = "checkpoint-write"
+))]
 mod checkpoints;
 #[cfg(feature = "schedule")]
 mod cron;
+#[cfg(feature = "flow-read")]
+mod flow_reader;
+#[cfg(feature = "flow-write")]
+mod legacy_batch;
+#[cfg(feature = "checkpoint-write")]
+mod legacy_checkpoint;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
+#[cfg(any(
+    feature = "flow-read",
+    feature = "schedule-read",
+    feature = "checkpoint-read"
+))]
 mod legacy_db;
 mod report;
 #[cfg(feature = "catalog")]
@@ -72,17 +88,37 @@ mod workflow_store;
         feature = "engine",
         feature = "catalog",
         feature = "schedule",
-        feature = "store"
+        feature = "store",
+        feature = "flow-read",
+        feature = "checkpoint-read",
+        feature = "schedule-read",
+        feature = "flow-write",
+        feature = "checkpoint-write"
     )
 ))]
 mod test_support;
 
 #[cfg(feature = "catalog")]
 pub use catalog::import_flow_catalog;
-#[cfg(feature = "engine")]
+#[cfg(feature = "checkpoint-read")]
+pub use checkpoint_reader::{
+    read_legacy_checkpoint_batches, read_legacy_file_checkpoint_batches,
+    read_legacy_sqlite_checkpoint_batches,
+};
+#[cfg(all(
+    feature = "engine",
+    feature = "checkpoint-read",
+    feature = "checkpoint-write"
+))]
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "schedule")]
 pub use cron::import_cron;
+#[cfg(feature = "flow-read")]
+pub use flow_reader::read_legacy_flow_catalog;
+#[cfg(feature = "flow-write")]
+pub use legacy_batch::apply_legacy_batch;
+#[cfg(feature = "checkpoint-write")]
+pub use legacy_checkpoint::apply_legacy_checkpoint_batch;
 #[cfg(feature = "schedule-read")]
 pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};

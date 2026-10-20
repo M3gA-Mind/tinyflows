@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort};
+use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Filter, Query, Sort, Versioned};
 
 use super::lineage::{belongs_in, live_flows, reclaim};
 use super::runs::{parked_before, set_finished, status};
@@ -223,6 +223,86 @@ impl FlowCatalogDocuments {
         .await
         .context("Failed to claim parked flow run for resume")?;
         Ok(flipped.is_some())
+    }
+
+    /// Atomically adopts a legacy parked row that has no execution snapshot.
+    /// The exact version returned by [`Self::get_flow_run_versioned`] fences
+    /// the claim against a concurrent replacement; the marker records only
+    /// resume-time context and must not be treated as an original run
+    /// snapshot. A previously adopted marker is accepted for a later repark.
+    pub async fn claim_legacy_parked_flow_run_for_resume(
+        &self,
+        expected: &Versioned<serde_json::Value>,
+        lease: &str,
+        marker: serde_json::Value,
+    ) -> Result<bool> {
+        if expected.id.trim().is_empty() || lease.trim().is_empty() || !marker.is_object() {
+            return Ok(false);
+        }
+        let existing_snapshot = expected.doc.get("execution_snapshot");
+        if status(&expected.doc) != "pending_approval"
+            || existing_snapshot.is_some_and(|existing| {
+                existing.get("legacy_resume") != Some(&serde_json::Value::Bool(true))
+            })
+        {
+            return Ok(false);
+        }
+        let mut next = expected.doc.clone();
+        next["status"] = serde_json::json!("running");
+        next["execution_snapshot"] = marker;
+        next["execution_snapshot"]["legacy_resume"] = serde_json::json!(true);
+        next["execution_snapshot"]["lease"] = serde_json::json!(lease);
+        set_finished(&mut next, None);
+        set_optional(&mut next, "error", None);
+        let docs = self.docs().await?;
+        match docs
+            .put(RUNS, &expected.id, next, expected.unchanged())
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::Conflict => Ok(false),
+            Err(error) => Err(error).context("Failed to claim legacy parked flow run for resume"),
+        }
+    }
+
+    /// Settles a legacy parked row as failed only if it is still the exact
+    /// version observed before legacy-resume preflight. This keeps a missing
+    /// checkpoint from failing a replacement row that arrived during the
+    /// owner-scoped checkpoint read.
+    pub async fn fail_legacy_parked_flow_run_for_resume(
+        &self,
+        expected: &Versioned<serde_json::Value>,
+        finished_at: &str,
+        steps: &[tinyflows_catalog::FlowRunStep],
+        error: &str,
+    ) -> Result<bool> {
+        if status(&expected.doc) != "pending_approval"
+            || expected
+                .doc
+                .get("execution_snapshot")
+                .is_some_and(|snapshot| {
+                    snapshot.get("legacy_resume") != Some(&serde_json::Value::Bool(true))
+                })
+        {
+            return Ok(false);
+        }
+        let mut next = expected.doc.clone();
+        next["status"] = serde_json::json!("failed");
+        next["steps"] =
+            serde_json::to_value(steps).context("serializing legacy resume failure steps")?;
+        next["pending_approvals"] = serde_json::json!([]);
+        next["finished_ms"] = serde_json::json!(instant_ms(finished_at));
+        next["error"] = serde_json::json!(error);
+        next.as_object_mut().unwrap().remove("graph_hash");
+        let docs = self.docs().await?;
+        match docs
+            .put(RUNS, &expected.id, next, expected.unchanged())
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::Conflict => Ok(false),
+            Err(error) => Err(error).context("failing legacy parked flow run without checkpoint"),
+        }
     }
 
     /// Reconciles an orphaned `running` run to `interrupted`, only while it is
