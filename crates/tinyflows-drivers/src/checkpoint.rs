@@ -38,7 +38,6 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tinyflows::graph::checkpoint::merge_writes;
 use tinyflows::graph::error::{GraphError, Result};
 use tinyflows::graph::ids::CheckpointId;
 use tinyflows::graph::{
@@ -429,49 +428,7 @@ where
     }
 
     async fn put_writes(&self, config: &CheckpointConfig, writes: &[PendingWrite]) -> Result<()> {
-        let checkpoint_id = require_checkpoint_id(config)?;
-        if writes.is_empty() {
-            return Ok(());
-        }
-        self.declared().await?;
-        let subgraph = subgraph_key(&config.namespace);
-        let id = writes_id_key(&self.ns, &config.thread_id, &subgraph, &checkpoint_id);
-        self.writes
-            .update(&id, |current| {
-                let mut body = current.unwrap_or_else(|| WritesBody {
-                    ns: self.ns.clone(),
-                    thread: config.thread_id.clone(),
-                    subgraph: subgraph.clone(),
-                    checkpoint_id: checkpoint_id.clone(),
-                    writes: Vec::new(),
-                    imported_control_writes: Default::default(),
-                });
-                for write in writes {
-                    let identity = (write.task_id.clone(), write.idx);
-                    let accepted = write.is_control_plane()
-                        || !body
-                            .writes
-                            .iter()
-                            .any(|stored| stored.identity() == write.identity());
-                    if accepted {
-                        body.imported_control_writes.remove(&identity);
-                    }
-                }
-                merge_writes(&mut body.writes, writes);
-                Ok(Some(body))
-            })
-            .await
-            .map(|_| ())
-            .map_err(|error| {
-                if error.kind() == ErrorKind::Conflict {
-                    GraphError::Checkpoint(format!(
-                        "could not record pending writes for thread `{}`",
-                        config.thread_id
-                    ))
-                } else {
-                    map_error(error)
-                }
-            })
+        checkpoint_import::put_live_writes(self, config, writes).await
     }
 
     async fn get_writes(&self, config: &CheckpointConfig) -> Result<Vec<PendingWrite>> {
