@@ -74,7 +74,7 @@ where
                 let rows = db
                     .read("checkpoints", move |connection| {
                         let mut statement = connection.prepare(
-                            "SELECT CASE WHEN length(CAST(record AS BLOB)) <= ?1 THEN CAST(record AS BLOB) END, seq FROM checkpoints ORDER BY seq LIMIT ?2 OFFSET ?3",
+                            "SELECT CASE WHEN octet_length(record) <= ?1 THEN CAST(record AS BLOB) END, seq FROM checkpoints ORDER BY seq LIMIT ?2 OFFSET ?3",
                         )?;
                         statement
                             .query_map(
@@ -111,7 +111,7 @@ where
             loop {
                 let rows = db.read("checkpoint writes", move |connection| {
                     let mut statement = connection.prepare(
-                        "WITH source_rows AS (SELECT rowid, thread_id, namespace, checkpoint_id, task_id, idx, node, channel, payload, length(COALESCE(CAST(thread_id AS BLOB), X'')) + length(COALESCE(CAST(namespace AS BLOB), X'')) + length(COALESCE(CAST(checkpoint_id AS BLOB), X'')) + length(COALESCE(CAST(task_id AS BLOB), X'')) + length(COALESCE(CAST(node AS BLOB), X'')) + length(COALESCE(CAST(channel AS BLOB), X'')) + length(COALESCE(CAST(payload AS BLOB), X'')) AS raw_bytes FROM checkpoint_writes) SELECT rowid, raw_bytes <= ?1, CASE WHEN raw_bytes <= ?1 THEN CAST(thread_id AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(namespace AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(checkpoint_id AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(task_id AS BLOB) END, idx, CASE WHEN raw_bytes <= ?1 THEN CAST(node AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(channel AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(payload AS BLOB) END FROM source_rows ORDER BY rowid LIMIT ?2 OFFSET ?3",
+                        "WITH source_rows AS (SELECT rowid, thread_id, namespace, checkpoint_id, task_id, idx, node, channel, payload, octet_length(COALESCE(thread_id, X'')) + octet_length(COALESCE(namespace, X'')) + octet_length(COALESCE(checkpoint_id, X'')) + octet_length(COALESCE(task_id, X'')) + octet_length(COALESCE(node, X'')) + octet_length(COALESCE(channel, X'')) + octet_length(COALESCE(payload, X'')) AS raw_bytes FROM checkpoint_writes) SELECT rowid, raw_bytes <= ?1, CASE WHEN raw_bytes <= ?1 THEN CAST(thread_id AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(namespace AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(checkpoint_id AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(task_id AS BLOB) END, idx, CASE WHEN raw_bytes <= ?1 THEN CAST(node AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(channel AS BLOB) END, CASE WHEN raw_bytes <= ?1 THEN CAST(payload AS BLOB) END FROM source_rows ORDER BY rowid LIMIT ?2 OFFSET ?3",
                     )?;
                     let mapped = statement.query_map(
                         [

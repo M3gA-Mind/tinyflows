@@ -43,7 +43,7 @@ fn bounded_page_query(
             let expression = expression
                 .split_once(" AS ")
                 .map_or(expression.as_str(), |(expression, _)| expression);
-            format!("COALESCE(octet_length(CAST(({expression}) AS BLOB)), 0)")
+            format!("COALESCE(octet_length(({expression})), 0)")
         })
         .collect::<Vec<_>>()
         .join(" + ");
