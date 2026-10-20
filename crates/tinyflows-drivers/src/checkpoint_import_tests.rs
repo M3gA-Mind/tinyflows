@@ -117,6 +117,74 @@ async fn duplicate_legacy_control_writes_keep_the_last_value() {
     assert_eq!(writes[0].payload, json!("latest"));
 }
 
+#[tokio::test]
+async fn a_later_import_batch_preserves_writes_the_target_already_holds() {
+    let storage = MemoryStorage::new();
+    let docs = Arc::clone(
+        storage
+            .for_scope(&Scope::new("local").unwrap())
+            .unwrap()
+            .documents(),
+    );
+    let checkpointer = DriverCheckpointer::<Value>::new(docs);
+    checkpointer
+        .put(Checkpoint {
+            thread_id: "legacy-control-batches".into(),
+            checkpoint_id: "legacy-checkpoint-control-batches".into(),
+            run_id: Some("run-owner".into()),
+            parent_checkpoint_id: None,
+            namespace: vec![],
+            state: json!({}),
+            next_nodes: vec![NodeId::new("node")],
+            completed_tasks: vec![],
+            pending_writes: vec![],
+            interrupts: vec![],
+            pending_activations: None,
+            barrier_arrivals: vec![],
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+    let config = CheckpointConfig {
+        thread_id: "legacy-control-batches".into(),
+        checkpoint_id: Some("legacy-checkpoint-control-batches".into()),
+        namespace: vec![],
+    };
+
+    let first = checkpointer
+        .import_writes_if_absent(
+            &config,
+            &[PendingWrite::data(
+                "node",
+                "retry",
+                -1,
+                "resume",
+                json!("first batch"),
+            )],
+        )
+        .await
+        .unwrap();
+    let second = checkpointer
+        .import_writes_if_absent(
+            &config,
+            &[PendingWrite::data(
+                "node",
+                "retry",
+                -1,
+                "resume",
+                json!("second batch"),
+            )],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first, (1, 0));
+    assert_eq!(second, (0, 1));
+    let writes = checkpointer.get_writes(&config).await.unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].payload, json!("first batch"));
+}
+
 #[cfg(feature = "catalog")]
 #[tokio::test]
 async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_retry_state() {
