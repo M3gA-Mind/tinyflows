@@ -72,7 +72,7 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
             pending_approvals_json:
                 serde_json::to_string(&source_row.pending_approvals).unwrap(),
             error: None,
-            graph_hash: source_row.graph_hash,
+            graph_hash: None,
         },
     )];
     records.extend(checkpoints.into_iter().map(|checkpoint| {
