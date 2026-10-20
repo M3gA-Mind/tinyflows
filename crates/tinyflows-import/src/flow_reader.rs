@@ -39,6 +39,17 @@ fn bounded_page_query(table: &str, fields: &[String], order: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
+    // An over-limit order key belongs to an invalid row; treating that key as
+    // NULL may reorder invalid rows, while valid rows keep the legacy ordering.
+    let order = order
+        .split(',')
+        .map(|key| {
+            format!(
+                "CASE WHEN COALESCE(octet_length({key}), 0) <= ?1 THEN {key} END"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     format!("SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2")
 }
 
