@@ -37,7 +37,7 @@ pub(super) async fn import(
     let docs = Arc::clone(&port) as Arc<dyn DocumentStore>;
     let catalog = FlowCatalogDocuments::new(Arc::clone(&docs));
     let checkpointer = DriverCheckpointer::<Value>::new(docs);
-    tinyflows_import::apply_legacy_batch(&request.records, &catalog, &checkpointer)
+    tinyflows_import::apply_legacy_batch(&request.records, &catalog, Some(&checkpointer))
         .await
         .map_err(failure)
 }

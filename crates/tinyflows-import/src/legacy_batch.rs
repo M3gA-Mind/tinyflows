@@ -33,7 +33,7 @@ struct Counts {
 pub async fn apply_legacy_batch(
     records: &[LegacyImportRecord],
     catalog: &FlowCatalogDocuments,
-    checkpointer: &DriverCheckpointer<Value>,
+    checkpointer: Option<&DriverCheckpointer<Value>>,
 ) -> Result<ImportLegacyBatchResponse> {
     let mut counts: BTreeMap<LegacyImportKind, Counts> = BTreeMap::new();
     let mut problems = Vec::new();
@@ -296,7 +296,10 @@ pub async fn apply_legacy_batch(
             ),
         }
     }
-    replay(checkpointer, checkpoints, writes, &mut counts).await?;
+    if !checkpoints.is_empty() || !writes.is_empty() {
+        let checkpointer = checkpointer.context("checkpoint import requires a scoped checkpointer")?;
+        replay(checkpointer, checkpoints, writes, &mut counts).await?;
+    }
     Ok(ImportLegacyBatchResponse {
         tallies: counts
             .into_iter()
