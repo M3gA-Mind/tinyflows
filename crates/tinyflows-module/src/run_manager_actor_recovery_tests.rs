@@ -289,7 +289,7 @@ async fn running_fixture() -> RunningFixture {
         graph: graph_json,
         trigger_kind: FlowRunTrigger::Rpc,
         trigger_data: json!({"id":"dedup-item"}),
-        inputs: Map::new(),
+        inputs: Some(Map::new()),
         timeout_ms: 20_000,
     };
     let started_at = chrono::Utc::now().to_rfc3339();

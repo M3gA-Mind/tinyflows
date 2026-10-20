@@ -7,12 +7,13 @@ use serde_json::{Map, Value};
 use tinyflows::compiler;
 use tinyflows::engine::Checkpointer as _;
 use tinyflows_bus::runs::{
-    FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, RunEvent, StartRun,
+    FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, RunEvent,
 };
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
 use super::preparation::Prepared;
+use super::actor::ActorRunRequest;
 use super::{PARKED, RUNNING, active, key, reserve_resume, unregister};
 use crate::catalog_documents::Documents;
 
@@ -208,15 +209,13 @@ pub(super) async fn resume(
         bail!(error)
     }
     let compiled = compiler::compile(&graph).context("compiling pinned execution graph")?;
-    let mut inputs = Map::new();
-    let (trigger_kind, trigger_data) = if legacy {
-        // Resume execution reads its durable checkpoint, not StartRun input.
-        // These private actor fields are not emitted or persisted for legacy
-        // rows, whose original trigger metadata was never stored.
-        (FlowRunTrigger::Rpc, Value::Null)
+    let (inputs, trigger) = if legacy {
+        // A legacy row has no trustworthy original trigger or declared-input
+        // metadata. Resume execution consumes the durable checkpoint directly.
+        (None, None)
     } else {
         let snapshot = snapshot.as_ref().expect("non-legacy snapshot was present");
-        inputs = serde_json::from_value(
+        let inputs: Map<String, Value> = serde_json::from_value(
             snapshot
                 .get("inputs")
                 .cloned()
@@ -236,18 +235,15 @@ pub(super) async fn resume(
             .get("trigger_data")
             .cloned()
             .context("run snapshot omitted trigger data")?;
-        (trigger_kind, trigger_data)
+        (Some(inputs), Some((trigger_kind, trigger_data)))
     };
-    let run = StartRun {
+    let run = ActorRunRequest {
         run_id: request.run_id.clone(),
         context,
         caps_host: request.caps_host.clone(),
         storage: request.storage.clone(),
-        graph: serde_json::to_value(&compiled.graph)?,
-        trigger_kind,
-        trigger_data,
-        inputs: inputs.clone(),
         timeout_ms: request.timeout_ms,
+        trigger,
     };
 
     let documents: Arc<dyn DocumentStore> =

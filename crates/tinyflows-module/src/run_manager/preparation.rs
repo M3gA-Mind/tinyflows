@@ -21,7 +21,7 @@ use super::super::catalog_documents::Documents;
 pub(super) struct Prepared {
     pub catalog: FlowCatalogDocuments,
     pub compiled: CompiledWorkflow,
-    pub inputs: Map<String, Value>,
+    pub inputs: Option<Map<String, Value>>,
     pub checkpointer: DriverCheckpointer<Value>,
     pub require_approval: bool,
     pub checkpoint_thread_id: String,
@@ -65,7 +65,7 @@ pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Resu
     Ok(Prepared {
         catalog,
         compiled,
-        inputs: request.inputs.clone(),
+        inputs: Some(request.inputs.clone()),
         checkpointer: DriverCheckpointer::new(document_port),
         require_approval: saved.require_approval,
         checkpoint_thread_id: request.run_id.clone(),
