@@ -4,6 +4,8 @@ mod authoring_contract_calls;
 mod authoring_surface_artifact;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/catalog_legacy_import_artifact_tests.rs"]
+mod catalog_legacy_import_artifact_tests;
 #[path = "support/copilot_artifact.rs"]
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]

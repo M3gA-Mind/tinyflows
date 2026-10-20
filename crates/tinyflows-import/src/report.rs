@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-#[cfg(feature = "checkpoint-write")]
+#[cfg(all(
+    feature = "flow-read",
+    any(feature = "flow-write", feature = "checkpoint-write")
+))]
 fn legacy_kind_name(kind: tinyflows_bus::catalog::LegacyImportKind) -> &'static str {
     use tinyflows_bus::catalog::LegacyImportKind as Kind;
     match kind {
@@ -37,7 +40,10 @@ pub struct ImportReport {
 }
 
 impl ImportReport {
-    #[cfg(feature = "checkpoint-write")]
+    #[cfg(all(
+        feature = "flow-read",
+        any(feature = "flow-write", feature = "checkpoint-write")
+    ))]
     pub(crate) fn merge_legacy_batch(
         &mut self,
         response: tinyflows_bus::catalog::ImportLegacyBatchResponse,
