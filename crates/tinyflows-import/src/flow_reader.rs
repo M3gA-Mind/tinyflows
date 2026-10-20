@@ -52,8 +52,14 @@ fn bounded_page_query(
         .map(|(_, alias)| format!("CASE WHEN __bytes <= ?1 THEN {alias} END"))
         .collect::<Vec<_>>()
         .join(", ");
+    let guarded = fields
+        .iter()
+        .map(|(_, alias)| format!("CASE WHEN ({size}) <= ?1 THEN {alias} END"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = projection;
     format!(
-        "WITH source AS (SELECT {projection}, ({size}) AS __bytes FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2) SELECT {guarded}, (__bytes > ?1) FROM source"
+        "SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2"
     )
 }
 
