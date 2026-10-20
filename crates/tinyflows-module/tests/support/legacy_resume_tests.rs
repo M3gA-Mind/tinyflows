@@ -70,7 +70,12 @@ async fn compiled_module_continues_a_legacy_parked_run_without_a_snapshot() {
     assert_eq!(resumed.run_id, "legacy-run");
 
     let terminal = poll_until_done(&runs_proxy, &owner.storage, "legacy-run").await;
-    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
+    assert_eq!(
+        terminal.events.last().unwrap().data["status"],
+        "completed",
+        "terminal event: {:?}",
+        terminal.events.last()
+    );
     let row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",

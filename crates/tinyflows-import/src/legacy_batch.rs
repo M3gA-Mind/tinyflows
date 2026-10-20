@@ -398,28 +398,12 @@ async fn replay(
         }
     }
     for (config, group) in groups {
-        let held: HashSet<(String, i64)> = checkpointer
-            .get_writes(&config)
+        let (written, existing) = checkpointer
+            .import_writes_if_absent(&config, &group)
             .await
-            .map_err(|error| anyhow::anyhow!("{error}"))?
-            .iter()
-            .map(|write| (write.task_id.clone(), write.idx))
-            .collect();
-        let (existing, fresh): (Vec<_>, Vec<_>) = group
-            .into_iter()
-            .partition(|write| held.contains(&(write.task_id.clone(), write.idx)));
-        for _ in existing {
-            tally(counts, LegacyImportKind::Write, false);
-        }
-        if !fresh.is_empty() {
-            checkpointer
-                .put_writes(&config, &fresh)
-                .await
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            for _ in fresh {
-                tally(counts, LegacyImportKind::Write, true);
-            }
-        }
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        counts.entry(LegacyImportKind::Write).or_default().written += written as u64;
+        counts.entry(LegacyImportKind::Write).or_default().existing += existing as u64;
     }
     Ok(())
 }

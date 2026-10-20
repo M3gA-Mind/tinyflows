@@ -39,7 +39,7 @@ async fn invalid_draft_is_reported_and_does_not_stop_later_records() {
         flow_id: None,
         name: "unsafe".into(),
         graph: json!({}),
-        origin: tinyflows_catalog::DraftOrigin::Scratch,
+        origin: tinyflows_catalog::DraftOrigin::Canvas,
         created_at: "2025-01-01T00:00:00Z".into(),
         updated_at: "2025-01-01T00:00:00Z".into(),
     })
@@ -49,14 +49,14 @@ async fn invalid_draft_is_reported_and_does_not_stop_later_records() {
         flow_id: None,
         name: "Good".into(),
         graph: json!({}),
-        origin: tinyflows_catalog::DraftOrigin::Scratch,
+        origin: tinyflows_catalog::DraftOrigin::Canvas,
         created_at: "2025-01-01T00:00:00Z".into(),
         updated_at: "2025-01-01T00:00:00Z".into(),
     };
-    let mut records = vec![
+    let records = vec![
         LegacyImportRecord::Draft(LegacyDraftRecord {
             file_name: "unsafe.json".into(),
-            bytes: std::mem::take(&mut invalid),
+            bytes: invalid,
         }),
         LegacyImportRecord::Draft(LegacyDraftRecord {
             file_name: "good_draft.json".into(),
@@ -69,7 +69,6 @@ async fn invalid_draft_is_reported_and_does_not_stop_later_records() {
     assert_eq!(response.tallies[0].invalid, 1);
     assert_eq!(response.tallies[0].written, 1);
     assert_eq!(response.problems.len(), 1);
-    records.clear();
 }
 
 #[tokio::test]
