@@ -66,6 +66,57 @@ async fn legacy_write_import_cas_preserves_existing_task_values() {
     assert_eq!(writes[2].payload, json!("imported"));
 }
 
+#[tokio::test]
+async fn duplicate_legacy_control_writes_keep_the_last_value() {
+    let storage = MemoryStorage::new();
+    let docs = Arc::clone(
+        storage
+            .for_scope(&Scope::new("local").unwrap())
+            .unwrap()
+            .documents(),
+    );
+    let checkpointer = DriverCheckpointer::<Value>::new(docs);
+    checkpointer
+        .put(Checkpoint {
+            thread_id: "legacy-control-retry".into(),
+            checkpoint_id: "legacy-checkpoint-control-retry".into(),
+            run_id: Some("run-owner".into()),
+            parent_checkpoint_id: None,
+            namespace: vec![],
+            state: json!({}),
+            next_nodes: vec![NodeId::new("node")],
+            completed_tasks: vec![],
+            pending_writes: vec![],
+            interrupts: vec![],
+            pending_activations: None,
+            barrier_arrivals: vec![],
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+    let config = CheckpointConfig {
+        thread_id: "legacy-control-retry".into(),
+        checkpoint_id: Some("legacy-checkpoint-control-retry".into()),
+        namespace: vec![],
+    };
+
+    let result = checkpointer
+        .import_writes_if_absent(
+            &config,
+            &[
+                PendingWrite::data("node", "retry", -1, "resume", json!("first")),
+                PendingWrite::data("node", "retry", -1, "resume", json!("latest")),
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result, (2, 0));
+    let writes = checkpointer.get_writes(&config).await.unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].payload, json!("latest"));
+}
+
 #[cfg(feature = "catalog")]
 #[tokio::test]
 async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_retry_state() {
