@@ -19,6 +19,11 @@ pub(super) async fn import(
     if request.records.len() > tinyflows_bus::catalog::MAX_IMPORT_BATCH_RECORDS {
         return Err(Error::failed("legacy import batch exceeds record limit"));
     }
+    if serde_json::to_vec(&request.storage).map_err(failure)?.len()
+        > tinyflows_bus::catalog::MAX_IMPORT_REQUEST_ENVELOPE_BYTES
+    {
+        return Err(Error::failed("legacy import storage envelope exceeds byte limit"));
+    }
     if serde_json::to_vec(&request).map_err(failure)?.len()
         > tinyflows_bus::catalog::MAX_IMPORT_BATCH_BYTES
     {

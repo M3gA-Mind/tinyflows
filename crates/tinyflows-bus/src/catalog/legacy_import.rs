@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 pub const MAX_IMPORT_BATCH_RECORDS: usize = 64;
 /// Maximum serialized request size accepted by Catalog for one import call.
 pub const MAX_IMPORT_BATCH_BYTES: usize = 2 * 1024 * 1024;
+/// Maximum serialized non-record request envelope, including scoped callback.
+pub const MAX_IMPORT_REQUEST_ENVELOPE_BYTES: usize = 4 * 1024;
+/// Maximum serialized record payload after reserving space for the envelope.
+pub const MAX_IMPORT_RECORD_PAYLOAD_BYTES: usize =
+    MAX_IMPORT_BATCH_BYTES - MAX_IMPORT_REQUEST_ENVELOPE_BYTES;
 
 /// The legacy record family a problem or tally refers to.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
