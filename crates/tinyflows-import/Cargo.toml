@@ -41,9 +41,10 @@ schedule-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
 # crates. The catalog module owns applying these records through scoped ports.
 flow-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
 # Shared semantic importer used by both the legacy public API and Catalog bus.
-flow-write = ["engine", "dep:tinyflows-bus", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
+flow-write = ["checkpoint-write", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
 # Host-side checkpoint source reader; kept separate from the engine writer.
-checkpoint-read = ["flow-read"]
+checkpoint-read = ["flow-read", "checkpoint-write"]
+checkpoint-write = ["engine", "dep:tinyflows-bus"]
 
 [dependencies]
 tinyflows = { workspace = true, optional = true }
