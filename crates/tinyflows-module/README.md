@@ -1,13 +1,13 @@
 # TinyFlows module
 
-The compiled TinyBus module serves Authoring and Schedule objects under the
-shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
-`tinyflows-bus` contract and call the compiled module. The module manifest
-advertises each interface's exact member set. The Runs control surface remains
-a skeleton; its v1 `CapsHost` interface is a host-served callback contract used
-by the module's run-capability adapter.
+The compiled TinyBus module serves Authoring, Schedule, Catalog, Portability,
+and Runs objects under the shared `ai.tinyhumans.tinyflows` bus name. Hosts
+import the `tinyflows-bus` contract and call the compiled module. The module
+manifest advertises each interface's exact member set. Runs owns run lifecycle;
+its v2 `CapsHost` interface is the host-served callback contract used by the
+module's run-capability adapter.
 
-### CapsHost callbacks (contract v1)
+### CapsHost callbacks (contract v2)
 
 The run manager supplies a `tinyflows_bus::runs::CapsHost` address and a
 separate trusted `RunScope` to `caps::CapsHostPorts::capabilities`. The host
@@ -28,7 +28,10 @@ to 10,000 entries. The typed terminal outcome may arrive on an empty final
 page. Its settled host transcript is kept when present; progress entries fill
 the transcript only when the terminal transcript is empty. Callback transport,
 decode and cursor errors surface as capability failures, and approval errors
-cannot become a pending review.
+cannot become a pending review. Each `AgentRun` carries a module-generated
+`client_request_id`; if the callback future exits before accepting a valid
+terminal response, a bounded best-effort `AgentCancel` uses that same id to
+cancel the individual host request.
 
 Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound
@@ -169,9 +172,18 @@ bash scripts/verify-module-artifact.sh
 ```
 # Portability service
 
-The compiled module provides `ai.tinyhumans.tinyflows.Portability` from
-`tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
-case-insensitive app-event binding, and literal pinned trigger inputs. The host
-continues to resolve and authorize credentials; the module only formats the
-provided scheme and prepares the request.
+The compiled module provides `ai.tinyhumans.tinyflows.Portability` contract v4
+from `tinyflows-bus`. Hosts call it for HTTP credential rendering/injection,
+credential-reference inspection and a method/URL summary, LLM and agent prompt
+preparation/result formatting, case-insensitive app-event binding, and literal
+pinned trigger inputs. Inspection accepts the
+request but no resolved-credential argument. Its result omits request headers
+and body, including any inline values in them; the summarized URL may itself
+contain sensitive data. The credential name is the exact value parsed by the
+TinyFlows helper; the module applies no additional suffix normalization. The
+host continues to resolve and authorize credentials, then may apply its own
+lookup policy before sending a resolved header through `PrepareHttpRequest` for
+injection. The LLM/agent methods keep generic request normalization, prompt
+composition, timeout precedence and structured-output formatting in the module;
+the host retains provider selection and its execution policy.
 

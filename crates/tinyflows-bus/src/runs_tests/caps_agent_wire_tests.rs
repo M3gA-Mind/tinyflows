@@ -75,6 +75,7 @@ fn agent_capability_records_round_trip_and_match_fixtures() {
     );
     pin(
         AgentRunRequest {
+            client_request_id: "request-1".into(),
             agent: AgentDefinition {
                 id: "researcher".into(),
                 ..AgentDefinition::default()
@@ -93,7 +94,7 @@ fn agent_capability_records_round_trip_and_match_fixtures() {
             output_schema: None,
             config: serde_json::json!({"prompt":"hi"}),
         },
-        serde_json::json!({"agent":{"id":"researcher","name":"","description":"","instructions":null,"model":null,"provider":null,"limits":{},"tools":[],"context":[],"metadata":{}},"model":{},"input":{"text":""},"context":[],"tools":[],"identity":{"node_id":"agent","depth":0},"config":{"prompt":"hi"}}),
+        serde_json::json!({"client_request_id":"request-1","agent":{"id":"researcher","name":"","description":"","instructions":null,"model":null,"provider":null,"limits":{},"tools":[],"context":[],"metadata":{}},"model":{},"input":{"text":""},"context":[],"tools":[],"identity":{"node_id":"agent","depth":0},"config":{"prompt":"hi"}}),
     );
     pin(
         AgentRunHandle {

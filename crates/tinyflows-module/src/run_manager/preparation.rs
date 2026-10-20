@@ -118,8 +118,8 @@ fn validate_addresses(request: &StartRun) -> Result<()> {
     Ok(())
 }
 
-struct SavedWorkflowResolver {
-    catalog: FlowCatalogDocuments,
+pub(super) struct SavedWorkflowResolver {
+    pub(super) catalog: FlowCatalogDocuments,
 }
 
 #[async_trait]

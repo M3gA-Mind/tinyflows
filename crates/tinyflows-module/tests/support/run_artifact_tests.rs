@@ -2,12 +2,16 @@ use super::*;
 
 #[path = "approval_park_tests.rs"]
 mod approval_park_tests;
-#[path = "dedup_snapshot_test.rs"]
-mod dedup_snapshot_test;
-#[path = "failed_run_test.rs"]
-mod failed_run_test;
+#[path = "dedup_snapshot_tests.rs"]
+mod dedup_snapshot_tests;
+#[path = "failed_run_tests.rs"]
+mod failed_run_tests;
+#[path = "legacy_null_graph_hash_tests.rs"]
+mod legacy_null_graph_hash_tests;
 #[path = "run_lifecycle_tests.rs"]
 mod run_lifecycle_tests;
+#[path = "run_resume_compatibility_tests.rs"]
+mod run_resume_compatibility_tests;
 #[path = "run_resume_tests.rs"]
 mod run_resume_tests;
 use std::sync::{
@@ -26,6 +30,9 @@ use run_artifact_poll::{assert_terminal_outcome, poll_until_done, poll_until_kin
 #[path = "../run_artifact/support.rs"]
 mod run_artifact_support;
 use run_artifact_support::*;
+
+#[path = "run_summary_tests.rs"]
+mod run_summary_tests;
 
 #[path = "../run_artifact/sandbox.rs"]
 mod sandbox;
@@ -234,8 +241,10 @@ async fn compiled_module_runs_scoped_graphs_and_streams_persisted_progress() {
     assert!(duplicate.already_running);
     assert_eq!(alice_agent.calls.load(Ordering::SeqCst), 1);
 
-    let bob_started: runs::StartRunResponse =
-        runs_proxy.call("StartRun", (bob_start,)).await.unwrap();
+    let bob_started: runs::StartRunResponse = runs_proxy
+        .call("StartRun", (bob_start.clone(),))
+        .await
+        .unwrap();
     assert!(!bob_started.already_running);
     wait_notify(&bob_agent.started, "bob agent start").await;
     assert_eq!(bob_agent.calls.load(Ordering::SeqCst), 1);

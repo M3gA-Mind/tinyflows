@@ -18,12 +18,16 @@ pub(super) fn finished_payload(
     status: &str,
     error: Option<String>,
     graph_run_id: Option<String>,
+    output: Option<Value>,
+    timed_out: bool,
 ) -> RunFinished {
     RunFinished {
         status: status.to_owned(),
         successful: tinyflows::nodes::control_flow::dedup_settle::is_success_status(status),
         error,
         graph_run_id,
+        output,
+        timed_out,
     }
 }
 
@@ -51,11 +55,163 @@ async fn persist_event(
             Ok(event.seq)
         }
         Err(error) => {
-            let message = error.to_string();
+            let message = format!("{error:#}");
             *last_error = Some(message.clone());
             Err(anyhow::anyhow!(message))
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutcomeEventState {
+    Committed,
+    Unwritten,
+    Conflicting,
+}
+
+/// Retries a parked or terminal outcome at the same sequence and, only after
+/// confirming it is unwritten, retries without its potentially large output.
+async fn persist_outcome_event(
+    catalog: &FlowCatalogDocuments,
+    run_id: &str,
+    seq: &mut u64,
+    kind: &str,
+    data: Value,
+    last_error: &mut Option<String>,
+) -> Result<u64> {
+    let prior_error = last_error.clone();
+    let next_seq = seq.saturating_add(1);
+    match persist_event(
+        catalog,
+        run_id,
+        seq,
+        kind.into(),
+        data.clone(),
+        None,
+        last_error,
+    )
+    .await
+    {
+        Ok(seq) => return Ok(seq),
+        Err(error) => {
+            tracing::warn!(%error, run_id, event_kind = kind, "run outcome event append failed; retrying identical event")
+        }
+    }
+
+    match persist_event(
+        catalog,
+        run_id,
+        seq,
+        kind.into(),
+        data.clone(),
+        None,
+        last_error,
+    )
+    .await
+    {
+        Ok(seq) => {
+            *last_error = prior_error.clone();
+            return Ok(seq);
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id, event_kind = kind, "identical run outcome retry failed; checking durable cursor")
+        }
+    }
+
+    match outcome_event_state(catalog, run_id, next_seq, kind, &[&data]).await? {
+        OutcomeEventState::Committed => {
+            *seq = next_seq;
+            *last_error = prior_error.clone();
+            return Ok(next_seq);
+        }
+        OutcomeEventState::Unwritten => {}
+        OutcomeEventState::Conflicting => {
+            return Err(anyhow::anyhow!(
+                last_error
+                    .clone()
+                    .unwrap_or_else(|| "run outcome event was not persisted".into())
+            ));
+        }
+    }
+
+    let Some(fallback) = outcome_without_output(data.clone()) else {
+        return Err(anyhow::anyhow!(
+            last_error
+                .clone()
+                .unwrap_or_else(|| "run outcome event was not persisted".into())
+        ));
+    };
+    tracing::warn!(
+        run_id,
+        event_kind = kind,
+        "retrying the confirmed-unwritten run outcome without its optional output"
+    );
+    let result = persist_event(
+        catalog,
+        run_id,
+        seq,
+        kind.into(),
+        fallback.clone(),
+        None,
+        last_error,
+    )
+    .await;
+    match result {
+        Ok(seq) => {
+            *last_error = prior_error;
+            Ok(seq)
+        }
+        Err(error) => {
+            match outcome_event_state(catalog, run_id, next_seq, kind, &[&data, &fallback]).await? {
+                OutcomeEventState::Committed => {
+                    *seq = next_seq;
+                    *last_error = prior_error;
+                    Ok(next_seq)
+                }
+                OutcomeEventState::Unwritten | OutcomeEventState::Conflicting => Err(error),
+            }
+        }
+    }
+}
+
+async fn outcome_event_state(
+    catalog: &FlowCatalogDocuments,
+    run_id: &str,
+    seq: u64,
+    kind: &str,
+    candidates: &[&Value],
+) -> Result<OutcomeEventState> {
+    let last_seq = catalog.flow_run_event_last_seq(run_id).await?;
+    if last_seq == seq.saturating_sub(1) {
+        return Ok(OutcomeEventState::Unwritten);
+    }
+    if last_seq != seq {
+        return Ok(OutcomeEventState::Conflicting);
+    }
+    let events = catalog
+        .flow_run_events_after(run_id, seq.saturating_sub(1), 1)
+        .await?;
+    let Some(persisted) = events.first() else {
+        return Ok(OutcomeEventState::Conflicting);
+    };
+    for data in candidates {
+        let expected = serde_json::to_value(RunEvent {
+            seq,
+            kind: kind.to_owned(),
+            data: (*data).clone(),
+            graph_run_id: None,
+        })?;
+        if persisted == &expected {
+            return Ok(OutcomeEventState::Committed);
+        }
+    }
+    Ok(OutcomeEventState::Conflicting)
+}
+
+fn outcome_without_output(mut data: Value) -> Option<Value> {
+    let object = data.as_object_mut()?;
+    object.remove("output")?;
+    Some(data)
 }
 
 enum WriteCommand {
@@ -118,16 +274,29 @@ impl EventWriter {
                             continue;
                         }
                         let seals_stream = kind == "finished";
-                        let ack_result = persist_event(
-                            &catalog,
-                            &run_id,
-                            &mut seq,
-                            kind,
-                            data,
-                            graph_run_id,
-                            &mut last_error,
-                        )
-                        .await;
+                        let carries_outcome = matches!(kind.as_str(), "finished" | "parked");
+                        let ack_result = if carries_outcome {
+                            persist_outcome_event(
+                                &catalog,
+                                &run_id,
+                                &mut seq,
+                                &kind,
+                                data,
+                                &mut last_error,
+                            )
+                            .await
+                        } else {
+                            persist_event(
+                                &catalog,
+                                &run_id,
+                                &mut seq,
+                                kind,
+                                data,
+                                graph_run_id,
+                                &mut last_error,
+                            )
+                            .await
+                        };
                         if seals_stream && ack_result.is_ok() {
                             terminal = true;
                         }
@@ -309,6 +478,9 @@ fn record_step(steps: &Mutex<Vec<FlowRunStep>>, step: FlowRunStep) {
     }
 }
 
+#[cfg(test)]
+#[path = "events_persistence_tests.rs"]
+mod persistence_tests;
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod tests;

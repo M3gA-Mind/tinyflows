@@ -180,6 +180,8 @@ impl Authoring {
         let report = super::validation::validate_graph(graph, None)
             .await
             .map_err(|error| Error::failed(error.to_string()))?;
+        let mut warnings = warnings;
+        warnings.extend(report.warnings.iter().cloned());
         Ok(tinyflows_bus::ImportGraphResult {
             graph: report.graph,
             warnings,

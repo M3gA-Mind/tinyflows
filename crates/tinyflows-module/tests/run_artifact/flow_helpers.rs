@@ -29,6 +29,22 @@ async fn serve_agent_with_failure(
         .await
         .unwrap();
     connection.request_name("test.CapsHost").await.unwrap();
+    let caps_interface = tinybus::InterfaceName::new(tinyflows_bus::runs::CAPS_INTERFACE).unwrap();
+    connection
+        .announce(
+            &tinybus::PeerManifest::new("tinyflows-module-test-host").provides(
+                tinybus::InterfaceVersion::provided(
+                    caps_interface,
+                    tinybus::Version::new(
+                        u64::from(tinyflows_bus::runs::CAPS_CONTRACT_VERSION),
+                        0,
+                        0,
+                    ),
+                ),
+            ),
+        )
+        .await
+        .unwrap();
     callback
 }
 

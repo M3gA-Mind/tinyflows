@@ -149,6 +149,39 @@ async fn bus_dispatch_returns_typed_validation_report() {
         .unwrap();
     assert_eq!(report.errors[0].code, "unparseable_graph");
     assert!(!report.is_valid());
+    assert!(report.warnings.is_empty());
+    assert_eq!(report.summary, None);
+    assert_eq!(report.has_actionable_nodes, None);
+
+    let analyzed: GraphValidation = proxy
+        .call(
+            tinyflows_bus::methods::VALIDATE_GRAPH,
+            &(tinyflows_bus::ValidateGraphRequest {
+                graph: json!({
+                    "nodes": [
+                        {"id":"start","name":"Start","kind":"trigger","config":{"trigger_kind":"webhook"}},
+                        {"id":"parse","name":"Parse","kind":"output_parser","config":{}}
+                    ],
+                    "edges": [{"from_node":"start","to_node":"parse"}]
+                }),
+                host: None,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(analyzed.is_valid(), "{:?}", analyzed.errors);
+    assert_eq!(
+        analyzed.warnings,
+        vec!["Trigger kind 'webhook' does not fire automatically yet — this flow will be saved and can be enabled, but nothing will run it on its own until that trigger is wired up. Run it manually with flows_run, or switch to a `schedule` or `app_event` trigger.".to_string()]
+    );
+    assert_eq!(
+        analyzed.summary,
+        Some(json!({
+            "trigger":"webhook",
+            "steps":[{"kind":"output_parser","name":"Parse"}]
+        }))
+    );
+    assert_eq!(analyzed.has_actionable_nodes, Some(true));
 }
 
 #[tokio::test]

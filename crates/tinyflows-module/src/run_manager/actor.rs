@@ -1,5 +1,6 @@
 //! Execution, persistence and settlement for a single admitted run.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,35 +13,48 @@ use tinyflows::{
     },
     nodes::control_flow::dedup_settle,
 };
-use tinyflows_bus::runs::{ResumeRun, RunContext, StartRun};
+use tinyflows_bus::runs::{ResumeRun, RunParked, StartRun};
 use tinyflows_catalog::{FlowRunStep, run_summary};
-use tinyflows_drivers::catalog::{FlowCatalogDocuments, FlowStateDocuments};
 use tokio::time::sleep;
 
+use super::dedup_settlement::DedupSettlementScope;
 use super::events::{EventWriter, Observer};
 use super::preparation::Prepared;
 use super::{ActiveRun, PARKED, unregister};
 use crate::caps::{CapsHostPorts, RunScope};
 
-pub(super) async fn drive(
+use super::actor_recovery::ActorRecoveryGuard;
+
+pub(super) fn drive(
     connection: tinybus::Connection,
     request: StartRun,
     prepared: Prepared,
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
-) {
-    drive_inner(
-        connection,
-        request,
-        prepared,
-        active,
-        admitted,
-        Continuation::Start,
-    )
-    .await;
+) -> impl Future<Output = ()> + Send + 'static {
+    let recovery = ActorRecoveryGuard::new(
+        &prepared.catalog,
+        &prepared.checkpointer,
+        &request.storage,
+        &request.run_id,
+        Arc::clone(&active),
+    );
+    async move {
+        let mut recovery = recovery;
+        drive_inner(
+            connection,
+            request,
+            prepared,
+            active,
+            admitted,
+            Continuation::Start,
+        )
+        .await;
+        recovery.disarm();
+    }
 }
 
-pub(super) async fn drive_resume(
+pub(super) fn drive_resume(
     connection: tinybus::Connection,
     request: StartRun,
     prepared: Prepared,
@@ -48,20 +62,31 @@ pub(super) async fn drive_resume(
     admitted: tokio::sync::oneshot::Receiver<()>,
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
-) {
-    drive_inner(
-        connection,
-        request,
-        prepared,
-        active,
-        admitted,
-        Continuation::Resume {
-            approvals: resume.approvals,
-            rejections: resume.rejections,
-            previous_steps,
-        },
-    )
-    .await;
+) -> impl Future<Output = ()> + Send + 'static {
+    let recovery = ActorRecoveryGuard::new(
+        &prepared.catalog,
+        &prepared.checkpointer,
+        &request.storage,
+        &request.run_id,
+        Arc::clone(&active),
+    );
+    async move {
+        let mut recovery = recovery;
+        drive_inner(
+            connection,
+            request,
+            prepared,
+            active,
+            admitted,
+            Continuation::Resume {
+                approvals: resume.approvals,
+                rejections: resume.rejections,
+                previous_steps,
+            },
+        )
+        .await;
+        recovery.disarm();
+    }
 }
 
 enum Continuation {
@@ -82,6 +107,8 @@ async fn drive_inner(
     continuation: Continuation,
 ) {
     let _ = admitted.await;
+    #[cfg(test)]
+    super::actor_recovery_tests::pause_after_admission_for_test(&request.run_id).await;
     let initial_seq = prepared
         .catalog
         .flow_run_event_last_seq(&request.run_id)
@@ -135,14 +162,14 @@ async fn drive_inner(
     };
     let observed = observer.steps();
     let mut graph_run_id = None;
-    let mut output = Value::Null;
+    let mut output = None;
     let mut pending_approvals = Vec::new();
     let mut failure = None;
     let mut cancelled = active.token.is_cancelled();
     match result {
         Ok((outcome, graph_id)) => {
             graph_run_id = graph_id;
-            output = outcome.output;
+            output = Some(outcome.output);
             pending_approvals = outcome.pending_approvals;
             cancelled |= outcome.cancelled;
         }
@@ -155,7 +182,8 @@ async fn drive_inner(
         failure.get_or_insert(error);
     }
 
-    let settled_steps = run_summary::settle_steps(observed, &output);
+    let output_value = output.clone().unwrap_or(Value::Null);
+    let settled_steps = run_summary::settle_steps(observed, &output_value);
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
     let status = if pending {
         "pending_approval"
@@ -197,7 +225,7 @@ async fn drive_inner(
         )
         .await;
     match finish {
-        Ok(true) => {}
+        Ok(true) => super::record_settled_summary(&prepared.catalog, &request.run_id, status).await,
         Ok(false) => {
             tracing::warn!(run_id = %request.run_id, "run row was settled by another owner");
             unregister(&active);
@@ -213,7 +241,12 @@ async fn drive_inner(
     if pending {
         writer.emit(
             "parked",
-            json!({"pending_approvals":pending_approvals,"graph_hash":graph_hash}),
+            serde_json::to_value(RunParked {
+                output,
+                pending_approvals,
+                graph_hash,
+            })
+            .unwrap_or(Value::Null),
         );
         if let Some(error) = writer.flush().await {
             tracing::error!(%error, run_id = %request.run_id, "parked run events did not drain cleanly");
@@ -222,8 +255,13 @@ async fn drive_inner(
             .phase
             .store(PARKED, std::sync::atomic::Ordering::Release);
         if active.token.is_cancelled() {
-            if let Err(error) =
-                super::cancellation::cancel_parked(&prepared, &request.run_id, &writer).await
+            if let Err(error) = super::cancellation::cancel_parked(
+                &prepared,
+                &request.storage,
+                &request.run_id,
+                &writer,
+            )
+            .await
             {
                 tracing::error!(%error, run_id = %request.run_id, "settling cancellation after park");
             }
@@ -237,14 +275,16 @@ async fn drive_inner(
         .store(super::TERMINAL, std::sync::atomic::Ordering::Release);
 
     let success = dedup_settle::is_success_status(status);
-    settle_dedup(
-        prepared.catalog.clone(),
+    let _dedup_settlement = DedupSettlementScope::acquire(
+        &request.storage,
         &request.context,
         &prepared.compiled.graph,
-        success,
         &request.run_id,
     )
     .await;
+    _dedup_settlement
+        .settle(prepared.catalog.clone(), success)
+        .await;
     if cancelled || timed_out {
         delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
     }
@@ -253,6 +293,8 @@ async fn drive_inner(
             status,
             error_text.clone(),
             graph_run_id.clone(),
+            output,
+            timed_out,
         ))
         .await
     {
@@ -351,38 +393,6 @@ async fn execute(
         })
         .map(|outcome| (outcome.outcome, Some(outcome.graph_run_ids.run_id)));
     (result, timed_out)
-}
-
-pub(super) async fn settle_dedup(
-    catalog: FlowCatalogDocuments,
-    context: &RunContext,
-    graph: &tinyflows::model::WorkflowGraph,
-    success: bool,
-    run_id: &str,
-) {
-    let ids = graph
-        .nodes
-        .iter()
-        .filter(|node| node.kind == tinyflows::model::NodeKind::Dedup)
-        .map(|node| node.id.clone())
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return;
-    }
-    let namespace = format!("flow:{}", context.flow_id);
-    let run_id = run_id.to_owned();
-    match tokio::task::spawn_blocking(move || {
-        let state = FlowStateDocuments::new(catalog, namespace);
-        for node in ids {
-            let settled = dedup_settle::settle(&state, &node, success);
-            tracing::debug!(run_id, node_id = node, ?settled, "settled dedup node state");
-        }
-    })
-    .await
-    {
-        Ok(()) => {}
-        Err(error) => tracing::error!(%error, "dedup settlement worker failed"),
-    }
 }
 
 pub(super) async fn delete_checkpoints(

@@ -22,11 +22,10 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::caps::HttpClient;
-pub use crate::caps::http_credential::{HttpCredential, inject_credential};
+pub use crate::caps::http_credential::{
+    HTTP_CRED_PREFIX, HttpCredential, http_cred_name, inject_credential, redacted_summary,
+};
 use crate::error::{EngineError, Result};
-
-/// The `connection_ref` prefix naming an HTTP credential.
-pub const HTTP_CRED_PREFIX: &str = "http_cred:";
 
 /// How long a workflow HTTP request waits for a TCP/TLS connection.
 ///
@@ -45,42 +44,6 @@ const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 /// that follows a successful resolution — a resolver that never answers is
 /// not covered by it at all.
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// The credential name inside a `connection_ref`, if it names one.
-///
-/// Fails closed: a `connection_ref` that is present but not an HTTP credential
-/// reference is an error rather than a silently unauthenticated request, because
-/// silently dropping the credential would send the call anyway.
-pub fn http_cred_name(conn: Option<&str>) -> Result<Option<&str>> {
-    let Some(conn) = conn.map(str::trim).filter(|c| !c.is_empty()) else {
-        return Ok(None);
-    };
-    conn.strip_prefix(HTTP_CRED_PREFIX)
-        .map(Some)
-        .filter(|name| name.is_some_and(|n| !n.is_empty()))
-        .ok_or_else(|| {
-            EngineError::Capability(format!(
-                "http_request: unrecognised connection_ref '{conn}'; expected \
-                 '{HTTP_CRED_PREFIX}<name>'"
-            ))
-        })
-}
-
-/// Merge `cred` into `request`'s headers, returning the request to send.
-///
-/// Called last, after the request has been described for logs or approval, so
-/// the secret exists only in the value handed to the transport.
-/// A description of a request safe to log or show for approval: method and URL
-/// only, never headers or body.
-pub fn redacted_summary(request: &Value) -> String {
-    let method = request
-        .get("method")
-        .and_then(Value::as_str)
-        .unwrap_or("GET")
-        .to_ascii_uppercase();
-    let url = request.get("url").and_then(Value::as_str).unwrap_or("");
-    format!("{method} {url}")
-}
 
 /// The hosts an `http_request` node may reach.
 ///

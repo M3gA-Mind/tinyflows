@@ -60,13 +60,13 @@ pub(crate) type Interjection = Box<
         + Send,
 >;
 
-/// A store that runs one scripted write against the store it wraps the
-/// first time a chosen read happens, so a test can land another process's
-/// change in an exact gap between two steps of an operation.
+/// A store that runs one scripted write against the store it wraps on the
+/// first selected read or write, so a test can land another process's change
+/// in an exact gap between two steps of an operation.
 #[derive(Debug)]
 pub(crate) struct Interposed {
     inner: Arc<dyn DocumentStore>,
-    /// `("query" | "get" | "delete", collection)` that triggers the interjection.
+    /// `("get" | "put" | "query" | "delete", collection)` that triggers it.
     trigger: (&'static str, &'static str),
     interjection: std::sync::Mutex<Option<InterjectionCell>>,
 }
@@ -136,6 +136,7 @@ impl DocumentStore for Interposed {
         doc: serde_json::Value,
         precondition: tinystoragedrivers_core::Precondition,
     ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
+        self.maybe_interject("put", collection).await;
         self.inner.put(collection, id, doc, precondition).await
     }
 

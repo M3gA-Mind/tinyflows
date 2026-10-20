@@ -14,10 +14,10 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 
 | Surface | Status | Members |
 | --- | --- | --- |
-| Authoring | served, v3 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, import, gates, preflight, advisory wiring) |
+| Authoring | served, v4 | `ValidateGraph`, `ImportGraph`, `BindingFailures`, `AuthoringFailures`, `UnresolvableToolArgs`, `BuilderFailures`, `WiringWarnings` (migrate, compat, graph analysis, import, gates, preflight, advisory wiring) |
 | Schedule | served, v4 | scheduler start/stop/tick/drain, durable occurrence leases, queued `RunJobNow`, two-phase `Send`/terminal `Deliver`, captured-job `ScheduleTrigger`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
-| Runs | served, v4 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
-| CapsHost | host callback, v1 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel` |
+| Runs | served, v6 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
+| CapsHost | host callback, v2 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel`, `AgentCancel` |
 | Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
@@ -34,12 +34,18 @@ editors keep the author's work. A request may include the scope-bound
 compatibility walk checks saved sub-workflow children; missing or unavailable
 children retain the engine's existing runtime-diagnostic behavior.
 
+For parseable graphs the v4 result also carries the module's trigger warnings,
+compact authoring summary, and whether an actionable node is reachable from
+the trigger. These values use the same graph helpers as execution and catalog
+policy. Unparseable graphs leave summary and actionability absent.
+
 `ImportGraph` normalizes native and n8n documents without persistence. `auto`
 detects n8n exports, while `native`/`tinyflows` and `n8n` select a format
 explicitly. Format names are trimmed and case-insensitive; an empty format is
 the same as `auto`. The module returns importer warnings separately from
-structural and engine compatibility errors; product trigger warnings remain
-host-owned.
+structural and engine compatibility errors. Its warnings include both
+importer-specific diagnostics and the same module-generated trigger warnings
+as `ValidateGraph`.
 
 ### Run / resume / cancel
 
@@ -73,6 +79,16 @@ with the hash pinned when the run parked, then rebuilds execution from the
 pinned graph and input snapshot. The parked-to-running transition and resumed
 actor lease are one compare-and-swap, so a concurrent resume, expiry, or boot
 sweep cannot replace the winner.
+
+`PollRun` also carries the engine outcome needed by synchronous host
+controllers: a `parked` event's data is `RunParked` (segment output, pending
+approval ids, and the pinned graph hash), and a `finished` event's data is
+`RunFinished` with an optional output and a deadline-cause flag. If an
+output-bearing event exceeds the storage backend's document limit, the module
+retries the same event without only the output field; the parked approval
+metadata or finished status remains pollable. Recovery-only terminal events
+also omit output because no engine outcome exists. These fields are additive
+and default when reading events produced by an older module.
 
 The resumed observer starts with the persisted step prefix, replaces a node's
 parked observation with its resumed result, and seeds the event writer from
@@ -260,7 +276,7 @@ not need implementation-library dependencies.
 3. `ApplyGraphOps` and `ApprovalManifest` served (host classifies).
 4. `CapsHost` callbacks and `StartRun`/`PollRun`/`CancelRun`; core run
    manager shrinks to the host adapter and event-bus projection.
-5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v4).
+5. `ResumeRun`, parked-run expiry, and boot sweep (Runs v6).
 6. `SandboxRun` and the module artifact's mock-only preflight boundary.
 7. Retire remaining direct `tinyflows` links from core; update
    `module-boundaries.json` and the boundary inventory.

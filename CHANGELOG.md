@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Run event outcomes
+
+- **Added** the engine output to `Runs.PollRun` parked and finished event
+  payloads so hosts can preserve synchronous run/resume results without
+  reading module-owned checkpoints. The fields are optional when decoding
+  events from older module versions; recovery events omit output when no engine
+  outcome exists, and finished events identify host-deadline termination.
+
 ### Bounded occurrence lease records
 
 - **Fixed** the `tsd.leases` record kept per cron occurrence (#159). Completing
@@ -16,12 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claims and one-shots keep their released record. Stale holders stay fenced
   by `claim_epoch` and the moved `next_run`.
 
-### Module CapsHost callbacks and capability-backed tasks
+### Module CapsHost v2 callbacks and capability-backed tasks
 
-- **Added** the serde-only `Runs.CapsHost` v1 callback contract for LLM, tool,
+- **Added** the serde-only `Runs.CapsHost` v2 callback contract for LLM, tool,
   HTTP, code, shell, memory, approval, and agent-runner capabilities. Agent
   progress uses typed cursor pages and a typed terminal outcome; callback
-  addresses remain host-bound to the acting run.
+  addresses remain host-bound to the acting run. `AgentCancel` cancels an
+  individual outstanding agent callback with its matching request id.
 - **Added** module adapters that call only the exact run callback object,
   construct flow-scoped state and catalog resolution over the document port,
   and execute spawned tool, HTTP, and child-workflow tasks with the same run

@@ -10,7 +10,7 @@ mod copilot_artifact;
 mod document_callbacks;
 #[path = "support/manual_worker_artifact_tests.rs"]
 mod manual_worker_artifact_tests;
-#[path = "support/portability_artifact.rs"]
+#[path = "support/portability_artifact_tests.rs"]
 mod portability_artifact;
 #[path = "support/run_artifact_tests.rs"]
 mod run_artifact_tests;
@@ -73,13 +73,13 @@ impl HostCallback {
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
-    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 3);
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 5);
-    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 5);
-    assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 6);
+    assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 7);
-    assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 1);
-    assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 19);
+    assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 20);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
@@ -145,6 +145,12 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
     assert!(info.manifest.requires.iter().any(|dependency| {
         dependency.optional
             && dependency.interface.interface.as_str() == tinyflows_bus::runs::CAPS_INTERFACE
+            && dependency.interface.speaks
+                == tinybus::Version::new(
+                    u64::from(tinyflows_bus::runs::CAPS_CONTRACT_VERSION),
+                    0,
+                    0,
+                )
     }));
     let runs_interface = info
         .manifest
