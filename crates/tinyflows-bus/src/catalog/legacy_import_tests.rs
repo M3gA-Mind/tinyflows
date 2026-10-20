@@ -1,6 +1,5 @@
 use super::*;
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::json;
 
 fn round_trip<T>(value: T)
 where
@@ -15,6 +14,8 @@ where
 fn import_batch_contract_is_bounded_and_round_trips_every_source_record() {
     assert_eq!(MAX_IMPORT_BATCH_RECORDS, 64);
     assert_eq!(MAX_IMPORT_BATCH_BYTES, 2 * 1024 * 1024);
+    assert_eq!(CONTRACT_VERSION, 6);
+    assert!(METHODS.contains(&members::IMPORT_LEGACY_BATCH));
     let storage = CatalogStorage {
         callback: CallbackAddress {
             destination: "test.CatalogStorage".into(),
@@ -120,10 +121,13 @@ fn import_batch_contract_is_bounded_and_round_trips_every_source_record() {
             message: "graph is not JSON".into(),
         }],
     });
-    assert_eq!(LegacyImportKind::Flow, LegacyImportRecord::Invalid {
-        record_kind: LegacyImportKind::Flow,
-        identity: None,
-        message: "invalid".into(),
-    }.record_kind());
-    assert!(json!({"batch": MAX_IMPORT_BATCH_RECORDS}).is_object());
+    assert_eq!(
+        LegacyImportKind::Flow,
+        LegacyImportRecord::Invalid {
+            record_kind: LegacyImportKind::Flow,
+            identity: None,
+            message: "invalid".into(),
+        }
+        .record_kind()
+    );
 }
