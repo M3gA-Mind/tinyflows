@@ -53,6 +53,8 @@
 
 #[cfg(feature = "catalog")]
 mod catalog;
+#[cfg(feature = "flow-write")]
+mod legacy_batch;
 #[cfg(feature = "engine")]
 mod checkpoints;
 #[cfg(feature = "schedule")]
@@ -86,6 +88,8 @@ pub use cron::import_cron;
 #[cfg(feature = "schedule-read")]
 pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};
+#[cfg(feature = "flow-write")]
+pub use legacy_batch::apply_legacy_batch;
 #[cfg(feature = "catalog")]
 pub use state::import_file_state;
 #[cfg(feature = "store")]

@@ -37,6 +37,11 @@ schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", 
 # `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
 # replays them through the scheduler module. Links neither implementation crate.
 schedule-read = ["dep:tinyflows-bus"]
+# Host-side legacy flow/checkpoint records without linking flow implementation
+# crates. The catalog module owns applying these records through scoped ports.
+flow-read = ["dep:tinyflows-bus"]
+# Shared semantic importer used by both the legacy public API and Catalog bus.
+flow-write = ["engine", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
 
 [dependencies]
 tinyflows = { workspace = true, optional = true }
