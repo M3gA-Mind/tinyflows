@@ -26,6 +26,10 @@ struct Counts {
 ///
 /// Source parsing stays in the host-only reader; this shared writer owns legacy
 /// semantic decoding, migration, idempotent catalog writes and checkpoint replay.
+/// The host must run all batches during exclusive migration startup, before
+/// run execution or other writers can mutate the target scope. Checkpoints use
+/// the append-only sequence protocol and are not atomically fenced from a live
+/// checkpointer writer.
 pub async fn apply_legacy_batch(
     records: &[LegacyImportRecord],
     catalog: &FlowCatalogDocuments,

@@ -203,6 +203,11 @@ pub enum LegacyImportRecord {
 }
 
 /// A bounded write-if-absent batch for the host-selected catalog scope.
+///
+/// The host must call this only during exclusive migration startup, before
+/// run execution or other writers can mutate this scope. In particular,
+/// checkpoint import uses the checkpointer's append-only sequence protocol and
+/// is not an atomic transaction with concurrent live checkpoint writes.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImportLegacyBatchRequest {
     /// The host's already-scoped catalog document callback.
