@@ -4,8 +4,14 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use crate::checkpoint_reader::unescape_thread_id;
 use anyhow::{Context, Result};
 use serde_json::Value;
+#[cfg(test)]
+use tinyflows::graph::ids::NodeId;
+#[cfg(test)]
+use tinyflows::graph::{Checkpoint, CheckpointConfig, Checkpointer, PendingWrite};
 use tinyflows_bus::catalog::LegacyImportRecord;
 use tinyflows_drivers::DriverCheckpointer;
 

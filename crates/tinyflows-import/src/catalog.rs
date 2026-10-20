@@ -20,7 +20,7 @@ pub async fn import_flow_catalog(
 ) -> Result<ImportReport> {
     let report = Arc::new(Mutex::new(ImportReport::default()));
     let report_for_send = Arc::clone(&report);
-    let mut send = |records| {
+    let mut send = |records: Vec<tinyflows_bus::catalog::LegacyImportRecord>| {
         let report = Arc::clone(&report_for_send);
         async move {
             let response = crate::legacy_batch::apply_legacy_batch(&records, catalog, None).await?;

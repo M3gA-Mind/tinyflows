@@ -1,6 +1,6 @@
 //! Shared semantic importer for checkpoint and pending-write records.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;

@@ -2,6 +2,7 @@ use super::*;
 use crate::test_support::docs;
 use serde_json::json;
 use std::sync::Arc;
+use tinyflows::graph::Checkpointer;
 use tinyflows::graph::ids::NodeId;
 use tinyflows_bus::catalog::{LegacyDraftRecord, LegacyImportRecord};
 

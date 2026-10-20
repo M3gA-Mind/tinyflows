@@ -284,7 +284,7 @@ fn read_bounded_line<R: BufRead>(reader: &mut R) -> io::Result<Option<(Vec<u8>, 
     }
 }
 
-fn unescape_thread_id(escaped: &str) -> Option<String> {
+pub(crate) fn unescape_thread_id(escaped: &str) -> Option<String> {
     let bytes = escaped.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
