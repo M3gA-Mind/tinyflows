@@ -218,11 +218,11 @@ async fn oversized_catalog_rows_and_drafts_are_invalid_but_later_records_survive
 fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
     let connection = Connection::open_in_memory().unwrap();
     connection
-        .execute_batch("CREATE TABLE source (id TEXT, body TEXT);")
+        .execute_batch("CREATE TABLE legacy_rows (id TEXT, body TEXT);")
         .unwrap();
     connection
         .execute(
-            "INSERT INTO source VALUES ('large', ?1)",
+            "INSERT INTO legacy_rows VALUES ('large', ?1)",
             ["x".repeat(256 * 1024)],
         )
         .unwrap();
@@ -235,7 +235,7 @@ fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
     }
 
     let query = bounded_page_query(
-        "source",
+        "legacy_rows",
         &fields(&["id", "body"]),
         &["id", "body"],
         "id",
