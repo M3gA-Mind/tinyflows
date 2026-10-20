@@ -343,7 +343,7 @@ async fn stale_imported_legacy_resume_deletes_only_its_checkpoint_thread() {
                 flow_id: target_flow,
                 storage: target.storage.clone(),
                 caps_host: runs::CapsHost {
-                    callback: target.caps,
+                    callback: target.caps.clone(),
                 },
                 approvals: vec!["approval".into()],
                 rejections: Vec::new(),
