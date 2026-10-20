@@ -5,7 +5,7 @@ raw_features="flow-read,checkpoint-read,schedule-read"
 
 cargo test -p tinyflows-import --no-default-features --features "$raw_features"
 cargo clippy -p tinyflows-import --no-default-features --features "$raw_features" --all-targets -- -D warnings
-cargo test -p tinyflows-import --no-default-features --features catalog --test catalog_feature_contract
+cargo test -p tinyflows-import --no-default-features --features catalog --test catalog_feature_contract_tests
 cargo test -p tinyflows-import --no-default-features --features catalog
 
 raw_tree="$(cargo tree -p tinyflows-import --no-default-features --features "$raw_features" -e normal --prefix none --format '{p} features=[{f}]')"
