@@ -239,19 +239,19 @@ impl FlowCatalogDocuments {
         if expected.id.trim().is_empty() || lease.trim().is_empty() || !marker.is_object() {
             return Ok(false);
         }
+        let existing_snapshot = expected.doc.get("execution_snapshot");
         if status(&expected.doc) != "pending_approval"
-            || expected.doc.get("execution_snapshot").is_some()
-            || expected
-                .doc
-                .get("legacy_resume")
-                .is_some_and(|existing| !existing.is_object())
+            || existing_snapshot.is_some_and(|existing| {
+                existing.get("legacy_resume") != Some(&serde_json::Value::Bool(true))
+            })
         {
             return Ok(false);
         }
         let mut next = expected.doc.clone();
         next["status"] = serde_json::json!("running");
-        next["legacy_resume"] = marker;
-        next["legacy_resume"]["lease"] = serde_json::json!(lease);
+        next["execution_snapshot"] = marker;
+        next["execution_snapshot"]["legacy_resume"] = serde_json::json!(true);
+        next["execution_snapshot"]["lease"] = serde_json::json!(lease);
         set_finished(&mut next, None);
         set_optional(&mut next, "error", None);
         let docs = self.docs().await?;

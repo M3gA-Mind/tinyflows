@@ -7,6 +7,7 @@ use tinybus::{Connection, Error};
 use tinyflows_bus::catalog::{
     self, ApplyGraphOpsRequest, ApplyGraphOpsResult, ApprovalManifestRequest, CatalogStorage,
     CreateDraftRequest, DeleteWorkflowResult, DraftIdRequest, FlowDraft, FlowRun, FlowSuggestion,
+    ImportLegacyBatchRequest, ImportLegacyBatchResponse,
     FlowUpdateError, ListAllRunsRequest, ListRevisionsRequest, ListRunsRequest,
     ListSuggestionsRequest, ListWorkflowsResult, PromoteDraftRequest, PromoteDraftResponse,
     PruneRunsRequest, PutWorkflowRequest, PutWorkflowResponse, PutWorkflowResult, RunIdRequest,
@@ -446,6 +447,33 @@ impl CatalogService {
 
     async fn prune_runs(&self, request: PruneRunsRequest) -> tinybus::Result<usize> {
         super::catalog_extended_ops::prune_runs(&self.connection, request)
+            .await
+            .map_err(failure)
+    }
+
+    async fn import_legacy_batch(
+        &self,
+        request: ImportLegacyBatchRequest,
+    ) -> tinybus::Result<ImportLegacyBatchResponse> {
+        if request.records.len() > tinyflows_bus::catalog::MAX_IMPORT_BATCH_RECORDS {
+            return Err(Error::failed("legacy import batch exceeds record limit"));
+        }
+        let encoded = serde_json::to_vec(&request).map_err(failure)?;
+        if encoded.len() > tinyflows_bus::catalog::MAX_IMPORT_BATCH_BYTES {
+            return Err(Error::failed("legacy import batch exceeds byte limit"));
+        }
+        let port = Arc::new(
+            super::catalog_documents::Documents::new(
+                self.connection.clone(),
+                request.storage.callback,
+            )
+            .await
+            .map_err(failure)?,
+        );
+        let docs = Arc::clone(&port) as Arc<dyn DocumentStore>;
+        let catalog = FlowCatalogDocuments::new(Arc::clone(&docs));
+        let checkpointer = tinyflows_drivers::DriverCheckpointer::<Value>::new(docs);
+        tinyflows_import::apply_legacy_batch(&request.records, &catalog, &checkpointer)
             .await
             .map_err(failure)
     }

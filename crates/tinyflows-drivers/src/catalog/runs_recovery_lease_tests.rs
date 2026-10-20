@@ -226,9 +226,9 @@ async fn legacy_resume_claim_uses_the_exact_versioned_parked_row() {
         .unwrap()
         .unwrap();
     assert_eq!(claimed.status, "running");
-    assert_eq!(version.doc["legacy_resume"]["lease"], "legacy-actor");
-    assert_eq!(version.doc["legacy_resume"]["flow_id"], run.flow_id);
-    assert!(version.doc.get("execution_snapshot").is_none());
+    assert_eq!(version.doc["execution_snapshot"]["lease"], "legacy-actor");
+    assert_eq!(version.doc["execution_snapshot"]["flow_id"], run.flow_id);
+    assert_eq!(version.doc["execution_snapshot"]["legacy_resume"], true);
 }
 
 #[tokio::test]
@@ -266,5 +266,5 @@ async fn legacy_resume_claim_does_not_claim_a_replacement_parked_row() {
         .unwrap();
     assert_eq!(still_parked.status, "pending_approval");
     assert_eq!(version.doc["pending_approvals"], serde_json::json!(["replacement-gate"]));
-    assert!(version.doc.get("legacy_resume").is_none());
+    assert!(version.doc.get("execution_snapshot").is_none());
 }
