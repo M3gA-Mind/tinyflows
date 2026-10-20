@@ -1,7 +1,7 @@
 # TinyFlows module
 
-The compiled TinyBus module serves Authoring and Schedule objects under the
-shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
+The compiled TinyBus module serves Authoring, Schedule, Catalog and Runs
+objects under the shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
 `tinyflows-bus` contract and call the compiled module. The module manifest
 advertises each interface's exact member set. The Runs control surface remains
 a skeleton; its v1 `CapsHost` interface is a host-served callback contract used
@@ -114,6 +114,23 @@ job, run, patch, spec, lease and delivery records (`Attempt`, `RunRecord`,
 `Completion`, `OccurrenceClaim`, `DeliveryProjection`) are in
 `tinyflows_bus::schedule`, so a host implements ScheduleHost and the document
 port without redeclaring them.
+
+### Catalog legacy import (contract v6)
+
+`ImportLegacyBatch` accepts ordered batches of at most 64 raw records and 2 MiB
+serialized request size through the supplied `CatalogStorage` callback. The
+host reads SQLite and draft files; file paths and scope choices stay in the
+host. The module performs typed decode and graph migration, then writes
+definitions, revisions, runs, state, suggestions, drafts, checkpoints and
+pending writes idempotently, returning per-kind tallies and bounded problems.
+The raw `flow-read` and `checkpoint-read` features link no TinyFlows
+implementation crates. The public `tinyflows-import` APIs share the same
+reader and module-side semantic writer.
+
+The host runs every batch during exclusive migration startup, before run
+execution or other writers can mutate that scope. Checkpoints use an
+append-only sequence and are not atomically fenced against concurrent live
+writes.
 
 ### Pure members (retained from contract v3)
 
