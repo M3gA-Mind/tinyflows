@@ -79,22 +79,14 @@ pub(super) async fn resume(
     // ResumeRun and settled the parked row as failed; keep that refusal and
     // lifecycle result inside the module that owns the Catalog and run row.
     if let Some(error) = compatibility_error(&catalog, &flow.graph).await {
-        refuse_parked_run(
-            connection,
-            &request,
-            &catalog,
-            &row,
-            "failed",
-            &error,
-        )
-        .await?;
+        refuse_parked_run(connection, &request, &catalog, &row, "failed", &error).await?;
         bail!(error)
     }
 
     let snapshot = catalog.flow_run_snapshot(&request.run_id).await?;
-    let legacy = snapshot.as_ref().is_none_or(|snapshot| {
-        snapshot.get("legacy_resume") == Some(&Value::Bool(true))
-    });
+    let legacy = snapshot
+        .as_ref()
+        .is_none_or(|snapshot| snapshot.get("legacy_resume") == Some(&Value::Bool(true)));
     let (graph, context, require_approval, thread_id, legacy_marker) = if legacy {
         if let Some(snapshot) = snapshot.as_ref() {
             let graph = snapshot
@@ -189,17 +181,7 @@ pub(super) async fn resume(
         )
     };
     if let Some(error) = compatibility_error(&catalog, &graph).await {
-        refuse_parked_run(
-            connection,
-            &request,
-            &catalog,
-            &request.run_id,
-            &row.thread_id,
-            &row.steps,
-            "failed",
-            &error,
-        )
-        .await?;
+        refuse_parked_run(connection, &request, &catalog, &row, "failed", &error).await?;
         bail!(error)
     }
     let compiled = compiler::compile(&graph).context("compiling pinned execution graph")?;
@@ -471,13 +453,8 @@ async fn refuse_parked_run(
     }
     super::record_settled_summary(catalog, &row.id, status).await;
     let dedup_settlement =
-        super::sweeps::settle_snapshot_dedup(
-            &request.storage,
-            catalog,
-            snapshot.as_ref(),
-            &row.id,
-        )
-        .await;
+        super::sweeps::settle_snapshot_dedup(&request.storage, catalog, snapshot.as_ref(), &row.id)
+            .await;
     match Documents::new(connection.clone(), request.storage.callback.clone()).await {
         Ok(documents) => {
             let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
@@ -485,7 +462,9 @@ async fn refuse_parked_run(
                 tracing::warn!(%error, run_id = %row.id, "parked-run compatibility refusal checkpoint cleanup failed");
             }
         }
-        Err(error) => tracing::warn!(%error, run_id = %row.id, "opening refused-run checkpoint scope failed"),
+        Err(error) => {
+            tracing::warn!(%error, run_id = %row.id, "opening refused-run checkpoint scope failed")
+        }
     }
     let seq = catalog
         .flow_run_event_last_seq(&row.id)
