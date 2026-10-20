@@ -245,3 +245,107 @@ async fn jsonl_reader_splits_batches_at_record_count_and_byte_budgets() {
         )));
     }
 }
+
+#[tokio::test]
+async fn jsonl_control_retries_keep_the_latest_value_across_import_batches() {
+    use tinyflows::graph::{CheckpointConfig, Checkpointer};
+    use tinyflows_drivers::DriverCheckpointer;
+    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+    let dir = tempfile::tempdir().unwrap();
+    let thread_id = "cross-batch-thread";
+    let checkpoint_id = "cross-batch-checkpoint";
+    let checkpoint = serde_json::json!({
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+        "run_id": "legacy-run",
+        "parent_checkpoint_id": null,
+        "namespace": [],
+        "state": {},
+        "next_nodes": [],
+        "completed_tasks": [],
+        "pending_writes": [],
+        "interrupts": [],
+        "pending_activations": null,
+        "barrier_arrivals": [],
+        "metadata": {}
+    });
+    std::fs::write(
+        dir.path().join(format!("{thread_id}.jsonl")),
+        format!("{}\n", checkpoint),
+    )
+    .unwrap();
+
+    let mut writes = String::new();
+    for index in 0..(MAX_IMPORT_BATCH_RECORDS - 2) {
+        writes.push_str(
+            &serde_json::json!({
+                "namespace": [],
+                "checkpoint_id": checkpoint_id,
+                "write": {
+                    "node": "node",
+                    "task_id": format!("filler-{index}"),
+                    "idx": 0,
+                    "channel": "result",
+                    "payload": index
+                }
+            })
+            .to_string(),
+        );
+        writes.push('\n');
+    }
+    for payload in ["first", "latest"] {
+        writes.push_str(
+            &serde_json::json!({
+                "namespace": [],
+                "checkpoint_id": checkpoint_id,
+                "write": {
+                    "node": "node",
+                    "task_id": "retry",
+                    "idx": -1,
+                    "channel": "resume",
+                    "payload": payload
+                }
+            })
+            .to_string(),
+        );
+        writes.push('\n');
+    }
+    std::fs::write(dir.path().join(format!("{thread_id}.writes.jsonl")), writes).unwrap();
+
+    let storage = MemoryStorage::new();
+    let docs = std::sync::Arc::clone(
+        storage
+            .for_scope(&Scope::new("local").unwrap())
+            .unwrap()
+            .documents(),
+    );
+    let checkpointer = DriverCheckpointer::<serde_json::Value>::new(docs);
+    let sizes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = std::sync::Arc::clone(&sizes);
+    let target = checkpointer.clone();
+    read_legacy_file_checkpoint_batches(dir.path(), move |batch| {
+        let observed = std::sync::Arc::clone(&observed);
+        let target = target.clone();
+        async move {
+            observed.lock().unwrap().push(batch.len());
+            crate::legacy_checkpoint::apply_legacy_checkpoint_batch(&batch, &target).await?;
+            Ok(())
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(*sizes.lock().unwrap(), [MAX_IMPORT_BATCH_RECORDS, 1]);
+    let config = CheckpointConfig {
+        thread_id: thread_id.into(),
+        checkpoint_id: Some(checkpoint_id.into()),
+        namespace: vec![],
+    };
+    let writes = checkpointer.get_writes(&config).await.unwrap();
+    let resumed = writes
+        .iter()
+        .find(|write| write.task_id == "retry" && write.idx == -1)
+        .expect("the legacy control write is present");
+    assert_eq!(resumed.payload, serde_json::json!("latest"));
+}
