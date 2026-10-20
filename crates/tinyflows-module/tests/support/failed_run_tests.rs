@@ -32,7 +32,7 @@ async fn start_run_reports_the_missing_declared_input_at_the_bus_boundary() {
         "input field name was lost: {message}"
     );
     assert!(
-        message.contains("missing required input"),
+        message.contains("required but was not supplied"),
         "actionable validation cause was lost: {message}"
     );
 
