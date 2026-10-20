@@ -24,6 +24,7 @@ pub(super) struct ActorRecoveryGuard {
     storage: CatalogStorage,
     active: Arc<ActiveRun>,
     run_id: String,
+    thread_id: String,
     lease: String,
     armed: bool,
 }
@@ -34,6 +35,7 @@ impl ActorRecoveryGuard {
         checkpointer: &DriverCheckpointer<Value>,
         storage: &CatalogStorage,
         run_id: &str,
+        thread_id: &str,
         active: Arc<ActiveRun>,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl ActorRecoveryGuard {
             checkpointer: checkpointer.clone(),
             storage: storage.clone(),
             run_id: run_id.to_owned(),
+            thread_id: thread_id.to_owned(),
             lease: active.lease.clone(),
             active,
             armed: true,
@@ -73,6 +76,7 @@ impl Drop for ActorRecoveryGuard {
             storage: self.storage.clone(),
             active: Arc::clone(&self.active),
             run_id: self.run_id.clone(),
+            thread_id: self.thread_id.clone(),
             lease: self.lease.clone(),
         };
         // Capture the identity-aware registry guard in the spawned future's
@@ -100,6 +104,7 @@ struct ActorRecovery {
     storage: CatalogStorage,
     active: Arc<ActiveRun>,
     run_id: String,
+    thread_id: String,
     lease: String,
 }
 
