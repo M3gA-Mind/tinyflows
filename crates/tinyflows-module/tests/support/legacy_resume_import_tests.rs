@@ -213,7 +213,7 @@ async fn imported_legacy_resume_does_not_borrow_a_checkpoint_from_another_owner(
                 flow_id: target_flow,
                 storage: target.storage.clone(),
                 caps_host: runs::CapsHost {
-                    callback: target.caps,
+                    callback: target.caps.clone(),
                 },
                 approvals: vec!["approval".into()],
                 rejections: Vec::new(),
