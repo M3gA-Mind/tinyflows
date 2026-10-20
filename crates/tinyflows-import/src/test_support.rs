@@ -118,7 +118,13 @@ pub(crate) fn docs() -> Arc<dyn DocumentStore> {
 }
 
 /// `storage`'s documents under `scope`.
-#[cfg(any(feature = "schedule", feature = "store"))]
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-write"
+))]
 pub(crate) fn docs_in(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentStore> {
     Arc::clone(
         storage

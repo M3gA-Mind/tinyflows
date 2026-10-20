@@ -35,9 +35,6 @@ use run_artifact_poll::{assert_terminal_outcome, poll_until_done, poll_until_kin
 mod run_artifact_support;
 use run_artifact_support::*;
 
-#[path = "run_summary_tests.rs"]
-mod run_summary_tests;
-
 #[path = "../run_artifact/sandbox.rs"]
 mod sandbox;
 

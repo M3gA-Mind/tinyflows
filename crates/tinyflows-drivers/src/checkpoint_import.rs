@@ -1,5 +1,7 @@
 //! Import-only operations that preserve data already written by live runs.
 
+use std::collections::HashSet;
+
 use super::*;
 
 impl<State> DriverCheckpointer<State> {
@@ -33,16 +35,31 @@ impl<State> DriverCheckpointer<State> {
                     checkpoint_id: checkpoint_id.clone(),
                     writes: Vec::new(),
                 });
+                let already_held: HashSet<(String, i64)> = body
+                    .writes
+                    .iter()
+                    .map(|stored| (stored.task_id.clone(), stored.idx))
+                    .collect();
                 for write in incoming {
-                    if body
-                        .writes
-                        .iter()
-                        .any(|stored| stored.identity() == write.identity())
-                    {
+                    let identity = (write.task_id.clone(), write.idx);
+                    if already_held.contains(&identity) {
                         existing += 1;
-                    } else {
-                        body.writes.push(write.clone());
-                        written += 1;
+                        continue;
+                    }
+                    match body
+                        .writes
+                        .iter_mut()
+                        .find(|stored| stored.identity() == write.identity())
+                    {
+                        Some(stored) if write.is_control_plane() => {
+                            *stored = write.clone();
+                            written += 1;
+                        }
+                        Some(_) => existing += 1,
+                        None => {
+                            body.writes.push(write.clone());
+                            written += 1;
+                        }
                     }
                 }
                 Ok((written > 0).then_some(body))

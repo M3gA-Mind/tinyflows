@@ -180,6 +180,10 @@ async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_
                 "node":"node","task_id":"new","idx":0,
                 "channel":"result","payload":"concurrent-live"
             }));
+            document["writes"].as_array_mut().unwrap().push(json!({
+                "node":"node","task_id":"import-control","idx":-1,
+                "channel":"resume","payload":"concurrent-control"
+            }));
             inner
                 .put_with(
                     "graph.writes",
@@ -205,12 +209,15 @@ async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_
                 PendingWrite::data("node", "data", 0, "result", json!("legacy")),
                 PendingWrite::data("node", "control", -1, "resume", json!("legacy")),
                 PendingWrite::data("node", "new", 0, "result", json!("legacy")),
+                PendingWrite::data("node", "import-control", -1, "resume", json!("first")),
+                PendingWrite::data("node", "import-control", -1, "resume", json!("latest")),
             ],
         )
         .await
         .unwrap();
-    assert_eq!((written, existing), (0, 3));
+    assert_eq!((written, existing), (0, 5));
     let writes = importer.get_writes(&config).await.unwrap();
-    assert_eq!(writes.len(), 3);
+    assert_eq!(writes.len(), 4);
     assert_eq!(writes[2].payload, json!("concurrent-live"));
+    assert_eq!(writes[3].payload, json!("concurrent-control"));
 }

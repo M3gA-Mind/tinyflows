@@ -2,6 +2,9 @@ use super::*;
 use tinyflows_drivers::catalog::FlowCatalogDocuments;
 use tokio::sync::Notify;
 
+#[path = "run_summary_tests.rs"]
+mod run_summary_tests;
+
 pub(super) async fn module_proxies() -> (ModuleHost, Connection, tinybus::Proxy, tinybus::Proxy) {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
