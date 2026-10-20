@@ -491,10 +491,10 @@ where
     }
 }
 
+mod checkpoint_import;
 #[cfg(test)]
 #[path = "checkpoint_history_tests.rs"]
 mod history_tests;
-mod checkpoint_import;
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]
 mod tests;
