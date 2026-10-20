@@ -438,15 +438,27 @@ where
         let id = writes_id_key(&self.ns, &config.thread_id, &subgraph, &checkpoint_id);
         self.writes
             .update(&id, |current| {
-                let mut stored = current.map(|body| body.writes).unwrap_or_default();
-                merge_writes(&mut stored, writes);
-                Ok(Some(WritesBody {
+                let mut body = current.unwrap_or_else(|| WritesBody {
                     ns: self.ns.clone(),
                     thread: config.thread_id.clone(),
                     subgraph: subgraph.clone(),
                     checkpoint_id: checkpoint_id.clone(),
-                    writes: stored,
-                }))
+                    writes: Vec::new(),
+                    imported_control_writes: Default::default(),
+                });
+                for write in writes {
+                    let identity = (write.task_id.clone(), write.idx);
+                    let accepted = write.is_control_plane()
+                        || !body
+                            .writes
+                            .iter()
+                            .any(|stored| stored.identity() == write.identity());
+                    if accepted {
+                        body.imported_control_writes.remove(&identity);
+                    }
+                }
+                merge_writes(&mut body.writes, writes);
+                Ok(Some(body))
             })
             .await
             .map(|_| ())
