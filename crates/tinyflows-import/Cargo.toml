@@ -43,7 +43,7 @@ flow-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
 # Shared semantic importer used by both the legacy public API and Catalog bus.
 flow-write = ["engine", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
 # Host-side checkpoint source reader; kept separate from the engine writer.
-checkpoint-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
+checkpoint-read = ["flow-read"]
 
 [dependencies]
 tinyflows = { workspace = true, optional = true }
