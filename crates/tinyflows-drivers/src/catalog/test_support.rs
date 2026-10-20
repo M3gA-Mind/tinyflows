@@ -66,7 +66,7 @@ pub(crate) type Interjection = Box<
 #[derive(Debug)]
 pub(crate) struct Interposed {
     inner: Arc<dyn DocumentStore>,
-    /// `("get" | "put" | "query" | "delete", collection)` that triggers it.
+    /// `("get" | "put" | "put_with" | "query" | "delete", collection)` that triggers it.
     trigger: (&'static str, &'static str),
     interjection: std::sync::Mutex<Option<InterjectionCell>>,
 }
@@ -81,7 +81,7 @@ impl std::fmt::Debug for InterjectionCell {
 }
 
 impl Interposed {
-    /// Wraps `inner`; `interjection` runs before the first `trigger` read.
+    /// Wraps `inner`; `interjection` runs before the first `trigger` operation.
     pub(crate) fn wrap(
         inner: Arc<dyn DocumentStore>,
         trigger: (&'static str, &'static str),
@@ -148,6 +148,7 @@ impl DocumentStore for Interposed {
         precondition: tinystoragedrivers_core::Precondition,
         options: tinystoragedrivers_core::WriteOptions,
     ) -> tinystoragedrivers_core::Result<tinystoragedrivers_core::Version> {
+        self.maybe_interject("put_with", collection).await;
         self.inner
             .put_with(collection, id, doc, precondition, options)
             .await

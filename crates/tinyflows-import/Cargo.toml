@@ -24,19 +24,25 @@ publish = false
 # takes `schedule` alone and pulls neither the engine nor its expression stack.
 default = ["engine", "store", "catalog", "schedule"]
 # `import_sqlite_checkpoints`, `import_file_checkpoints`.
-engine = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine"]
+engine = ["checkpoint-read", "checkpoint-write"]
 # `import_workflow_store`.
 store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
 # `import_flow_catalog`, `import_file_state`.
-catalog = ["engine", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
+catalog = ["engine", "flow-write", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
 # `import_cron`.
 schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", "tinyflows-drivers/schedule"]
-# `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
-# replays them through the scheduler module. Links neither the scheduler
-# implementation nor the cron store.
-# `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
-# replays them through the scheduler module. Links neither implementation crate.
-schedule-read = ["dep:tinyflows-bus"]
+# `read_legacy_cron`: reads `jobs.db` into bus DTOs without linking the
+# scheduler implementation or cron store.
+schedule-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
+# Host-side legacy flow definitions/revisions/runs/state/suggestions/drafts.
+# Links bus and SQLite reader only, no TinyFlows implementation crates.
+flow-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
+# Shared semantic writer used by the public API and owning Catalog module.
+flow-write = ["checkpoint-write", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
+# Host-side SQLite and JSONL checkpoint/write readers; implementation-free.
+checkpoint-read = ["flow-read"]
+# Shared checkpoint decode/replay logic. This does not pull in the catalog API.
+checkpoint-write = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine", "dep:tinyflows-bus"]
 
 [dependencies]
 tinyflows = { workspace = true, optional = true }
@@ -47,7 +53,7 @@ tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, o
 tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7" }
 # The SQLite driver's native handle: how the legacy `.db` files are opened. It
 # re-exports the `rusqlite` its handle hands out, which is all this crate uses.
-tinystoragedrivers-sqlite = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7" }
+tinystoragedrivers-sqlite = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "be94f7568fe7650b0729be55128f48270414b9a7", optional = true }
 anyhow = "1.0"
 chrono = { workspace = true }
 serde = { workspace = true }

@@ -8,6 +8,10 @@ mod dedup_snapshot_tests;
 mod failed_run_tests;
 #[path = "legacy_null_graph_hash_tests.rs"]
 mod legacy_null_graph_hash_tests;
+#[path = "legacy_resume_import_tests.rs"]
+mod legacy_resume_import_tests;
+#[path = "legacy_resume_tests.rs"]
+mod legacy_resume_tests;
 #[path = "run_lifecycle_tests.rs"]
 mod run_lifecycle_tests;
 #[path = "run_resume_compatibility_tests.rs"]
@@ -30,9 +34,6 @@ use run_artifact_poll::{assert_terminal_outcome, poll_until_done, poll_until_kin
 #[path = "../run_artifact/support.rs"]
 mod run_artifact_support;
 use run_artifact_support::*;
-
-#[path = "run_summary_tests.rs"]
-mod run_summary_tests;
 
 #[path = "../run_artifact/sandbox.rs"]
 mod sandbox;

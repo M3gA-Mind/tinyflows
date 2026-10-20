@@ -65,6 +65,9 @@ jobs:
           schedule_tree=$(cargo tree -p tinyflows-import --no-default-features --features schedule -e normal --prefix none --format '{p} features=[{f}]')
           grep -q '^tinyflows-drivers v.* features=\[schedule\]$' <<<"$schedule_tree"
 
+      - name: Check legacy flow and checkpoint importer feature boundaries
+        run: scripts/check-legacy-import-modes.sh
+
       - name: Build
         run: cargo build --all-targets
 

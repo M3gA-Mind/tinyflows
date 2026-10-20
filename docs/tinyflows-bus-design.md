@@ -18,7 +18,7 @@ interface per surface, each with its own `CONTRACT_VERSION`:
 | Schedule | served, v4 | scheduler start/stop/tick/drain, durable occurrence leases, queued `RunJobNow`, two-phase `Send`/terminal `Deliver`, captured-job `ScheduleTrigger`, `ScheduleStore`, delay and delivery validation, schedule maths and validation (`NextRun`, `ValidateSchedule`, `RunsCloserThan`, `NormalizeExpression`, `ScheduleCronExpression`), `DefaultDelivery`, `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput` |
 | Runs | served, v6 | `StartRun`, `ResumeRun`, `ExpireParked`, `BootSweep`, `CancelRun`, `PollRun`, `SandboxRun` |
 | CapsHost | host callback, v2 | `LlmComplete`, `ToolInvoke`, `HttpRequest`, `CodeRun`, `ShellRun`, `MemoryRecall`, `MemoryFlavour`, `MemoryPeople`, `MemoryRemember`, `MemoryForget`, `AgentRun`, `AgentEvents`, `ResolveAgent`, `ListAgents`, `ResolveContext`, `ResolveTools`, `ResolveWorkdir`, `ApprovalDecide`, `ApprovalCancel`, `AgentCancel` |
-| Catalog | served, v4 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest` |
+| Catalog | served, v6 | `ListWorkflows`, `GetWorkflow`, `PutWorkflow` (create/update/duplicate), `DeleteWorkflow`, `SetEnabled`, `ListRevisions`, `GetRevision`, `CreateDraft`, `GetDraft`, `UpdateDraft`, `ListDrafts`, `DeleteDraft`, `PromoteDraft`, `UpsertSuggestions`, `ListSuggestions`, `SetSuggestionStatus`, `GetRun`, `ListRuns`, `ListAllRuns`, `PruneRuns`, `NodeKinds`, `ApplyGraphOps`, `ApprovalManifest`, `ImportLegacyBatch` |
 
 Rules: contract crates stay synchronous and I/O-free; graphs and runs cross the
 boundary as JSON; the host never links the engine. Adding a surface does not
@@ -228,9 +228,11 @@ already removed it. The catalog and run checkpoints use the document port
 (`CatalogStorage`: ensure/get/put/delete/query/delete-where over scoped collections), backed on the
 host by `tinystoragedrivers` (sqlite, file, mongodb) selected by
 `OPENHUMAN_STORAGE_URL`. `tinyflows-drivers` keeps the document-port
-implementation of the catalog stores; `tinyflows-import` stays the one-shot
-reader of legacy `.db` files. No `tinyflows-sqlite` crate is created. Scope is
-the agent id, set by the host when it binds the callback object.
+implementation of catalog and checkpoint stores. `tinyflows-import` separates
+host-side raw readers (`flow-read`, `checkpoint-read`, and `schedule-read`)
+from semantic writers; the raw reader features do not link TinyFlows
+implementation crates. No `tinyflows-sqlite` crate is created. Scope is the
+agent id, set by the host when it binds the callback object.
 
 The served Catalog v2 receives a `CatalogStorage` callback address on each
 request. That object is created by the host for the acting agent, so the module
@@ -254,7 +256,7 @@ CatalogStorage port advertises only ensure, get, put, delete, query and
 delete-where: the current catalog driver does not use transaction batches or
 collection counts.
 
-Catalog v3 also serves the existing draft, suggestion, and run-read behavior
+Catalog v6 also serves the existing draft, suggestion, and run-read behavior
 through that same scope-bound document port. Draft graphs remain raw JSON and
 draft patches preserve the difference between an unchanged `flow_id`, clearing
 it with `null`, and assigning an id. Draft promotion is generic orchestration:
@@ -266,6 +268,17 @@ its code, message, and details and leaves the draft in place. The module does
 not own host validation, trigger binding, approval policy or event side effects.
 Suggestion and run DTOs are mirrored in the serde-only bus crate so clients do
 not need implementation-library dependencies.
+
+`ImportLegacyBatch` carries at most 64 raw records and a 2 MiB serialized
+request, always through the supplied scope-bound `CatalogStorage` callback.
+SQLite and JSON/JSONL paths remain host-side; the module receives only bounded
+row DTOs and file bytes. The owning module performs graph migration, typed
+decode, idempotent catalog writes, checkpoint replay and per-record tallies.
+The existing `import_flow_catalog`, `import_sqlite_checkpoints`, and
+`import_file_checkpoints` APIs use the same raw reader and semantic writer.
+The host must run all batches during exclusive migration startup, before run
+execution or other writers can mutate that scope; the checkpointer's append
+sequence is not an atomic transaction with concurrent live writes.
 
 ## Slice plan
 

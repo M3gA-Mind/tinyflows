@@ -136,6 +136,7 @@ pub(super) async fn owner(
                 release_run_insert: run_insert_gate.map(|(_, _, release)| release),
                 fail_snapshot,
                 fail_checkpoint_delete,
+                fail_checkpoint_query: None,
                 fail_parked_expiry: None,
                 cleanup_started: None,
                 release_cleanup: None,
@@ -161,6 +162,60 @@ pub(super) async fn owner(
         },
         docs,
     }
+}
+
+pub(super) async fn owner_with_checkpoint_query_failure(
+    connection: &Connection,
+    name: &str,
+) -> (Owner, Arc<AtomicBool>) {
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new(name).unwrap())
+        .unwrap();
+    let docs = scoped.documents().clone();
+    let path = format!("/test/catalog/{}", name.replace('-', "_"));
+    let fail_checkpoint_query = Arc::new(AtomicBool::new(false));
+    connection
+        .serve_at(
+            path.parse().unwrap(),
+            OwnerDocuments {
+                docs: docs.clone(),
+                terminal_write_started: None,
+                release_terminal_write: None,
+                terminal_write_pending: None,
+                fail_run_insert: None,
+                run_insert_started: None,
+                release_run_insert: None,
+                fail_snapshot: None,
+                fail_checkpoint_delete: None,
+                fail_checkpoint_query: Some(fail_checkpoint_query.clone()),
+                fail_parked_expiry: None,
+                cleanup_started: None,
+                release_cleanup: None,
+                cleanup_pending: None,
+            },
+        )
+        .await
+        .unwrap();
+    connection
+        .request_name("test.CatalogStorage")
+        .await
+        .unwrap();
+    (
+        Owner {
+            storage: CatalogStorage {
+                callback: catalog::CallbackAddress {
+                    destination: "test.CatalogStorage".into(),
+                    object_path: path,
+                },
+            },
+            caps: runs::CallbackAddress {
+                destination: "test.CapsHost".into(),
+                object_path: format!("/test/caps/{}", name.replace('-', "_")),
+            },
+            docs,
+        },
+        fail_checkpoint_query,
+    )
 }
 
 pub(super) async fn owner_with_lifecycle_gates(
@@ -189,6 +244,7 @@ pub(super) async fn owner_with_lifecycle_gates(
                 release_run_insert: None,
                 fail_snapshot: None,
                 fail_checkpoint_delete: None,
+                fail_checkpoint_query: None,
                 fail_parked_expiry: expiry_failure,
                 cleanup_started: cleanup_gate.as_ref().map(|(started, _)| started.clone()),
                 release_cleanup: cleanup_gate.as_ref().map(|(_, release)| release.clone()),
@@ -237,6 +293,7 @@ pub(super) async fn alias_owner(
                 release_run_insert: None,
                 fail_snapshot: None,
                 fail_checkpoint_delete: None,
+                fail_checkpoint_query: None,
                 fail_parked_expiry: None,
                 cleanup_started: None,
                 release_cleanup: None,

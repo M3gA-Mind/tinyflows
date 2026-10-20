@@ -4,6 +4,8 @@ mod authoring_contract_calls;
 mod authoring_surface_artifact;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/catalog_legacy_import_artifact_tests.rs"]
+mod catalog_legacy_import_artifact_tests;
 #[path = "support/copilot_artifact.rs"]
 mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
@@ -74,7 +76,7 @@ impl HostCallback {
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
     assert_eq!(tinyflows_bus::CONTRACT_VERSION, 4);
-    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 5);
+    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 6);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 6);
     assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 7);

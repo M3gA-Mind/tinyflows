@@ -2190,6 +2190,7 @@ dependencies = [
  "tinyflows-catalog",
  "tinyflows-copilot",
  "tinyflows-drivers",
+ "tinyflows-import",
  "tinyflows-schedule",
  "tinystoragedrivers-core",
  "tinytools",

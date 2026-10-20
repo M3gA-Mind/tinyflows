@@ -301,9 +301,10 @@ async fn running_fixture() -> RunningFixture {
     let prepared = preparation::Prepared {
         catalog: catalog.clone(),
         compiled: tinyflows::compiler::compile(&graph).unwrap(),
-        inputs: Map::new(),
+        inputs: Some(Map::new()),
         checkpointer: checkpointer.clone(),
         require_approval: false,
+        checkpoint_thread_id: run_id.clone(),
     };
     prepared
         .persist_snapshot(&request, &active.lease)

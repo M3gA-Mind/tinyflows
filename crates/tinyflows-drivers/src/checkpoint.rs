@@ -24,7 +24,8 @@
 //! - `graph.threads`: one counter document per thread, `{ns, thread, next}`,
 //!   advanced with [`Repo::update`] so concurrent writers never share a `seq`.
 //! - `graph.writes`: one document per `(thread, subgraph, checkpoint)` holding
-//!   the merged pending writes (see [`merge_writes`]).
+//!   the merged pending writes (see
+//!   [`tinyflows::graph::checkpoint::merge_writes`]).
 //!
 //! The engine's checkpointer trait has no execution lease, so no `tsd.leases`
 //! record is written here; a host that fences a thread uses the lease key
@@ -38,7 +39,6 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tinyflows::graph::checkpoint::merge_writes;
 use tinyflows::graph::error::{GraphError, Result};
 use tinyflows::graph::ids::CheckpointId;
 use tinyflows::graph::{
@@ -77,14 +77,6 @@ impl<State> Clone for DriverCheckpointer<State> {
             declared: Arc::clone(&self.declared),
             _state: PhantomData,
         }
-    }
-}
-
-impl<State> std::fmt::Debug for DriverCheckpointer<State> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DriverCheckpointer")
-            .field("ns", &self.ns)
-            .finish_non_exhaustive()
     }
 }
 
@@ -437,37 +429,7 @@ where
     }
 
     async fn put_writes(&self, config: &CheckpointConfig, writes: &[PendingWrite]) -> Result<()> {
-        let checkpoint_id = require_checkpoint_id(config)?;
-        if writes.is_empty() {
-            return Ok(());
-        }
-        self.declared().await?;
-        let subgraph = subgraph_key(&config.namespace);
-        let id = writes_id_key(&self.ns, &config.thread_id, &subgraph, &checkpoint_id);
-        self.writes
-            .update(&id, |current| {
-                let mut stored = current.map(|body| body.writes).unwrap_or_default();
-                merge_writes(&mut stored, writes);
-                Ok(Some(WritesBody {
-                    ns: self.ns.clone(),
-                    thread: config.thread_id.clone(),
-                    subgraph: subgraph.clone(),
-                    checkpoint_id: checkpoint_id.clone(),
-                    writes: stored,
-                }))
-            })
-            .await
-            .map(|_| ())
-            .map_err(|error| {
-                if error.kind() == ErrorKind::Conflict {
-                    GraphError::Checkpoint(format!(
-                        "could not record pending writes for thread `{}`",
-                        config.thread_id
-                    ))
-                } else {
-                    map_error(error)
-                }
-            })
+        checkpoint_import::put_live_writes(self, config, writes).await
     }
 
     async fn get_writes(&self, config: &CheckpointConfig) -> Result<Vec<PendingWrite>> {
@@ -491,9 +453,14 @@ where
     }
 }
 
+#[path = "checkpoint_import.rs"]
+mod checkpoint_import;
 #[cfg(test)]
 #[path = "checkpoint_history_tests.rs"]
 mod history_tests;
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]
 mod tests;
+
+#[path = "checkpoint_debug.rs"]
+mod checkpoint_debug;
