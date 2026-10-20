@@ -19,7 +19,7 @@ async fn compiled_module_continues_a_legacy_parked_run_without_a_snapshot() {
     .await;
     let callback = serve_agent(&connection, "legacy-resume").await;
     let mut start = request(&owner, flow_id.clone(), "legacy-run", graph, 20_000);
-    start.trigger_data = json!({"legacy_only": "not persisted on a pre-snapshot row"});
+    start.trigger_data = json!({"id":"legacy-item","payload":"checkpoint state"});
     runs_proxy
         .call::<runs::StartRunResponse>("StartRun", (start,))
         .await
