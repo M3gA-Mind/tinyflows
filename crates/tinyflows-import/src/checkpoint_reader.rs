@@ -110,31 +110,33 @@ where
         if tables.contains("checkpoint_writes") {
             let mut offset = 0_i64;
             loop {
-                let rows = db.read("checkpoint writes", move |connection| {
-                    let mut statement = connection.prepare(CHECKPOINT_WRITES_QUERY)?;
-                    let mapped = statement.query_map(
-                        [
-                            MAX_IMPORT_RECORD_PAYLOAD_BYTES as i64,
-                            SQLITE_PAGE_ROWS,
-                            offset,
-                        ],
-                        |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, bool>(1)?,
-                            row.get::<_, Option<Vec<u8>>>(2)?,
-                            row.get::<_, Option<Vec<u8>>>(3)?,
-                            row.get::<_, Option<Vec<u8>>>(4)?,
-                            row.get::<_, Option<Vec<u8>>>(5)?,
-                            row.get::<_, i64>(6)?,
-                            row.get::<_, Option<Vec<u8>>>(7)?,
-                            row.get::<_, Option<Vec<u8>>>(8)?,
-                            row.get::<_, Option<Vec<u8>>>(9)?,
-                        ))
-                        },
-                    )?;
-                    mapped.collect::<std::result::Result<Vec<_>, _>>()
-                }).await?;
+                let rows = db
+                    .read("checkpoint writes", move |connection| {
+                        let mut statement = connection.prepare(CHECKPOINT_WRITES_QUERY)?;
+                        let mapped = statement.query_map(
+                            [
+                                MAX_IMPORT_RECORD_PAYLOAD_BYTES as i64,
+                                SQLITE_PAGE_ROWS,
+                                offset,
+                            ],
+                            |row| {
+                                Ok((
+                                    row.get::<_, i64>(0)?,
+                                    row.get::<_, bool>(1)?,
+                                    row.get::<_, Option<Vec<u8>>>(2)?,
+                                    row.get::<_, Option<Vec<u8>>>(3)?,
+                                    row.get::<_, Option<Vec<u8>>>(4)?,
+                                    row.get::<_, Option<Vec<u8>>>(5)?,
+                                    row.get::<_, i64>(6)?,
+                                    row.get::<_, Option<Vec<u8>>>(7)?,
+                                    row.get::<_, Option<Vec<u8>>>(8)?,
+                                    row.get::<_, Option<Vec<u8>>>(9)?,
+                                ))
+                            },
+                        )?;
+                        mapped.collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .await?;
                 if rows.is_empty() {
                     break;
                 }
