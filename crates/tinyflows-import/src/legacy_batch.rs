@@ -423,3 +423,7 @@ async fn replay(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "legacy_batch_tests.rs"]
+mod tests;
