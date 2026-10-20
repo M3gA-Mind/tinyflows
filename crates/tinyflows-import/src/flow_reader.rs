@@ -39,7 +39,12 @@ fn bounded_page_query(
         .join(" + ");
     let guarded = fields
         .iter()
-        .map(|(expression, _)| expression.clone())
+        .map(|(expression, _)| {
+            let expression = expression
+                .split_once(" AS ")
+                .map_or(expression.as_str(), |(expression, _)| expression);
+            format!("CASE WHEN ({size}) <= ?1 THEN ({expression}) END")
+        })
         .collect::<Vec<_>>()
         .join(", ");
     format!("SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2")
