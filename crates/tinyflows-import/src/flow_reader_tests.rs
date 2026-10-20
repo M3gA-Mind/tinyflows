@@ -251,9 +251,7 @@ fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
 fn oversized_sqlite_order_key_is_guarded_and_valid_rows_keep_reading() {
     let connection = Connection::open_in_memory().unwrap();
     connection
-        .execute_batch(
-            "CREATE TABLE legacy_rows (id TEXT, created_at TEXT, body TEXT);",
-        )
+        .execute_batch("CREATE TABLE legacy_rows (id TEXT, created_at TEXT, body TEXT);")
         .unwrap();
     connection
         .execute(
@@ -279,10 +277,7 @@ fn oversized_sqlite_order_key_is_guarded_and_valid_rows_keep_reading() {
     let read_row = |offset| {
         connection
             .query_row(&query, [1024_i64, offset], |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, bool>(3)?,
-                ))
+                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, bool>(3)?))
             })
             .unwrap()
     };
