@@ -126,7 +126,7 @@ async fn legacy_control_updates_cross_batches_but_data_writes_remain_append_once
             .unwrap()
             .documents(),
     );
-    let checkpointer = DriverCheckpointer::<Value>::new(docs);
+    let checkpointer = DriverCheckpointer::<Value>::new(Arc::clone(&docs));
     checkpointer
         .put(Checkpoint {
             thread_id: "legacy-control-batches".into(),
