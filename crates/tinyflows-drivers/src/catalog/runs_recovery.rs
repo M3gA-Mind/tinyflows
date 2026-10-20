@@ -265,6 +265,46 @@ impl FlowCatalogDocuments {
         }
     }
 
+    /// Settles a legacy parked row as failed only if it is still the exact
+    /// version observed before legacy-resume preflight. This keeps a missing
+    /// checkpoint from failing a replacement row that arrived during the
+    /// owner-scoped checkpoint read.
+    pub async fn fail_legacy_parked_flow_run_for_resume(
+        &self,
+        expected: &Versioned<serde_json::Value>,
+        finished_at: &str,
+        steps: &[tinyflows_catalog::FlowRunStep],
+        error: &str,
+    ) -> Result<bool> {
+        if status(&expected.doc) != "pending_approval"
+            || expected
+                .doc
+                .get("execution_snapshot")
+                .is_some_and(|snapshot| {
+                    snapshot.get("legacy_resume") != Some(&serde_json::Value::Bool(true))
+                })
+        {
+            return Ok(false);
+        }
+        let mut next = expected.doc.clone();
+        next["status"] = serde_json::json!("failed");
+        next["steps"] = serde_json::to_value(steps)
+            .context("serializing legacy resume failure steps")?;
+        next["pending_approvals"] = serde_json::json!([]);
+        next["finished_ms"] = serde_json::json!(instant_ms(finished_at));
+        next["error"] = serde_json::json!(error);
+        next.as_object_mut().unwrap().remove("graph_hash");
+        let docs = self.docs().await?;
+        match docs
+            .put(RUNS, &expected.id, next, expected.unchanged())
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::Conflict => Ok(false),
+            Err(error) => Err(error).context("failing legacy parked flow run without checkpoint"),
+        }
+    }
+
     /// Reconciles an orphaned `running` run to `interrupted`, only while it is
     /// still `running`; returns whether it flipped.
     pub async fn mark_run_interrupted(&self, id: &str, now: &str, reason: &str) -> Result<bool> {

@@ -455,27 +455,7 @@ impl CatalogService {
         &self,
         request: ImportLegacyBatchRequest,
     ) -> tinybus::Result<ImportLegacyBatchResponse> {
-        if request.records.len() > tinyflows_bus::catalog::MAX_IMPORT_BATCH_RECORDS {
-            return Err(Error::failed("legacy import batch exceeds record limit"));
-        }
-        let encoded = serde_json::to_vec(&request).map_err(failure)?;
-        if encoded.len() > tinyflows_bus::catalog::MAX_IMPORT_BATCH_BYTES {
-            return Err(Error::failed("legacy import batch exceeds byte limit"));
-        }
-        let port = Arc::new(
-            super::catalog_documents::Documents::new(
-                self.connection.clone(),
-                request.storage.callback,
-            )
-            .await
-            .map_err(failure)?,
-        );
-        let docs = Arc::clone(&port) as Arc<dyn DocumentStore>;
-        let catalog = FlowCatalogDocuments::new(Arc::clone(&docs));
-        let checkpointer = tinyflows_drivers::DriverCheckpointer::<Value>::new(docs);
-        tinyflows_import::apply_legacy_batch(&request.records, &catalog, &checkpointer)
-            .await
-            .map_err(failure)
+        super::catalog_legacy_import::import(&self.connection, request).await
     }
 }
 
