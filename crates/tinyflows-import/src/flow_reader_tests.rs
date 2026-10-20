@@ -243,13 +243,13 @@ fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
     let row = connection
         .query_row(&query, [1024_i64, 0_i64], |row| {
             Ok((
-                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(0)?,
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, bool>(2)?,
             ))
         })
         .unwrap();
-    assert_eq!(row, ("large".into(), None, true));
+    assert_eq!(row, (None, None, true));
 }
 
 #[test]
