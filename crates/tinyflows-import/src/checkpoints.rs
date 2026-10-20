@@ -24,7 +24,7 @@ pub async fn import_sqlite_checkpoints(
 ) -> Result<ImportReport> {
     let report = Arc::new(Mutex::new(ImportReport::default()));
     let output = Arc::clone(&report);
-    let mut send = |records: Vec<LegacyImportRecord>| {
+    let mut send = move |records: Vec<LegacyImportRecord>| {
         let output = Arc::clone(&output);
         async move {
             let response =
@@ -51,7 +51,7 @@ pub async fn import_file_checkpoints(
 ) -> Result<ImportReport> {
     let report = Arc::new(Mutex::new(ImportReport::default()));
     let output = Arc::clone(&report);
-    let mut send = |records: Vec<LegacyImportRecord>| {
+    let mut send = move |records: Vec<LegacyImportRecord>| {
         let output = Arc::clone(&output);
         async move {
             let response =
