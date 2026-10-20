@@ -29,6 +29,41 @@ async fn running_with_lease(lease: &str) -> (FlowCatalogDocuments, String) {
     (catalog, run_id)
 }
 
+async fn legacy_parked() -> (FlowCatalogDocuments, String) {
+    let storage = MemoryStorage::new();
+    let scoped = storage
+        .for_scope(&tinystoragedrivers_core::Scope::local())
+        .unwrap();
+    let catalog = FlowCatalogDocuments::new(scoped.documents().clone());
+    let graph = tinyflows::migrate::deserialize_graph(serde_json::json!({
+        "nodes":[{"id":"trigger","name":"Trigger","kind":"trigger","config":{}}],
+        "edges":[]
+    }))
+    .unwrap();
+    let flow = catalog
+        .create_flow("legacy parked".into(), graph, false, true)
+        .await
+        .unwrap();
+    let run_id = uuid::Uuid::new_v4().to_string();
+    catalog
+        .insert_flow_run(&run_id, &flow.id, &format!("thread-{run_id}"), "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    catalog
+        .finish_flow_run(
+            &run_id,
+            "pending_approval",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &["gate".into()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    (catalog, run_id)
+}
+
 #[tokio::test]
 async fn actor_recovery_interrupts_only_the_running_row_with_its_lease() {
     let (catalog, run_id) = running_with_lease("actor-a").await;
@@ -168,19 +203,7 @@ async fn actor_recovery_does_not_interrupt_a_parked_or_terminal_row() {
 
 #[tokio::test]
 async fn legacy_resume_claim_uses_the_exact_versioned_parked_row() {
-    let (catalog, run_id) = running_with_lease("unused").await;
-    catalog
-        .finish_flow_run(
-            &run_id,
-            "pending_approval",
-            "2026-01-01T00:00:01Z",
-            &[],
-            &["gate".into()],
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+    let (catalog, run_id) = legacy_parked().await;
     let (run, observed) = catalog
         .get_flow_run_versioned(&run_id)
         .await
@@ -210,19 +233,7 @@ async fn legacy_resume_claim_uses_the_exact_versioned_parked_row() {
 
 #[tokio::test]
 async fn legacy_resume_claim_does_not_claim_a_replacement_parked_row() {
-    let (catalog, run_id) = running_with_lease("unused").await;
-    catalog
-        .finish_flow_run(
-            &run_id,
-            "pending_approval",
-            "2026-01-01T00:00:01Z",
-            &[],
-            &["gate".into()],
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+    let (catalog, run_id) = legacy_parked().await;
     let (_run, observed) = catalog
         .get_flow_run_versioned(&run_id)
         .await
