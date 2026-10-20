@@ -6,7 +6,9 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use tinyflows::compiler;
 use tinyflows::engine::Checkpointer as _;
-use tinyflows_bus::runs::{FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, StartRun};
+use tinyflows_bus::runs::{
+    FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, RunEvent, StartRun,
+};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
@@ -23,8 +25,8 @@ pub(super) async fn resume(
     validate(&request)?;
     let catalog = super::preparation::catalog(connection, request.storage.clone()).await?;
     super::verify_live_owner(&catalog, &request.storage, &request.run_id).await?;
-    let row = catalog
-        .get_flow_run(&request.run_id)
+    let (row, observed) = catalog
+        .get_flow_run_versioned(&request.run_id)
         .await?
         .context("flow run does not exist in this owner scope")?;
     if row.flow_id != request.flow_id {
@@ -52,20 +54,6 @@ pub(super) async fn resume(
         bail!("resume decisions do not name a currently pending gate")
     }
 
-    let snapshot = catalog
-        .flow_run_snapshot(&request.run_id)
-        .await?
-        .context("parked run has no execution snapshot")?;
-    let context: RunContext = serde_json::from_value(
-        snapshot
-            .get("context")
-            .cloned()
-            .context("run snapshot omitted context")?,
-    )
-    .context("decoding run context snapshot")?;
-    if context.flow_id != request.flow_id {
-        bail!("run snapshot belongs to a different workflow")
-    }
     let flow = catalog
         .get_flow(&request.flow_id)
         .await?
@@ -98,13 +86,102 @@ pub(super) async fn resume(
         bail!(error)
     }
 
-    let graph_json = snapshot
-        .get("graph")
-        .cloned()
-        .context("run snapshot omitted graph")?;
-    let graph = tinyflows::migrate::deserialize_graph(graph_json)
-        .map_err(anyhow::Error::msg)
-        .context("decoding pinned execution graph")?;
+    let snapshot = catalog.flow_run_snapshot(&request.run_id).await?;
+    let legacy = snapshot.as_ref().map_or(true, |snapshot| {
+        snapshot.get("legacy_resume") == Some(&Value::Bool(true))
+    });
+    let (graph, context, require_approval, thread_id, legacy_marker) = if legacy {
+        if let Some(snapshot) = snapshot.as_ref() {
+            let graph = snapshot
+                .get("graph")
+                .cloned()
+                .context("legacy resume marker omitted graph")?;
+            let graph = tinyflows::migrate::deserialize_graph(graph)
+                .map_err(anyhow::Error::msg)
+                .context("decoding legacy resume graph")?;
+            let context: RunContext = serde_json::from_value(
+                snapshot
+                    .get("context")
+                    .cloned()
+                    .context("legacy resume marker omitted context")?,
+            )
+            .context("decoding legacy resume context")?;
+            if context.flow_id != request.flow_id {
+                bail!("legacy resume marker belongs to a different workflow")
+            }
+            let require_approval = snapshot
+                .get("require_approval")
+                .and_then(Value::as_bool)
+                .context("legacy resume marker omitted approval policy")?;
+            let thread_id = snapshot
+                .get("thread_id")
+                .and_then(Value::as_str)
+                .context("legacy resume marker omitted checkpoint thread id")?
+                .to_owned();
+            if thread_id != row.thread_id {
+                bail!("legacy resume marker checkpoint thread does not match the run row")
+            }
+            (graph, context, require_approval, thread_id, snapshot.clone())
+        } else {
+            tracing::warn!(
+                target: "flows",
+                run_id = %request.run_id,
+                "legacy parked run has no graph hash; allowing resume against the current saved workflow"
+            );
+            let context = RunContext {
+                flow_id: request.flow_id.clone(),
+                origin: None,
+            };
+            let graph = flow.graph.clone();
+            let marker = serde_json::json!({
+                "legacy_resume": true,
+                "graph": graph,
+                "context": context,
+                "require_approval": flow.require_approval,
+                "thread_id": row.thread_id,
+            });
+            (
+                flow.graph.clone(),
+                RunContext {
+                    flow_id: request.flow_id.clone(),
+                    origin: None,
+                },
+                flow.require_approval,
+                row.thread_id.clone(),
+                marker,
+            )
+        }
+    } else {
+        let snapshot = snapshot.as_ref().expect("non-legacy snapshot was present");
+        let context: RunContext = serde_json::from_value(
+            snapshot
+                .get("context")
+                .cloned()
+                .context("run snapshot omitted context")?,
+        )
+        .context("decoding run context snapshot")?;
+        if context.flow_id != request.flow_id {
+            bail!("run snapshot belongs to a different workflow")
+        }
+        let graph_json = snapshot
+            .get("graph")
+            .cloned()
+            .context("run snapshot omitted graph")?;
+        let graph = tinyflows::migrate::deserialize_graph(graph_json)
+            .map_err(anyhow::Error::msg)
+            .context("decoding pinned execution graph")?;
+        let require_approval = snapshot
+            .get("require_approval")
+            .and_then(Value::as_bool)
+            .context("run snapshot omitted approval policy")?;
+        (
+            graph,
+            context,
+            require_approval,
+            row.thread_id.clone(),
+            Value::Null,
+        )
+    };
     if let Some(error) = compatibility_error(&catalog, &graph).await {
         refuse_parked_run(
             connection,
@@ -119,30 +196,36 @@ pub(super) async fn resume(
         bail!(error)
     }
     let compiled = compiler::compile(&graph).context("compiling pinned execution graph")?;
-    let inputs: Map<String, Value> = serde_json::from_value(
-        snapshot
-            .get("inputs")
+    let mut inputs = Map::new();
+    let (trigger_kind, trigger_data) = if legacy {
+        // Resume execution reads its durable checkpoint, not StartRun input.
+        // These private actor fields are not emitted or persisted for legacy
+        // rows, whose original trigger metadata was never stored.
+        (FlowRunTrigger::Rpc, Value::Null)
+    } else {
+        let snapshot = snapshot.as_ref().expect("non-legacy snapshot was present");
+        inputs = serde_json::from_value(
+            snapshot
+                .get("inputs")
+                .cloned()
+                .context("run snapshot omitted inputs")?,
+        )
+        .context("decoding run input snapshot")?;
+        tinyflows::model::resolve_inputs(&compiled.graph.inputs, &inputs)
+            .context("resolving pinned workflow inputs")?;
+        let trigger_kind: FlowRunTrigger = serde_json::from_value(
+            snapshot
+                .get("trigger_kind")
+                .cloned()
+                .context("run snapshot omitted trigger kind")?,
+        )
+        .context("decoding run trigger kind")?;
+        let trigger_data = snapshot
+            .get("trigger_data")
             .cloned()
-            .context("run snapshot omitted inputs")?,
-    )
-    .context("decoding run input snapshot")?;
-    tinyflows::model::resolve_inputs(&compiled.graph.inputs, &inputs)
-        .context("resolving pinned workflow inputs")?;
-    let trigger_kind: FlowRunTrigger = serde_json::from_value(
-        snapshot
-            .get("trigger_kind")
-            .cloned()
-            .context("run snapshot omitted trigger kind")?,
-    )
-    .context("decoding run trigger kind")?;
-    let trigger_data = snapshot
-        .get("trigger_data")
-        .cloned()
-        .context("run snapshot omitted trigger data")?;
-    let require_approval = snapshot
-        .get("require_approval")
-        .and_then(Value::as_bool)
-        .context("run snapshot omitted approval policy")?;
+            .context("run snapshot omitted trigger data")?;
+        (trigger_kind, trigger_data)
+    };
     let run = StartRun {
         run_id: request.run_id.clone(),
         context,
@@ -163,13 +246,56 @@ pub(super) async fn resume(
         inputs,
         checkpointer: DriverCheckpointer::new(documents),
         require_approval,
+        checkpoint_thread_id: thread_id.clone(),
     };
+
+    if legacy {
+        let checkpoints = prepared
+            .checkpointer
+            .get_thread(&thread_id)
+            .await
+            .context("reading legacy parked run checkpoint")?;
+        if checkpoints.is_empty() {
+            let error = "legacy parked run has no durable checkpoint";
+            if catalog
+                .fail_legacy_parked_flow_run_for_resume(
+                    &observed,
+                    &chrono::Utc::now().to_rfc3339(),
+                    &row.steps,
+                    error,
+                )
+                .await?
+            {
+                settle_missing_legacy_checkpoint(
+                    &request,
+                    &catalog,
+                    &prepared.checkpointer,
+                    &observed,
+                    &row.steps,
+                    error,
+                    snapshot.as_ref(),
+                    &thread_id,
+                )
+                .await?;
+            }
+            bail!(error)
+        }
+    }
     let run_key = key(&request.storage, &request.run_id);
     let active = reserve_resume(run_key)?;
-    let claimed = match catalog
-        .claim_parked_flow_run_for_resume(&request.run_id, &active.lease)
-        .await
-    {
+    let claimed = match if legacy {
+        catalog
+            .claim_legacy_parked_flow_run_for_resume(
+                &observed,
+                &active.lease,
+                legacy_marker,
+            )
+            .await
+    } else {
+        catalog
+            .claim_parked_flow_run_for_resume(&request.run_id, &active.lease)
+            .await
+    } {
         Ok(claimed) => claimed,
         Err(error) => {
             unregister(&active);
@@ -192,12 +318,64 @@ pub(super) async fn resume(
         actor_admitted,
         request,
         row.steps,
+        legacy,
     ));
     active.admitted.notify_waiters();
     let _ = actor_ready.send(());
     Ok(ResumeRunResponse {
         run_id: active.key.run_id.clone(),
     })
+}
+
+async fn settle_missing_legacy_checkpoint(
+    request: &ResumeRun,
+    catalog: &FlowCatalogDocuments,
+    checkpointer: &DriverCheckpointer<Value>,
+    _observed: &tinystoragedrivers_core::Versioned<Value>,
+    steps: &[tinyflows_catalog::FlowRunStep],
+    error: &str,
+    snapshot: Option<&Value>,
+    thread_id: &str,
+) -> Result<()> {
+    super::record_settled_summary(catalog, &request.run_id, "failed").await;
+    let dedup_settlement = super::dedup_settlement::from_snapshot(
+        &request.storage,
+        catalog.clone(),
+        snapshot,
+        &request.run_id,
+        false,
+    )
+    .await;
+    if let Err(cleanup_error) = checkpointer.delete_thread(thread_id).await {
+        tracing::warn!(%cleanup_error, run_id = %request.run_id, "missing legacy checkpoint cleanup failed");
+    }
+    let seq = catalog
+        .flow_run_event_last_seq(&request.run_id)
+        .await?
+        .saturating_add(1);
+    catalog
+        .append_flow_run_event(
+            &request.run_id,
+            serde_json::to_value(RunEvent {
+                seq,
+                kind: "finished".into(),
+                data: serde_json::to_value(super::events::finished_payload(
+                    "failed",
+                    Some(error.to_owned()),
+                    None,
+                    None,
+                    false,
+                ))?,
+                graph_run_id: None,
+            })?,
+        )
+        .await?;
+    if !catalog.mark_flow_run_terminal_event(&request.run_id, seq).await? {
+        bail!("legacy resume failure terminal cursor was not committed")
+    }
+    drop(dedup_settlement);
+    let _ = steps;
+    Ok(())
 }
 
 fn validate(request: &ResumeRun) -> Result<()> {
