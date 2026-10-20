@@ -131,7 +131,7 @@ enum Continuation {
 
 async fn drive_inner(
     connection: tinybus::Connection,
-    request: StartRun,
+    request: ActorRunRequest,
     prepared: Prepared,
     active: Arc<ActiveRun>,
     admitted: tokio::sync::oneshot::Receiver<()>,
@@ -381,7 +381,7 @@ async fn drive_inner(
 }
 
 async fn execute(
-    request: &StartRun,
+    request: &ActorRunRequest,
     prepared: &Prepared,
     capabilities: &tinyflows::caps::Capabilities,
     active: &ActiveRun,

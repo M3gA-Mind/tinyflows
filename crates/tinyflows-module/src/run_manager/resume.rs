@@ -263,7 +263,7 @@ pub(super) async fn resume(
             .get_scoped(&thread_id, None, &[])
             .await
             .context("reading legacy parked run checkpoint")?;
-        if checkpoints.is_empty() {
+        if checkpoints.is_none() {
             let error = "legacy parked run has no durable checkpoint";
             let failed = catalog
                 .fail_legacy_parked_flow_run_for_resume(
