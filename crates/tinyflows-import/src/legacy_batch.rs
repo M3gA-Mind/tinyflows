@@ -297,7 +297,8 @@ pub async fn apply_legacy_batch(
         }
     }
     if !checkpoints.is_empty() || !writes.is_empty() {
-        let checkpointer = checkpointer.context("checkpoint import requires a scoped checkpointer")?;
+        let checkpointer =
+            checkpointer.context("checkpoint import requires a scoped checkpointer")?;
         replay(checkpointer, checkpoints, writes, &mut counts).await?;
     }
     Ok(ImportLegacyBatchResponse {

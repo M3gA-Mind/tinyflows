@@ -63,7 +63,7 @@ async fn invalid_draft_is_reported_and_does_not_stop_later_records() {
             bytes: serde_json::to_vec(&good).unwrap(),
         }),
     ];
-    let response = apply_legacy_batch(&records, &catalog, &checkpointer)
+    let response = apply_legacy_batch(&records, &catalog, Some(&checkpointer))
         .await
         .unwrap();
     assert_eq!(response.tallies[0].invalid, 1);
@@ -78,7 +78,7 @@ async fn pending_writes_import_in_a_later_batch_and_never_replace_existing_value
     let request = [LegacyImportRecord::Checkpoint {
         raw_json: serde_json::to_string(&saved).unwrap(),
     }];
-    let checkpoint_result = apply_legacy_batch(&request, &catalog, &checkpointer)
+    let checkpoint_result = apply_legacy_batch(&request, &catalog, Some(&checkpointer))
         .await
         .unwrap();
     assert_eq!(checkpoint_result.tallies[0].written, 1);
@@ -101,7 +101,7 @@ async fn pending_writes_import_in_a_later_batch_and_never_replace_existing_value
     let first = apply_legacy_batch(
         &[write(json!({"value":"original"}))],
         &catalog,
-        &checkpointer,
+        Some(&checkpointer),
     )
     .await
     .unwrap();
@@ -109,7 +109,7 @@ async fn pending_writes_import_in_a_later_batch_and_never_replace_existing_value
     let replay = apply_legacy_batch(
         &[write(json!({"value":"newer-live-value"}))],
         &catalog,
-        &checkpointer,
+        Some(&checkpointer),
     )
     .await
     .unwrap();

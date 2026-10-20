@@ -37,11 +37,19 @@ async fn sqlite_and_jsonl_checkpoint_sources_emit_raw_ordered_rows() {
         assert_eq!(
             records
                 .iter()
-                .filter(|record| matches!(record, LegacyImportRecord::SqliteCheckpointWrite(_) | LegacyImportRecord::FileCheckpointWrite { .. }))
+                .filter(|record| matches!(
+                    record,
+                    LegacyImportRecord::SqliteCheckpointWrite(_)
+                        | LegacyImportRecord::FileCheckpointWrite { .. }
+                ))
                 .count(),
             3
         );
-        assert!(records.iter().all(|record| !matches!(record, LegacyImportRecord::Invalid { .. })));
+        assert!(
+            records
+                .iter()
+                .all(|record| !matches!(record, LegacyImportRecord::Invalid { .. }))
+        );
     }
 }
 

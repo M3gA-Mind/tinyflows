@@ -53,16 +53,16 @@
 
 #[cfg(feature = "catalog")]
 mod catalog;
-#[cfg(all(feature = "engine", feature = "checkpoint-read"))]
-mod checkpoints;
 #[cfg(feature = "checkpoint-read")]
 mod checkpoint_reader;
+#[cfg(all(feature = "engine", feature = "checkpoint-read"))]
+mod checkpoints;
 #[cfg(feature = "schedule")]
 mod cron;
-#[cfg(feature = "flow-write")]
-mod legacy_batch;
 #[cfg(feature = "flow-read")]
 mod flow_reader;
+#[cfg(feature = "flow-write")]
+mod legacy_batch;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
 #[cfg(any(
@@ -90,16 +90,16 @@ mod test_support;
 
 #[cfg(feature = "catalog")]
 pub use catalog::import_flow_catalog;
-#[cfg(all(feature = "engine", feature = "checkpoint-read"))]
-pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "checkpoint-read")]
 pub use checkpoint_reader::read_legacy_checkpoint_batches;
+#[cfg(all(feature = "engine", feature = "checkpoint-read"))]
+pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "schedule")]
 pub use cron::import_cron;
-#[cfg(feature = "flow-write")]
-pub use legacy_batch::apply_legacy_batch;
 #[cfg(feature = "flow-read")]
 pub use flow_reader::read_legacy_flow_catalog;
+#[cfg(feature = "flow-write")]
+pub use legacy_batch::apply_legacy_batch;
 #[cfg(feature = "schedule-read")]
 pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};

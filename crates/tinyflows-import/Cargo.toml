@@ -28,7 +28,7 @@ engine = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine"]
 # `import_workflow_store`.
 store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
 # `import_flow_catalog`, `import_file_state`.
-catalog = ["engine", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
+catalog = ["flow-write", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
 # `import_cron`.
 schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", "tinyflows-drivers/schedule"]
 # `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
@@ -41,7 +41,7 @@ schedule-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
 # crates. The catalog module owns applying these records through scoped ports.
 flow-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
 # Shared semantic importer used by both the legacy public API and Catalog bus.
-flow-write = ["engine", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
+flow-write = ["engine", "dep:tinyflows-bus", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
 # Host-side checkpoint source reader; kept separate from the engine writer.
 checkpoint-read = ["flow-read"]
 

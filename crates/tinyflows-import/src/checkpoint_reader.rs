@@ -32,18 +32,24 @@ where
         if tables.contains("checkpoints") {
             let mut offset = 0_i64;
             loop {
-                let rows = db.read("checkpoints", move |connection| {
-                    let mut statement = connection.prepare(
-                        "SELECT record FROM checkpoints ORDER BY seq LIMIT ?1 OFFSET ?2",
-                    )?;
-                    statement
-                        .query_map([64_i64, offset], |row| row.get::<_, String>(0))?
-                        .collect::<std::result::Result<Vec<_>, _>>()
-                }).await?;
-                if rows.is_empty() { break; }
+                let rows = db
+                    .read("checkpoints", move |connection| {
+                        let mut statement = connection.prepare(
+                            "SELECT record FROM checkpoints ORDER BY seq LIMIT ?1 OFFSET ?2",
+                        )?;
+                        statement
+                            .query_map([64_i64, offset], |row| row.get::<_, String>(0))?
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .await?;
+                if rows.is_empty() {
+                    break;
+                }
                 offset += rows.len() as i64;
                 for raw_json in rows {
-                    batches.push(LegacyImportRecord::Checkpoint { raw_json }, &mut send).await?;
+                    batches
+                        .push(LegacyImportRecord::Checkpoint { raw_json }, &mut send)
+                        .await?;
                 }
             }
         }
@@ -62,10 +68,14 @@ where
                     })?;
                     mapped.collect::<std::result::Result<Vec<_>, _>>()
                 }).await?;
-                if rows.is_empty() { break; }
+                if rows.is_empty() {
+                    break;
+                }
                 offset += rows.len() as i64;
                 for row in rows {
-                    batches.push(LegacyImportRecord::SqliteCheckpointWrite(row), &mut send).await?;
+                    batches
+                        .push(LegacyImportRecord::SqliteCheckpointWrite(row), &mut send)
+                        .await?;
                 }
             }
         }
@@ -111,7 +121,15 @@ where
                     .await?;
                 continue;
             };
-            read_jsonl(&path, name, thread_id, LegacyImportKind::Write, batches, send).await?;
+            read_jsonl(
+                &path,
+                name,
+                thread_id,
+                LegacyImportKind::Write,
+                batches,
+                send,
+            )
+            .await?;
         } else if name.ends_with(".jsonl") {
             let Some(thread_id) = name.strip_suffix(".jsonl").and_then(unescape_thread_id) else {
                 batches
@@ -201,9 +219,7 @@ where
     Ok(())
 }
 
-fn read_bounded_line<R: BufRead>(
-    reader: &mut R,
-) -> io::Result<Option<(Vec<u8>, bool, bool)>> {
+fn read_bounded_line<R: BufRead>(reader: &mut R) -> io::Result<Option<(Vec<u8>, bool, bool)>> {
     let mut line = Vec::new();
     let mut saw_bytes = false;
     let mut oversized = false;

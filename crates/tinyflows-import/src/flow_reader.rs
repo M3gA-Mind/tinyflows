@@ -6,10 +6,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tinyflows_bus::catalog::{
-    LegacyDraftRecord, LegacyFlowRecord, LegacyImportRecord,
-    LegacyRevisionRecord, LegacyRunRecord, LegacyStateRecord, LegacySuggestionRecord,
-    MAX_IMPORT_BATCH_RECORDS, MAX_IMPORT_RECORD_PAYLOAD_BYTES,
-    MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
+    LegacyDraftRecord, LegacyFlowRecord, LegacyImportRecord, LegacyRevisionRecord, LegacyRunRecord,
+    LegacyStateRecord, LegacySuggestionRecord, MAX_IMPORT_BATCH_RECORDS,
+    MAX_IMPORT_RECORD_PAYLOAD_BYTES, MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
 };
 
 use crate::legacy_db::{LegacyDb, column_or};
@@ -36,20 +35,34 @@ where
             let mut offset = 0_i64;
             loop {
                 let query = select.clone();
-                let rows = db.read("flow definitions", move |conn| {
-                    let mut statement = conn.prepare(&query)?;
-                    let mapped = statement.query_map([64_i64, offset], |row| {
-                        Ok(LegacyFlowRecord {
-                            id: row.get(0)?, name: row.get(1)?, graph_json: row.get(2)?,
-                            enabled: row.get::<_, i64>(3)? != 0, created_at: row.get(4)?, updated_at: row.get(5)?,
-                            last_run_at: row.get(6)?, last_status: row.get(7)?, require_approval: row.get::<_, i64>(8)? != 0,
-                        })
-                    })?;
-                    mapped.collect::<std::result::Result<Vec<_>, _>>()
-                }).await?;
-                if rows.is_empty() { break; }
+                let rows = db
+                    .read("flow definitions", move |conn| {
+                        let mut statement = conn.prepare(&query)?;
+                        let mapped = statement.query_map([64_i64, offset], |row| {
+                            Ok(LegacyFlowRecord {
+                                id: row.get(0)?,
+                                name: row.get(1)?,
+                                graph_json: row.get(2)?,
+                                enabled: row.get::<_, i64>(3)? != 0,
+                                created_at: row.get(4)?,
+                                updated_at: row.get(5)?,
+                                last_run_at: row.get(6)?,
+                                last_status: row.get(7)?,
+                                require_approval: row.get::<_, i64>(8)? != 0,
+                            })
+                        })?;
+                        mapped.collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .await?;
+                if rows.is_empty() {
+                    break;
+                }
                 offset += rows.len() as i64;
-                for row in rows { batches.push(LegacyImportRecord::Flow(row), &mut send).await?; }
+                for row in rows {
+                    batches
+                        .push(LegacyImportRecord::Flow(row), &mut send)
+                        .await?;
+                }
             }
         }
         if tables.contains("flow_revisions") {
@@ -59,10 +72,33 @@ where
         }
         if tables.contains("flow_runs") {
             let columns = db.columns("flow_runs").await?;
-            let select = format!("SELECT id,flow_id,thread_id,status,started_at,finished_at,steps_json,pending_approvals_json,error,{} FROM flow_runs ORDER BY started_at,id LIMIT ?1 OFFSET ?2", column_or(&columns, "graph_hash", "NULL"));
-            page_rows(&db, "flow runs", &select, |row| {
-                Ok(LegacyRunRecord { id: row.get(0)?, flow_id: row.get(1)?, thread_id: row.get(2)?, status: row.get(3)?, started_at: row.get(4)?, finished_at: row.get(5)?, steps_json: row.get(6)?, pending_approvals_json: row.get(7)?, error: row.get(8)?, graph_hash: row.get(9)? })
-            }, |row| LegacyImportRecord::Run(row), &mut batches, &mut send).await?;
+            let select = format!(
+                "SELECT id,flow_id,thread_id,status,started_at,finished_at,steps_json,pending_approvals_json,error,{} FROM flow_runs ORDER BY started_at,id LIMIT ?1 OFFSET ?2",
+                column_or(&columns, "graph_hash", "NULL")
+            );
+            page_rows(
+                &db,
+                "flow runs",
+                &select,
+                |row| {
+                    Ok(LegacyRunRecord {
+                        id: row.get(0)?,
+                        flow_id: row.get(1)?,
+                        thread_id: row.get(2)?,
+                        status: row.get(3)?,
+                        started_at: row.get(4)?,
+                        finished_at: row.get(5)?,
+                        steps_json: row.get(6)?,
+                        pending_approvals_json: row.get(7)?,
+                        error: row.get(8)?,
+                        graph_hash: row.get(9)?,
+                    })
+                },
+                |row| LegacyImportRecord::Run(row),
+                &mut batches,
+                &mut send,
+            )
+            .await?;
         }
         if tables.contains("flow_state") {
             page_rows(&db, "flow state", "SELECT namespace,key,value FROM flow_state ORDER BY namespace,key LIMIT ?1 OFFSET ?2", |row| {
@@ -83,7 +119,12 @@ async fn page_rows<T, ToRecord, F, Fut>(
     db: &LegacyDb,
     what: &'static str,
     query: &str,
-    decode: impl Fn(&tinystoragedrivers_sqlite::rusqlite::Row<'_>) -> tinystoragedrivers_sqlite::rusqlite::Result<T> + Send + Sync + 'static,
+    decode: impl Fn(
+        &tinystoragedrivers_sqlite::rusqlite::Row<'_>,
+    ) -> tinystoragedrivers_sqlite::rusqlite::Result<T>
+    + Send
+    + Sync
+    + 'static,
     to_record: ToRecord,
     batches: &mut BatchSender,
     send: &mut F,
@@ -100,14 +141,20 @@ where
     loop {
         let statement_query = query.clone();
         let decode = Arc::clone(&decode);
-        let rows = db.read(what, move |conn| {
-            let mut statement = conn.prepare(&statement_query)?;
-            let mapped = statement.query_map([64_i64, offset], |row| decode(row))?;
-            mapped.collect::<std::result::Result<Vec<_>, _>>()
-        }).await?;
-        if rows.is_empty() { break; }
+        let rows = db
+            .read(what, move |conn| {
+                let mut statement = conn.prepare(&statement_query)?;
+                let mapped = statement.query_map([64_i64, offset], |row| decode(row))?;
+                mapped.collect::<std::result::Result<Vec<_>, _>>()
+            })
+            .await?;
+        if rows.is_empty() {
+            break;
+        }
         offset += rows.len() as i64;
-        for row in rows { batches.push(to_record(row), send).await?; }
+        for row in rows {
+            batches.push(to_record(row), send).await?;
+        }
     }
     Ok(())
 }
@@ -122,33 +169,64 @@ where
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error).with_context(|| format!("listing {}", dir.display())),
     };
-    let mut paths: Vec<_> = entries.filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "json")
-            && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.')))
+    let mut paths: Vec<_> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.is_file()
+                && path.extension().is_some_and(|ext| ext == "json")
+                && !path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        })
         .collect();
     paths.sort();
     for path in paths {
         let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-        let file_name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        batches.push(LegacyImportRecord::Draft(LegacyDraftRecord { file_name, bytes }), send).await?;
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        batches
+            .push(
+                LegacyImportRecord::Draft(LegacyDraftRecord { file_name, bytes }),
+                send,
+            )
+            .await?;
     }
     Ok(())
 }
 
 #[derive(Default)]
-pub(crate) struct BatchSender { current: Vec<LegacyImportRecord>, bytes: usize }
+pub(crate) struct BatchSender {
+    current: Vec<LegacyImportRecord>,
+    bytes: usize,
+}
 
 impl BatchSender {
-    pub(crate) async fn push<F, Fut>(&mut self, mut record: LegacyImportRecord, send: &mut F) -> Result<()>
-    where F: FnMut(Vec<LegacyImportRecord>) -> Fut, Fut: Future<Output = Result<()>> {
+    pub(crate) async fn push<F, Fut>(
+        &mut self,
+        mut record: LegacyImportRecord,
+        send: &mut F,
+    ) -> Result<()>
+    where
+        F: FnMut(Vec<LegacyImportRecord>) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
         let mut size = serde_json::to_vec(&record)?.len();
         if size > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
             let kind = record.record_kind();
             let identity = record_identity(&record);
-            record = LegacyImportRecord::Invalid { record_kind: kind, identity, message: "record exceeds the import byte limit".into() };
+            record = LegacyImportRecord::Invalid {
+                record_kind: kind,
+                identity,
+                message: "record exceeds the import byte limit".into(),
+            };
             size = serde_json::to_vec(&record)?.len();
         }
-        if !self.current.is_empty() && (self.current.len() >= MAX_IMPORT_BATCH_RECORDS || self.bytes + size > MAX_IMPORT_RECORD_PAYLOAD_BYTES) {
+        if !self.current.is_empty()
+            && (self.current.len() >= MAX_IMPORT_BATCH_RECORDS
+                || self.bytes + size > MAX_IMPORT_RECORD_PAYLOAD_BYTES)
+        {
             self.flush(send).await?;
         }
         self.bytes += size;
@@ -157,8 +235,13 @@ impl BatchSender {
     }
 
     pub(crate) async fn flush<F, Fut>(&mut self, send: &mut F) -> Result<()>
-    where F: FnMut(Vec<LegacyImportRecord>) -> Fut, Fut: Future<Output = Result<()>> {
-        if self.current.is_empty() { return Ok(()); }
+    where
+        F: FnMut(Vec<LegacyImportRecord>) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        if self.current.is_empty() {
+            return Ok(());
+        }
         self.bytes = 0;
         send(std::mem::take(&mut self.current)).await
     }

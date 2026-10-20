@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::Mutex;
-use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage, ImportLegacyBatchRequest};
 use tinyflows_bus::catalog::LegacyImportKind;
+use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage, ImportLegacyBatchRequest};
 
 #[tokio::test]
 async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
@@ -33,7 +33,11 @@ async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
     assert_eq!(batches.len(), 2);
     assert_eq!(batches[0].len(), MAX_IMPORT_BATCH_RECORDS);
     assert_eq!(batches[1].len(), 1);
-    assert!(batches.iter().all(|batch| batch.len() <= MAX_IMPORT_BATCH_RECORDS));
+    assert!(
+        batches
+            .iter()
+            .all(|batch| batch.len() <= MAX_IMPORT_BATCH_RECORDS)
+    );
 
     drop(batches);
     let mut sender = BatchSender::default();
@@ -60,7 +64,12 @@ async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
     sender.push(oversized, &mut send).await.unwrap();
     sender.flush(&mut send).await.unwrap();
     let batches = captured.lock().unwrap();
-    let LegacyImportRecord::Invalid { record_kind, identity, .. } = &batches[0][0] else {
+    let LegacyImportRecord::Invalid {
+        record_kind,
+        identity,
+        ..
+    } = &batches[0][0]
+    else {
         panic!("oversized record should be represented as invalid")
     };
     assert_eq!(*record_kind, LegacyImportKind::Flow);
