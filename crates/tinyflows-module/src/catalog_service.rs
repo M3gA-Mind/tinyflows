@@ -478,3 +478,7 @@ mod operations_tests;
 #[cfg(test)]
 #[path = "catalog_authoring_tests.rs"]
 mod authoring_tests;
+
+#[cfg(test)]
+#[path = "catalog_legacy_import_tests.rs"]
+mod legacy_import_tests;
