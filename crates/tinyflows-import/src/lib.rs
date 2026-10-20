@@ -91,7 +91,9 @@ mod workflow_store;
         feature = "store",
         feature = "flow-read",
         feature = "checkpoint-read",
-        feature = "schedule-read"
+        feature = "schedule-read",
+        feature = "flow-write",
+        feature = "checkpoint-write"
     )
 ))]
 mod test_support;

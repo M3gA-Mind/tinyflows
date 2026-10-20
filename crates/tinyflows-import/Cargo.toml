@@ -22,9 +22,9 @@ publish = false
 # Every importer by default. A host builds with `default-features = false` and
 # only the importers it ships: a build that runs scheduled jobs but no flows
 # takes `schedule` alone and pulls neither the engine nor its expression stack.
-default = ["engine", "store", "catalog", "schedule", "checkpoint-read", "checkpoint-write"]
+default = ["engine", "store", "catalog", "schedule"]
 # `import_sqlite_checkpoints`, `import_file_checkpoints`.
-engine = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine"]
+engine = ["checkpoint-read", "checkpoint-write"]
 # `import_workflow_store`.
 store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
 # `import_flow_catalog`, `import_file_state`.
@@ -42,7 +42,7 @@ flow-write = ["checkpoint-write", "dep:tinyflows-catalog", "tinyflows-drivers/ca
 # Host-side SQLite and JSONL checkpoint/write readers; implementation-free.
 checkpoint-read = ["flow-read"]
 # Shared checkpoint decode/replay logic. This does not pull in the catalog API.
-checkpoint-write = ["engine", "dep:tinyflows-bus"]
+checkpoint-write = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine", "dep:tinyflows-bus"]
 
 [dependencies]
 tinyflows = { workspace = true, optional = true }
