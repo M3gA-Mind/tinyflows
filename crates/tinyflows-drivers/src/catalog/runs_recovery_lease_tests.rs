@@ -1,6 +1,6 @@
 use super::*;
 use tinyflows_catalog::FlowRunStep;
-use tinystoragedrivers_core::{MemoryStorage, StorageBackend};
+use tinystoragedrivers_core::{DocumentStoreExt, MemoryStorage, StorageBackend};
 
 async fn running_with_lease(lease: &str) -> (FlowCatalogDocuments, String) {
     let storage = MemoryStorage::new();
@@ -164,4 +164,96 @@ async fn actor_recovery_does_not_interrupt_a_parked_or_terminal_row() {
     let run = catalog.get_flow_run(&terminal_id).await.unwrap().unwrap();
     assert_eq!(run.status, "completed");
     assert_eq!(run.steps[0].node_id, "finished");
+}
+
+#[tokio::test]
+async fn legacy_resume_claim_uses_the_exact_versioned_parked_row() {
+    let (catalog, run_id) = running_with_lease("unused").await;
+    catalog
+        .finish_flow_run(
+            &run_id,
+            "pending_approval",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &["gate".into()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let (run, observed) = catalog
+        .get_flow_run_versioned(&run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, "pending_approval");
+    assert!(observed.doc.get("execution_snapshot").is_none());
+
+    assert!(catalog
+        .claim_legacy_parked_flow_run_for_resume(
+            &observed,
+            "legacy-actor",
+            serde_json::json!({"flow_id": run.flow_id, "thread_id": run.thread_id}),
+        )
+        .await
+        .unwrap());
+    let (claimed, version) = catalog
+        .get_flow_run_versioned(&run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.status, "running");
+    assert_eq!(version.doc["legacy_resume"]["lease"], "legacy-actor");
+    assert_eq!(version.doc["legacy_resume"]["flow_id"], run.flow_id);
+    assert!(version.doc.get("execution_snapshot").is_none());
+}
+
+#[tokio::test]
+async fn legacy_resume_claim_does_not_claim_a_replacement_parked_row() {
+    let (catalog, run_id) = running_with_lease("unused").await;
+    catalog
+        .finish_flow_run(
+            &run_id,
+            "pending_approval",
+            "2026-01-01T00:00:01Z",
+            &[],
+            &["gate".into()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let (_run, observed) = catalog
+        .get_flow_run_versioned(&run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let docs = catalog.docs().await.unwrap();
+    let mut replacement = observed.doc.clone();
+    replacement["pending_approvals"] = serde_json::json!(["replacement-gate"]);
+    docs.put(
+        super::super::RUNS,
+        &run_id,
+        replacement,
+        observed.unchanged(),
+    )
+    .await
+    .unwrap();
+
+    assert!(!catalog
+        .claim_legacy_parked_flow_run_for_resume(
+            &observed,
+            "late-actor",
+            serde_json::json!({"flow_id":"replacement"}),
+        )
+        .await
+        .unwrap());
+    let (still_parked, version) = catalog
+        .get_flow_run_versioned(&run_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still_parked.status, "pending_approval");
+    assert_eq!(version.doc["pending_approvals"], serde_json::json!(["replacement-gate"]));
+    assert!(version.doc.get("legacy_resume").is_none());
 }

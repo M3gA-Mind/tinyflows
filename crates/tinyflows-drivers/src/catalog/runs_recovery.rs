@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort};
+use tinystoragedrivers_core::{DocumentStoreExt, ErrorKind, Filter, Query, Sort, Versioned};
 
 use super::lineage::{belongs_in, live_flows, reclaim};
 use super::runs::{parked_before, set_finished, status};
@@ -223,6 +223,46 @@ impl FlowCatalogDocuments {
         .await
         .context("Failed to claim parked flow run for resume")?;
         Ok(flipped.is_some())
+    }
+
+    /// Atomically adopts a legacy parked row that has no execution snapshot.
+    /// The exact version returned by [`Self::get_flow_run_versioned`] fences
+    /// the claim against a concurrent replacement; the marker records only
+    /// resume-time context and must not be treated as an original run
+    /// snapshot. A previously adopted marker is accepted for a later repark.
+    pub async fn claim_legacy_parked_flow_run_for_resume(
+        &self,
+        expected: &Versioned<serde_json::Value>,
+        lease: &str,
+        marker: serde_json::Value,
+    ) -> Result<bool> {
+        if expected.id.trim().is_empty() || lease.trim().is_empty() || !marker.is_object() {
+            return Ok(false);
+        }
+        if status(&expected.doc) != "pending_approval"
+            || expected.doc.get("execution_snapshot").is_some()
+            || expected
+                .doc
+                .get("legacy_resume")
+                .is_some_and(|existing| !existing.is_object())
+        {
+            return Ok(false);
+        }
+        let mut next = expected.doc.clone();
+        next["status"] = serde_json::json!("running");
+        next["legacy_resume"] = marker;
+        next["legacy_resume"]["lease"] = serde_json::json!(lease);
+        set_finished(&mut next, None);
+        set_optional(&mut next, "error", None);
+        let docs = self.docs().await?;
+        match docs
+            .put(RUNS, &expected.id, next, expected.unchanged())
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::Conflict => Ok(false),
+            Err(error) => Err(error).context("Failed to claim legacy parked flow run for resume"),
+        }
     }
 
     /// Reconciles an orphaned `running` run to `interrupted`, only while it is

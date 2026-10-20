@@ -277,6 +277,29 @@ impl FlowCatalogDocuments {
         to_run(&stored).map(Some)
     }
 
+    /// One owner-scoped run together with the exact document version from
+    /// which it was decoded. Lifecycle claims use this token so a row replaced
+    /// after the read cannot be mistaken for the row that was validated.
+    pub async fn get_flow_run_versioned(
+        &self,
+        id: &str,
+    ) -> Result<Option<(FlowRun, Versioned<Value>)>> {
+        let docs = self.docs().await?;
+        let Some(stored) = docs.get(RUNS, id).await? else {
+            return Ok(None);
+        };
+        let flow = match text(&stored.doc, "flow_id") {
+            Some(flow_id) => docs.get(DEFINITIONS, flow_id).await?,
+            None => None,
+        };
+        if !belongs(&stored.doc, flow.as_ref().map(|flow| &flow.doc)) {
+            reclaim(docs, RUNS, std::slice::from_ref(&stored)).await;
+            return Ok(None);
+        }
+        let run = to_run(&stored)?;
+        Ok(Some((run, stored)))
+    }
+
     /// A flow's most recent runs, newest first (`limit` at least 1).
     ///
     /// The runs are judged against the definition read before the query, so
