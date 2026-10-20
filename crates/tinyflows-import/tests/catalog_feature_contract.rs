@@ -1,3 +1,6 @@
+//! Compile and exercise the checkpoint importer APIs provided by `catalog`.
+#![cfg(feature = "catalog")]
+
 use std::sync::Arc;
 
 use serde_json::Value;
