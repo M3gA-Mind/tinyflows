@@ -7,6 +7,8 @@
 //! none of them. The compatibility is pinned by `checkpoint_layout_tests.rs`
 //! against fixtures copied from tinyagents.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tinyflows::graph::CheckpointConfig;
@@ -56,6 +58,10 @@ pub(crate) struct WritesBody {
     pub(crate) subgraph: String,
     pub(crate) checkpoint_id: String,
     pub(crate) writes: Vec<PendingWrite>,
+    /// Negative-index identities last supplied by an importer. A live control
+    /// write claims its identity and removes it; old documents default empty.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(crate) imported_control_writes: BTreeSet<(String, i64)>,
 }
 
 /// A subgraph namespace as one string, injectively: the root is empty and any
