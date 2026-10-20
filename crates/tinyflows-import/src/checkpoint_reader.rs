@@ -138,7 +138,19 @@ where
                     break;
                 }
                 offset += rows.len() as i64;
-                for (row_id, within_limit, thread, namespace, checkpoint, task, idx, node, channel, payload) in rows {
+                for (
+                    row_id,
+                    within_limit,
+                    thread,
+                    namespace,
+                    checkpoint,
+                    task,
+                    idx,
+                    node,
+                    channel,
+                    payload,
+                ) in rows
+                {
                     let record = if within_limit {
                         let decoded = (|| {
                             Some(LegacySqliteCheckpointWrite {
@@ -156,7 +168,9 @@ where
                             || LegacyImportRecord::Invalid {
                                 record_kind: LegacyImportKind::Write,
                                 identity: Some(format!("row:{row_id}")),
-                                message: "checkpoint write row contains a missing or non-UTF-8 field".into(),
+                                message:
+                                    "checkpoint write row contains a missing or non-UTF-8 field"
+                                        .into(),
                             },
                             LegacyImportRecord::SqliteCheckpointWrite,
                         )
