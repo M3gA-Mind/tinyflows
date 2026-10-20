@@ -136,7 +136,7 @@ async fn escape_expansion_is_bounded_and_later_records_still_import() {
 fn sqlite_octet_length_counts_text_bytes() {
     let connection = Connection::open_in_memory().unwrap();
     let bytes = connection
-        .query_row("SELECT octet_length('é')", [], |row| row.get::<_, usize>(0))
+        .query_row("SELECT octet_length('é')", [], |row| row.get::<_, i64>(0))
         .unwrap();
     assert_eq!(bytes, 2);
 }
