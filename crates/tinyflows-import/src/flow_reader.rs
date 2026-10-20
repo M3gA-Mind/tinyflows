@@ -431,8 +431,10 @@ where
 
 fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    let _ = limit;
-    reader.read_to_end(&mut bytes)?;
+    reader
+        .by_ref()
+        .take(limit.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 

@@ -226,12 +226,13 @@ fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
             ["x".repeat(256 * 1024)],
         )
         .unwrap();
-    connection
-        .set_limit(
-            tinystoragedrivers_sqlite::rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH,
+    unsafe {
+        tinystoragedrivers_sqlite::rusqlite::ffi::sqlite3_limit(
+            connection.handle(),
+            tinystoragedrivers_sqlite::rusqlite::ffi::SQLITE_LIMIT_LENGTH,
             4096,
-        )
-        .unwrap();
+        );
+    }
 
     let query = bounded_page_query(
         "source",
