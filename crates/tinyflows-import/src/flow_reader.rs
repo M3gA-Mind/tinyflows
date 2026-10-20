@@ -27,16 +27,6 @@ fn bounded_page_query(
     _size_fields: &[&str],
     order: &str,
 ) -> String {
-    let projection = fields
-        .iter()
-        .map(|(expression, alias)| {
-            let expression = expression
-                .split_once(" AS ")
-                .map_or(expression.as_str(), |(expression, _)| expression);
-            format!("{expression} AS {alias}")
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
     let size = fields
         .iter()
         .map(|(expression, _)| {
@@ -49,15 +39,9 @@ fn bounded_page_query(
         .join(" + ");
     let guarded = fields
         .iter()
-        .map(|(_, alias)| format!("CASE WHEN __bytes <= ?1 THEN {alias} END"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let guarded = fields
-        .iter()
         .map(|(_, alias)| format!("CASE WHEN ({size}) <= ?1 THEN {alias} END"))
         .collect::<Vec<_>>()
         .join(", ");
-    let _ = projection;
     format!(
         "SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2"
     )
