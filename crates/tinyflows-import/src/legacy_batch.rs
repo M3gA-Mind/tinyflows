@@ -40,9 +40,8 @@ pub async fn apply_legacy_batch(
     for record in records {
         match record {
             LegacyImportRecord::Flow(row) => {
-                let result = decode_flow(row).and_then(|flow| Ok((flow.clone(), flow)));
-                match result {
-                    Ok((flow, _)) => match catalog.import_flow(&flow).await {
+                match decode_flow(row) {
+                    Ok(flow) => match catalog.import_flow(&flow).await {
                         Ok(wrote) => {
                             tally(&mut counts, LegacyImportKind::Flow, wrote);
                             imported_flows.insert(flow.id);
@@ -58,11 +57,13 @@ pub async fn apply_legacy_batch(
                     Ok(FlowRevision { id: row.id.clone(), flow_id: row.flow_id.clone(), graph, name: row.name.clone(), require_approval: row.require_approval, created_at: row.created_at.clone() })
                 })();
                 match decoded {
-                    Ok(value) if imported_flows.contains(&value.flow_id) || catalog.get_flow(&value.flow_id).await?.is_some() => match catalog.import_revision(&value).await {
-                        Ok(wrote) => tally(&mut counts, LegacyImportKind::Revision, wrote),
-                        Err(error) => return Err(error),
-                    },
-                    Ok(value) => problem(&mut counts, &mut problems, LegacyImportKind::Revision, Some(&value.id), "owner flow was not imported".into()),
+                    Ok(value) => {
+                        if imported_flows.contains(&value.flow_id) || catalog.get_flow(&value.flow_id).await?.is_some() {
+                            tally(&mut counts, LegacyImportKind::Revision, catalog.import_revision(&value).await?);
+                        } else {
+                            problem(&mut counts, &mut problems, LegacyImportKind::Revision, Some(&value.id), "owner flow was not imported".into());
+                        }
+                    }
                     Err(error) => problem(&mut counts, &mut problems, LegacyImportKind::Revision, Some(&row.id), error.to_string()),
                 }
             }
@@ -77,11 +78,13 @@ pub async fn apply_legacy_batch(
                     })
                 })();
                 match decoded {
-                    Ok(value) if imported_flows.contains(&value.flow_id) || catalog.get_flow(&value.flow_id).await?.is_some() => match catalog.import_run(&value).await {
-                        Ok(wrote) => tally(&mut counts, LegacyImportKind::Run, wrote),
-                        Err(error) => return Err(error),
-                    },
-                    Ok(value) => problem(&mut counts, &mut problems, LegacyImportKind::Run, Some(&value.id), "owner flow was not imported".into()),
+                    Ok(value) => {
+                        if imported_flows.contains(&value.flow_id) || catalog.get_flow(&value.flow_id).await?.is_some() {
+                            tally(&mut counts, LegacyImportKind::Run, catalog.import_run(&value).await?);
+                        } else {
+                            problem(&mut counts, &mut problems, LegacyImportKind::Run, Some(&value.id), "owner flow was not imported".into());
+                        }
+                    }
                     Err(error) => problem(&mut counts, &mut problems, LegacyImportKind::Run, Some(&row.id), error.to_string()),
                 }
             }
