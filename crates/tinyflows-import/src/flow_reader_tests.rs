@@ -1,6 +1,6 @@
 use super::*;
-use std::sync::Mutex;
 use std::io::Cursor;
+use std::sync::Mutex;
 use tinyflows_bus::catalog::LegacyImportKind;
 use tinyflows_bus::catalog::{
     CallbackAddress, CatalogStorage, ImportLegacyBatchRequest, MAX_IMPORT_BATCH_BYTES,

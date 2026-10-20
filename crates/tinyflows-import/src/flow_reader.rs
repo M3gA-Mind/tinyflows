@@ -42,9 +42,7 @@ fn bounded_page_query(
         .map(|(_, alias)| format!("CASE WHEN ({size}) <= ?1 THEN {alias} END"))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2"
-    )
+    format!("SELECT {guarded}, (({size}) > ?1) FROM {table} ORDER BY {order} LIMIT 1 OFFSET ?2")
 }
 
 /// Reads legacy flow database rows and draft files as bounded ordered batches.
@@ -165,7 +163,10 @@ where
                 "pending_approvals_json",
                 "error",
             ]);
-            fields.push((column_or(&columns, "graph_hash", "NULL"), "graph_hash".into()));
+            fields.push((
+                column_or(&columns, "graph_hash", "NULL"),
+                "graph_hash".into(),
+            ));
             let query = bounded_page_query(
                 "flow_runs",
                 &fields,
@@ -399,8 +400,8 @@ where
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let file = std::fs::File::open(&path)
-            .with_context(|| format!("opening {}", path.display()))?;
+        let file =
+            std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
         let bytes = read_bounded(file, MAX_IMPORT_RECORD_PAYLOAD_BYTES)
             .with_context(|| format!("reading {}", path.display()))?;
         let record = if bytes.len() > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
@@ -412,9 +413,7 @@ where
         } else {
             LegacyImportRecord::Draft(LegacyDraftRecord { file_name, bytes })
         };
-        batches
-            .push(record, send)
-            .await?;
+        batches.push(record, send).await?;
     }
     Ok(())
 }
@@ -491,11 +490,15 @@ impl Write for SizeCounter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let Some(next) = self.bytes.checked_add(bytes.len()) else {
             self.exceeded = true;
-            return Err(io::Error::other("serialized import record exceeds its byte limit"));
+            return Err(io::Error::other(
+                "serialized import record exceeds its byte limit",
+            ));
         };
         if next > self.limit {
             self.exceeded = true;
-            return Err(io::Error::other("serialized import record exceeds its byte limit"));
+            return Err(io::Error::other(
+                "serialized import record exceeds its byte limit",
+            ));
         }
         self.bytes = next;
         Ok(bytes.len())
