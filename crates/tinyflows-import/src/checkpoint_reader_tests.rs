@@ -179,6 +179,58 @@ async fn oversized_sqlite_rows_are_counted_without_returning_their_payloads() {
     }
 }
 
+#[test]
+fn checkpoint_write_size_guard_avoids_loading_large_values_and_continues() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE checkpoint_writes (
+                thread_id TEXT, namespace TEXT, checkpoint_id TEXT, task_id TEXT,
+                idx INTEGER, node TEXT, channel TEXT, payload TEXT
+            );",
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO checkpoint_writes VALUES
+                ('thread', '[]', 'c1', 'large', 0, 'node', 'channel', ?1),
+                ('thread', '[]', 'c1', 'small', 1, 'node', 'channel', '1')",
+            ["x".repeat(64 * 1024)],
+        )
+        .unwrap();
+    unsafe {
+        tinystoragedrivers_sqlite::rusqlite::ffi::sqlite3_limit(
+            connection.handle(),
+            tinystoragedrivers_sqlite::rusqlite::ffi::SQLITE_LIMIT_LENGTH,
+            4096,
+        );
+    }
+
+    let read_row = |offset| {
+        connection
+            .query_row(CHECKPOINT_WRITES_QUERY, [1024_i64, 1_i64, offset], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
+                    row.get::<_, Option<Vec<u8>>>(9)?,
+                ))
+            })
+            .unwrap()
+    };
+    let oversized = read_row(0);
+    assert_eq!(oversized.0, 1);
+    assert!(!oversized.1);
+    assert!(oversized.2.is_none());
+    assert!(oversized.3.is_none());
+
+    let later = read_row(1);
+    assert_eq!(later.0, 2);
+    assert!(later.1);
+    assert_eq!(later.2.as_deref(), Some(b"thread".as_slice()));
+    assert_eq!(later.3.as_deref(), Some(b"1".as_slice()));
+}
+
 #[tokio::test]
 async fn jsonl_reader_splits_batches_at_record_count_and_byte_budgets() {
     let dir = tempfile::tempdir().unwrap();
