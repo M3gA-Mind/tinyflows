@@ -80,14 +80,6 @@ impl<State> Clone for DriverCheckpointer<State> {
     }
 }
 
-impl<State> std::fmt::Debug for DriverCheckpointer<State> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DriverCheckpointer")
-            .field("ns", &self.ns)
-            .finish_non_exhaustive()
-    }
-}
-
 impl<State> DriverCheckpointer<State> {
     /// Store checkpoints in the `graph.*` collections of `docs`, under the
     /// workflow namespace [`NAMESPACE`] (`flows`).
@@ -502,3 +494,5 @@ mod tests;
 #[cfg(test)]
 #[path = "checkpoint_import_tests.rs"]
 mod import_tests;
+
+mod checkpoint_debug;

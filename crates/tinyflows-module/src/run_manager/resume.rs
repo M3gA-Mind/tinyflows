@@ -269,25 +269,26 @@ pub(super) async fn resume(
             .context("reading legacy parked run checkpoint")?;
         if checkpoints.is_empty() {
             let error = "legacy parked run has no durable checkpoint";
-            if catalog
+            let failed = catalog
                 .fail_legacy_parked_flow_run_for_resume(
                     &observed,
                     &chrono::Utc::now().to_rfc3339(),
                     &row.steps,
                     error,
                 )
-                .await?
-            {
-                settle_missing_legacy_checkpoint(
-                    &request,
-                    &catalog,
-                    &prepared.checkpointer,
-                    error,
-                    snapshot.as_ref(),
-                    &thread_id,
-                )
                 .await?;
+            if !failed {
+                bail!("parked run changed while checking its legacy checkpoint")
             }
+            settle_missing_legacy_checkpoint(
+                &request,
+                &catalog,
+                &prepared.checkpointer,
+                error,
+                snapshot.as_ref(),
+                &thread_id,
+            )
+            .await?;
             bail!(error)
         }
     }
