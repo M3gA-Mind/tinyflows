@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use tinyflows_bus::catalog::{
     LegacyDraftRecord, LegacyFlowRecord, LegacyImportRecord, LegacyRevisionRecord, LegacyRunRecord,
     LegacyStateRecord, LegacySuggestionRecord, MAX_IMPORT_BATCH_RECORDS,
-    MAX_IMPORT_RECORD_PAYLOAD_BYTES, MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
+    MAX_IMPORT_RECORD_PAYLOAD_BYTES,
 };
 
 use crate::legacy_db::{LegacyDb, column_or};

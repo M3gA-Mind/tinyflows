@@ -1,7 +1,10 @@
 use super::*;
 use std::sync::Mutex;
 use tinyflows_bus::catalog::LegacyImportKind;
-use tinyflows_bus::catalog::{CallbackAddress, CatalogStorage, ImportLegacyBatchRequest};
+use tinyflows_bus::catalog::{
+    CallbackAddress, CatalogStorage, ImportLegacyBatchRequest, MAX_IMPORT_BATCH_BYTES,
+    MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
+};
 
 #[tokio::test]
 async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
