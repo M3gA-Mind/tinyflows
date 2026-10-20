@@ -76,7 +76,7 @@ impl HostCallback {
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
     assert_eq!(tinyflows_bus::CONTRACT_VERSION, 4);
-    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 5);
+    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 6);
     assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 6);
     assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 4);
     assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 7);
