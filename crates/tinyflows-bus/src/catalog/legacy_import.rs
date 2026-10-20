@@ -9,7 +9,7 @@ pub const MAX_IMPORT_BATCH_RECORDS: usize = 64;
 pub const MAX_IMPORT_BATCH_BYTES: usize = 2 * 1024 * 1024;
 
 /// The legacy record family a problem or tally refers to.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LegacyImportKind {
     /// A saved workflow definition.

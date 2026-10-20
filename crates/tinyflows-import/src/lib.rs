@@ -61,6 +61,7 @@ mod checkpoints;
 mod cron;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
+#[cfg(any(feature = "flow-read", feature = "schedule-read"))]
 mod legacy_db;
 mod report;
 #[cfg(feature = "catalog")]
