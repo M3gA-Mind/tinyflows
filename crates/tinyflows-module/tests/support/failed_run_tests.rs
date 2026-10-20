@@ -3,6 +3,44 @@ use tinyflows_drivers::catalog::FlowCatalogDocuments;
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn start_run_reports_the_missing_declared_input_at_the_bus_boundary() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
+    let owner = owner(&connection, "missing-repo", None, None, None, None).await;
+    let graph = serde_json::json!({
+        "inputs": [{"name":"repo", "type":"string", "required":true}],
+        "nodes": [{"id":"trigger", "name":"Trigger", "kind":"trigger", "config":{}}],
+        "edges": []
+    });
+    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Missing repo", graph.clone()).await;
+    let mut request = request(&owner, flow_id, "missing-repo-run", graph, 20_000);
+    request.inputs.clear();
+
+    let error = runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (request,))
+        .await
+        .expect_err("missing required workflow input must reject StartRun");
+    let message = error.to_string();
+    assert!(message.contains("repo"), "input field name was lost: {message}");
+    assert!(
+        message.contains("missing required input"),
+        "actionable validation cause was lost: {message}"
+    );
+
+    let row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "missing-repo-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(row, None, "preflight failure must not create a run row");
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn failed_actor_persists_graph_observations_and_settles_executed_dedup_nodes() {
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
