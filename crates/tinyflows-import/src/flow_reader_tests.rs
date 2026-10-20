@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::Mutex;
+use std::io::Cursor;
 use tinyflows_bus::catalog::LegacyImportKind;
 use tinyflows_bus::catalog::{
     CallbackAddress, CatalogStorage, ImportLegacyBatchRequest, MAX_IMPORT_BATCH_BYTES,
@@ -211,6 +212,52 @@ async fn oversized_catalog_rows_and_drafts_are_invalid_but_later_records_survive
         record,
         LegacyImportRecord::Draft(row) if row.file_name == "z-valid.json"
     )));
+}
+
+#[test]
+fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch("CREATE TABLE source (id TEXT, body TEXT);")
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO source VALUES ('large', ?1)",
+            ["x".repeat(256 * 1024)],
+        )
+        .unwrap();
+    connection
+        .set_limit(
+            tinystoragedrivers_sqlite::rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH,
+            4096,
+        )
+        .unwrap();
+
+    let query = bounded_page_query(
+        "source",
+        &fields(&["id", "body"]),
+        &["id", "body"],
+        "id",
+    );
+    let row = connection
+        .query_row(&query, [1024_i64, 0_i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, bool>(2)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(row, ("large".into(), None, true));
+}
+
+#[test]
+fn draft_read_consumes_at_most_the_limit_plus_one_bytes() {
+    let input = Cursor::new(vec![b'x'; 1024 * 1024]);
+    let mut input = input;
+    let bytes = read_bounded(&mut input, 17).unwrap();
+    assert_eq!(bytes.len(), 18);
+    assert_eq!(input.position(), 18);
 }
 
 #[tokio::test]

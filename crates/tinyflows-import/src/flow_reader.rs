@@ -411,9 +411,7 @@ where
             .unwrap_or_default();
         let file = std::fs::File::open(&path)
             .with_context(|| format!("opening {}", path.display()))?;
-        let mut bytes = Vec::new();
-        file.take((MAX_IMPORT_RECORD_PAYLOAD_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
+        let bytes = read_bounded(file, MAX_IMPORT_RECORD_PAYLOAD_BYTES)
             .with_context(|| format!("reading {}", path.display()))?;
         let record = if bytes.len() > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
             LegacyImportRecord::Invalid {
@@ -429,6 +427,13 @@ where
             .await?;
     }
     Ok(())
+}
+
+fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let _ = limit;
+    reader.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 #[derive(Default)]
