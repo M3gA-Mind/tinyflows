@@ -1,5 +1,6 @@
 use super::*;
 use crate::catalog::test_support::{catalog, catalog_in, trigger_graph};
+use std::sync::Arc;
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]
@@ -185,6 +186,92 @@ async fn a_run_from_a_removed_flow_incarnation_cannot_stamp_its_replacement() {
             .doc["incarnation"],
         original_incarnation
     );
+}
+
+#[tokio::test]
+async fn summary_retry_revalidates_the_run_after_a_concurrent_cancellation() {
+    use crate::catalog::{
+        DEFINITIONS,
+        test_support::{Interposed, docs_in},
+    };
+
+    let storage = MemoryStorage::new();
+    let scope = "summary-retry-status";
+    let original = catalog_in(&storage, scope);
+    let raw_docs = docs_in(&storage, scope);
+    let flow = original
+        .create_flow("parked summary race".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    let run_id = "summary-retry-run";
+    original
+        .insert_flow_run(run_id, &flow.id, run_id, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert!(
+        original
+            .finish_flow_run(
+                run_id,
+                "pending_approval",
+                "2026-01-01T00:00:01Z",
+                &[],
+                &["gate".into()],
+                None,
+                Some("graph-pin"),
+            )
+            .await
+            .unwrap()
+    );
+
+    let interposed = Interposed::wrap(
+        Arc::clone(&raw_docs),
+        ("put", DEFINITIONS),
+        Box::new(move |inner| {
+            Box::pin(async move {
+                let cancellation = FlowCatalogDocuments::new(inner);
+                assert!(
+                    cancellation
+                        .finish_parked_flow_run(
+                            run_id,
+                            "cancelled",
+                            "2026-01-01T00:00:02Z",
+                            &[],
+                            &[],
+                            Some("cancelled concurrently"),
+                            None,
+                        )
+                        .await
+                        .unwrap()
+                );
+                assert!(
+                    cancellation
+                        .record_run_for_run(run_id, "cancelled")
+                        .await
+                        .unwrap()
+                );
+            })
+        }),
+    );
+    let stale_summary_writer = FlowCatalogDocuments::new(interposed);
+
+    let recorded = stale_summary_writer
+        .record_run_for_run(run_id, "pending_approval")
+        .await
+        .unwrap();
+
+    assert!(
+        !recorded,
+        "the stale parked summary must stop after the CAS conflict"
+    );
+    let current_run = original.get_flow_run(run_id).await.unwrap().unwrap();
+    assert_eq!(current_run.status, "cancelled");
+    let current_flow = original.get_flow(&flow.id).await.unwrap().unwrap();
+    assert_eq!(current_flow.last_status.as_deref(), Some("cancelled"));
+    assert!(current_flow.last_run_at.is_some());
+
+    // The canceled run remains queryable under the same flow incarnation.
+    assert!(raw_docs.get(RUNS, run_id).await.unwrap().unwrap().doc["status"] == "cancelled");
+    assert!(raw_docs.get(DEFINITIONS, &flow.id).await.unwrap().is_some());
 }
 
 #[tokio::test]

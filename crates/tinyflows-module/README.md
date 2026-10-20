@@ -1,13 +1,13 @@
 # TinyFlows module
 
-The compiled TinyBus module serves Authoring, Schedule, Catalog and Runs
-objects under the shared `ai.tinyhumans.tinyflows.Authoring` bus name. Hosts import the
-`tinyflows-bus` contract and call the compiled module. The module manifest
-advertises each interface's exact member set. The Runs control surface remains
-a skeleton; its v1 `CapsHost` interface is a host-served callback contract used
-by the module's run-capability adapter.
+The compiled TinyBus module serves Authoring, Schedule, Catalog, Portability,
+and Runs objects under the shared `ai.tinyhumans.tinyflows` bus name. Hosts
+import the `tinyflows-bus` contract and call the compiled module. The module
+manifest advertises each interface's exact member set. Runs owns run lifecycle;
+its v2 `CapsHost` interface is the host-served callback contract used by the
+module's run-capability adapter.
 
-### CapsHost callbacks (contract v1)
+### CapsHost callbacks (contract v2)
 
 The run manager supplies a `tinyflows_bus::runs::CapsHost` address and a
 separate trusted `RunScope` to `caps::CapsHostPorts::capabilities`. The host
@@ -28,7 +28,10 @@ to 10,000 entries. The typed terminal outcome may arrive on an empty final
 page. Its settled host transcript is kept when present; progress entries fill
 the transcript only when the terminal transcript is empty. Callback transport,
 decode and cursor errors surface as capability failures, and approval errors
-cannot become a pending review.
+cannot become a pending review. Each `AgentRun` carries a module-generated
+`client_request_id`; if the callback future exits before accepting a valid
+terminal response, a bounded best-effort `AgentCancel` uses that same id to
+cancel the individual host request.
 
 Schedule owns claims, bounded dispatch, retries, timing, recurrence,
 completion, validation, and cron persistence. The host provides context-bound
