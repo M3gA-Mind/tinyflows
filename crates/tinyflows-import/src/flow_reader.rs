@@ -78,7 +78,7 @@ where
     batches.flush(&mut send).await
 }
 
-async fn page_rows<T, R, ToRecord, F, Fut>(
+async fn page_rows<T, ToRecord, F, Fut>(
     db: &LegacyDb,
     what: &'static str,
     query: &str,
