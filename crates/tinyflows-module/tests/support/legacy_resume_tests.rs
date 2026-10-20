@@ -216,7 +216,16 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
     assert_eq!(resumed.data["legacy_resume"], true);
     assert!(resumed.data.get("trigger_kind").is_none());
     assert!(resumed.data.get("origin").is_none());
-    assert!(target_checkpointer_has_no_thread(&target, checkpoint_thread).await);
+    assert!(target_checkpointer_has_thread(&target, checkpoint_thread).await);
+    assert!(target_checkpointer_has_no_thread(&target, "legacy-imported-run").await);
+}
+
+async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
+    !DriverCheckpointer::<serde_json::Value>::new(owner.docs.clone())
+        .get_thread(thread)
+        .await
+        .unwrap()
+        .is_empty()
 }
 
 async fn target_checkpointer_has_no_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
