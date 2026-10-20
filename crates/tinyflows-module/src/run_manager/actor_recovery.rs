@@ -165,7 +165,7 @@ impl ActorRecovery {
             false,
         )
         .await;
-        delete_checkpoints(&self.checkpointer, &self.run_id, &self.run_id).await;
+        delete_checkpoints(&self.checkpointer, &self.thread_id, &self.run_id).await;
         self.append_interrupted_event().await;
         drop(_dedup_settlement);
     }
