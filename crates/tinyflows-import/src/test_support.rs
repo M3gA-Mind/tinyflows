@@ -6,12 +6,51 @@
 //! those stores' own readers. The committed files are never written to: tests
 //! that import from them also check that no file under the tree changed.
 
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-write"
+))]
 use std::sync::Arc;
 
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 use serde_json::Value;
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 use sha2::{Digest, Sha256};
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-write"
+))]
 use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 
 /// The committed legacy stores.
@@ -20,6 +59,12 @@ pub(crate) fn fixtures() -> PathBuf {
 }
 
 /// What the legacy readers saw in [`fixtures`].
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 pub(crate) fn expected() -> Value {
     let body = std::fs::read(fixtures().join("expected.json")).expect("expected.json");
     canonical(serde_json::from_slice(&body).expect("expected.json parses"))
@@ -28,6 +73,12 @@ pub(crate) fn expected() -> Value {
 /// `value` with every RFC 3339 string rewritten to millisecond precision in
 /// UTC: storage keeps one epoch-millisecond field per instant, so a
 /// comparison with the legacy fixtures is made at that precision.
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 pub(crate) fn canonical(value: Value) -> Value {
     match value {
         Value::String(text) => match chrono::DateTime::parse_from_rfc3339(&text) {
@@ -46,11 +97,19 @@ pub(crate) fn canonical(value: Value) -> Value {
 }
 
 /// A document handle under `scope` of a fresh in-memory backend.
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-write"
+))]
 pub(crate) fn docs() -> Arc<dyn DocumentStore> {
     docs_in(&MemoryStorage::new(), "local")
 }
 
 /// `storage`'s documents under `scope`.
+#[cfg(feature = "store")]
 pub(crate) fn docs_in(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentStore> {
     Arc::clone(
         storage
@@ -61,6 +120,12 @@ pub(crate) fn docs_in(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentS
 }
 
 /// Every file under `dir` and the digest of its bytes, by relative path.
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 pub(crate) fn tree_digest(dir: &Path) -> BTreeMap<String, String> {
     let mut digests = BTreeMap::new();
     let mut pending = vec![dir.to_path_buf()];
@@ -86,6 +151,12 @@ pub(crate) fn tree_digest(dir: &Path) -> BTreeMap<String, String> {
 }
 
 /// The JSON form, for the model types that are not `PartialEq`.
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store"
+))]
 pub(crate) fn json<T: serde::Serialize>(value: &T) -> Value {
     canonical(serde_json::to_value(value).unwrap())
 }
