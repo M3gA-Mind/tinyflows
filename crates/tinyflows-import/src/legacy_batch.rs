@@ -197,10 +197,17 @@ pub async fn apply_legacy_batch(
             }
             LegacyImportRecord::Draft(row) => match serde_json::from_slice::<FlowDraft>(&row.bytes)
             {
-                Ok(value) => tally(
+                Ok(value) if safe_draft_id(&value.id) => tally(
                     &mut counts,
                     LegacyImportKind::Draft,
                     catalog.import_draft(&value).await?,
+                ),
+                Ok(value) => problem(
+                    &mut counts,
+                    &mut problems,
+                    LegacyImportKind::Draft,
+                    Some(&row.file_name),
+                    format!("'{}' is not a usable draft id", value.id),
                 ),
                 Err(error) => problem(
                     &mut counts,
@@ -315,6 +322,14 @@ fn decode_flow(row: &tinyflows_bus::catalog::LegacyFlowRecord) -> Result<Flow> {
         last_status: row.last_status.clone(),
         require_approval: row.require_approval,
     })
+}
+
+fn safe_draft_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
 }
 
 #[derive(Deserialize)]
