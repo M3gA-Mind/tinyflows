@@ -289,7 +289,7 @@ async fn running_fixture() -> RunningFixture {
         graph: graph_json,
         trigger_kind: FlowRunTrigger::Rpc,
         trigger_data: json!({"id":"dedup-item"}),
-        inputs: Some(Map::new()),
+        inputs: Map::new(),
         timeout_ms: 20_000,
     };
     let started_at = chrono::Utc::now().to_rfc3339();
@@ -301,7 +301,7 @@ async fn running_fixture() -> RunningFixture {
     let prepared = preparation::Prepared {
         catalog: catalog.clone(),
         compiled: tinyflows::compiler::compile(&graph).unwrap(),
-        inputs: Map::new(),
+        inputs: Some(Map::new()),
         checkpointer: checkpointer.clone(),
         require_approval: false,
         checkpoint_thread_id: run_id.clone(),
