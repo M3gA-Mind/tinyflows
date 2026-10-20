@@ -1,7 +1,10 @@
 use super::*;
 use serde_json::json;
+use std::sync::Arc;
 use tinyflows::graph::ids::NodeId;
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+use tinystoragedrivers_core::{
+    DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend, WriteOptions,
+};
 
 #[tokio::test]
 async fn legacy_write_import_cas_preserves_existing_task_values() {
@@ -61,4 +64,100 @@ async fn legacy_write_import_cas_preserves_existing_task_values() {
     assert_eq!(writes[0].payload, json!("live"));
     assert_eq!(writes[1].payload, json!("live"));
     assert_eq!(writes[2].payload, json!("imported"));
+}
+
+#[tokio::test]
+async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_retry_state() {
+    let storage = MemoryStorage::new();
+    let docs = Arc::clone(
+        storage
+            .for_scope(&Scope::new("local").unwrap())
+            .unwrap()
+            .documents(),
+    );
+    let initial = DriverCheckpointer::<Value>::new(Arc::clone(&docs));
+    initial
+        .put(Checkpoint {
+            thread_id: "legacy-thread-race".into(),
+            checkpoint_id: "legacy-checkpoint-race".into(),
+            run_id: Some("run-owner".into()),
+            parent_checkpoint_id: None,
+            namespace: vec![],
+            state: json!({}),
+            next_nodes: vec![NodeId::new("node")],
+            completed_tasks: vec![],
+            pending_writes: vec![],
+            interrupts: vec![],
+            pending_activations: None,
+            barrier_arrivals: vec![],
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+    let config = CheckpointConfig {
+        thread_id: "legacy-thread-race".into(),
+        checkpoint_id: Some("legacy-checkpoint-race".into()),
+        namespace: vec![],
+    };
+    initial
+        .put_writes(
+            &config,
+            &[
+                PendingWrite::data("node", "data", 0, "result", json!("live")),
+                PendingWrite::data("node", "control", -1, "resume", json!("live")),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let writes_id = crate::checkpoint_layout::writes_id_key(
+        crate::checkpoint_layout::NAMESPACE,
+        &config.thread_id,
+        &crate::checkpoint_layout::subgraph_key(&config.namespace),
+        config.checkpoint_id.as_deref().unwrap(),
+    );
+    let interjection: crate::catalog::test_support::Interjection = Box::new(move |inner| {
+        Box::pin(async move {
+            let current = inner.get("graph.writes", &writes_id).await.unwrap().unwrap();
+            let mut document = current.doc;
+            document["writes"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                    "node":"node","task_id":"new","idx":0,
+                    "channel":"result","payload":"concurrent-live"
+                }));
+            inner
+                .put_with(
+                    "graph.writes",
+                    &writes_id,
+                    document,
+                    Precondition::Version(current.version),
+                    WriteOptions::new(),
+                )
+                .await
+                .unwrap();
+        })
+    });
+    let wrapped = crate::catalog::test_support::Interposed::wrap(
+        docs,
+        ("put_with", "graph.writes"),
+        interjection,
+    );
+    let importer = DriverCheckpointer::<Value>::new(wrapped);
+    let (written, existing) = importer
+        .import_writes_if_absent(
+            &config,
+            &[
+                PendingWrite::data("node", "data", 0, "result", json!("legacy")),
+                PendingWrite::data("node", "control", -1, "resume", json!("legacy")),
+                PendingWrite::data("node", "new", 0, "result", json!("legacy")),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!((written, existing), (0, 3));
+    let writes = importer.get_writes(&config).await.unwrap();
+    assert_eq!(writes.len(), 3);
+    assert_eq!(writes[2].payload, json!("concurrent-live"));
 }
