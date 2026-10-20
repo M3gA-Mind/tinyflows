@@ -4,6 +4,91 @@ use tinyflows_drivers::catalog::FlowCatalogDocuments;
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn start_run_reports_the_missing_declared_input_at_the_bus_boundary() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let owner = owner(&connection, "missing-repo", None, None, None, None).await;
+    let graph = serde_json::json!({
+        "inputs": [{"name":"repo", "type":"string", "required":true}],
+        "nodes": [{"id":"trigger", "name":"Trigger", "kind":"trigger", "config":{}}],
+        "edges": []
+    });
+    let flow_id = create_flow_with_graph(&catalog_proxy, &owner.storage, "Missing repo", graph.clone()).await;
+    let mut request = request(&owner, flow_id, "missing-repo-run", graph, 20_000);
+    request.inputs.clear();
+
+    let error = runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (request,))
+        .await
+        .expect_err("missing required workflow input must reject StartRun");
+    let message = error.to_string();
+    assert!(message.contains("repo"), "input field name was lost: {message}");
+    assert!(
+        message.contains("missing required input"),
+        "actionable validation cause was lost: {message}"
+    );
+
+    let row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "missing-repo-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(row, None, "preflight failure must not create a run row");
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn continue_policy_persists_step_failure_in_the_terminal_event_and_run_row() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let owner = owner(&connection, "continue-failure", None, None, None, None).await;
+    let mut graph = dedup_graph("continue-agent");
+    graph["nodes"][2]["config"]["on_error"] = serde_json::json!("continue");
+    let flow_id =
+        create_flow_with_graph(&catalog_proxy, &owner.storage, "Continue failure", graph.clone())
+            .await;
+    let _agent = serve_failing_agent(&connection, "continue-failure").await;
+    let mut start = request(&owner, flow_id, "continue-failure-run", graph, 20_000);
+    start.trigger_data = serde_json::json!({"id":"continue-item"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+
+    let events = poll_until_done(&runs_proxy, &owner.storage, "continue-failure-run").await;
+    let finished_event = events.events.last().expect("terminal event is persisted");
+    let finished: runs::RunFinished = serde_json::from_value(finished_event.data.clone()).unwrap();
+    assert_eq!(finished.status, "failed");
+    assert!(!finished.successful);
+    let error = finished.error.as_deref().expect("continued failure is explained");
+    assert!(error.contains("continue-agent"), "got: {error}");
+    assert!(
+        finished.output.as_ref().is_some_and(Value::is_object),
+        "continue policy must retain the engine outcome"
+    );
+
+    let row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage,
+                id: "continue-failure-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let row = row.expect("settled run row persists");
+    assert_eq!(row.status, "failed");
+    assert_eq!(row.error.as_deref(), Some(error));
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn start_run_reports_the_missing_declared_input_at_the_bus_boundary() {
     let (_module_host, connection, catalog_proxy, runs_proxy) = module_proxies().await;
     let owner = owner(&connection, "missing-repo", None, None, None, None).await;
     let graph = serde_json::json!({
