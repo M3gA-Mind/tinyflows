@@ -49,7 +49,7 @@ fn bounded_page_query(
         .join(" + ");
     let guarded = fields
         .iter()
-        .map(|(_, alias)| alias.clone())
+        .map(|(_, alias)| format!("CASE WHEN __bytes <= ?1 THEN {alias} END"))
         .collect::<Vec<_>>()
         .join(", ");
     format!(
