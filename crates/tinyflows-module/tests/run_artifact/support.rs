@@ -167,12 +167,13 @@ pub(super) async fn owner(
 pub(super) async fn owner_with_checkpoint_query_failure(
     connection: &Connection,
     name: &str,
-) -> Owner {
+) -> (Owner, Arc<AtomicBool>) {
     let scoped = MemoryStorage::new()
         .for_scope(&Scope::new(name).unwrap())
         .unwrap();
     let docs = scoped.documents().clone();
     let path = format!("/test/catalog/{}", name.replace('-', "_"));
+    let fail_checkpoint_query = Arc::new(AtomicBool::new(false));
     connection
         .serve_at(
             path.parse().unwrap(),
@@ -186,7 +187,7 @@ pub(super) async fn owner_with_checkpoint_query_failure(
                 release_run_insert: None,
                 fail_snapshot: None,
                 fail_checkpoint_delete: None,
-                fail_checkpoint_query: Some(Arc::new(AtomicBool::new(true))),
+                fail_checkpoint_query: Some(fail_checkpoint_query.clone()),
                 fail_parked_expiry: None,
                 cleanup_started: None,
                 release_cleanup: None,
@@ -199,7 +200,8 @@ pub(super) async fn owner_with_checkpoint_query_failure(
         .request_name("test.CatalogStorage")
         .await
         .unwrap();
-    Owner {
+    (
+        Owner {
         storage: CatalogStorage {
             callback: catalog::CallbackAddress {
                 destination: "test.CatalogStorage".into(),
@@ -211,7 +213,9 @@ pub(super) async fn owner_with_checkpoint_query_failure(
             object_path: format!("/test/caps/{}", name.replace('-', "_")),
         },
         docs,
-    }
+        },
+        fail_checkpoint_query,
+    )
 }
 
 pub(super) async fn owner_with_lifecycle_gates(
