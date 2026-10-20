@@ -233,6 +233,7 @@ async fn drive_inner(
     let output_value = output.clone().unwrap_or(Value::Null);
     let settled_steps = run_summary::settle_steps(observed, &output_value);
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
+    let terminal = run_summary::terminal_status(&settled_steps, &[]);
     let status = if pending {
         "pending_approval"
     } else if cancelled || timed_out {
@@ -240,7 +241,7 @@ async fn drive_inner(
     } else if failure.is_some() {
         "failed"
     } else {
-        run_summary::terminal_status(&settled_steps, &[]).status
+        terminal.status
     };
     let error_text = if timed_out {
         Some(format!(
@@ -250,7 +251,7 @@ async fn drive_inner(
     } else if cancelled && failure.is_none() {
         Some("run cancelled".to_owned())
     } else {
-        failure
+        failure.or(terminal.error)
     };
     let graph_hash = pending
         .then(|| {
