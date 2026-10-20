@@ -2,9 +2,9 @@ use super::*;
 use serde_json::json;
 use std::sync::Arc;
 use tinyflows::graph::ids::NodeId;
-use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Precondition, Scope, StorageBackend, WriteOptions,
-};
+#[cfg(feature = "catalog")]
+use tinystoragedrivers_core::{DocumentStore, Precondition, WriteOptions};
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 #[tokio::test]
 async fn legacy_write_import_cas_preserves_existing_task_values() {
@@ -66,6 +66,7 @@ async fn legacy_write_import_cas_preserves_existing_task_values() {
     assert_eq!(writes[2].payload, json!("imported"));
 }
 
+#[cfg(feature = "catalog")]
 #[tokio::test]
 async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_retry_state() {
     let storage = MemoryStorage::new();
