@@ -107,7 +107,7 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
     )
     .await;
     let source_callback = serve_agent(&connection, "legacy-source").await;
-    let target_callback = serve_agent(&connection, "legacy-target").await;
+    let _target_callback = serve_agent(&connection, "legacy-target").await;
     let checkpoint_thread = "legacy-checkpoint-thread";
     let start = request(&source, source_flow, checkpoint_thread, graph, 20_000);
     runs_proxy
@@ -191,7 +191,7 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
                 flow_id: target_flow,
                 storage: target.storage.clone(),
                 caps_host: runs::CapsHost {
-                    callback: target.caps,
+                    callback: target.caps.clone(),
                 },
                 approvals: vec!["approval".into()],
                 rejections: Vec::new(),
