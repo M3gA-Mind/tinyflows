@@ -89,9 +89,9 @@ async fn published_module_imports_all_legacy_catalog_kinds_with_scoped_idempoten
         .proxy(BUS_NAME, catalog::OBJECT_PATH, catalog::INTERFACE)
         .unwrap();
     let backend = MemoryStorage::new();
-    let (first_storage, first_docs) = scoped_storage(&connection, &backend, "legacy-first").await;
+    let (first_storage, first_docs) = scoped_storage(&connection, &backend, "legacy_first").await;
     let (second_storage, second_docs) =
-        scoped_storage(&connection, &backend, "legacy-second").await;
+        scoped_storage(&connection, &backend, "legacy_second").await;
 
     let live: PutWorkflowResponse = catalog_proxy
         .call(
