@@ -37,6 +37,7 @@ pub(super) fn drive(
         &prepared.checkpointer,
         &request.storage,
         &request.run_id,
+        &prepared.checkpoint_thread_id,
         Arc::clone(&active),
     );
     async move {
@@ -62,12 +63,14 @@ pub(super) fn drive_resume(
     admitted: tokio::sync::oneshot::Receiver<()>,
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
+    legacy: bool,
 ) -> impl Future<Output = ()> + Send + 'static {
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
         &request.storage,
         &request.run_id,
+        &prepared.checkpoint_thread_id,
         Arc::clone(&active),
     );
     async move {
@@ -82,6 +85,7 @@ pub(super) fn drive_resume(
                 approvals: resume.approvals,
                 rejections: resume.rejections,
                 previous_steps,
+                legacy,
             },
         )
         .await;
@@ -95,6 +99,7 @@ enum Continuation {
         approvals: Vec<String>,
         rejections: Vec<String>,
         previous_steps: Vec<FlowRunStep>,
+        legacy: bool,
     },
 }
 
@@ -123,10 +128,21 @@ async fn drive_inner(
         Continuation::Start => Vec::new(),
         Continuation::Resume { previous_steps, .. } => previous_steps.clone(),
     };
-    writer.emit(
-        if matches!(&continuation, Continuation::Start) { "started" } else { "resumed" },
-        json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
-    );
+    let (kind, data) = match &continuation {
+        Continuation::Start => (
+            "started",
+            json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
+        ),
+        Continuation::Resume { legacy: true, .. } => (
+            "resumed",
+            json!({"flow_id":request.context.flow_id,"legacy_resume":true}),
+        ),
+        Continuation::Resume { .. } => (
+            "resumed",
+            json!({"flow_id":request.context.flow_id,"trigger_kind":request.trigger_kind,"origin":request.context.origin}),
+        ),
+    };
+    writer.emit(kind, data);
     if matches!(&continuation, Continuation::Resume { .. })
         && let Some(error) = writer.flush().await
     {
@@ -286,7 +302,12 @@ async fn drive_inner(
         .settle(prepared.catalog.clone(), success)
         .await;
     if cancelled || timed_out {
-        delete_checkpoints(&prepared.checkpointer, &request.run_id, &request.run_id).await;
+        delete_checkpoints(
+            &prepared.checkpointer,
+            &prepared.checkpoint_thread_id,
+            &request.run_id,
+        )
+        .await;
     }
     match writer
         .emit_terminal(super::events::finished_payload(
@@ -349,7 +370,7 @@ async fn execute(
                     tinyflows::engine::JournaledRunOptions {
                         token: active.token.clone(),
                         checkpointer,
-                        thread_id: request.run_id.clone(),
+                        thread_id: prepared.checkpoint_thread_id.clone(),
                         journal,
                     },
                     &observer_dyn,
@@ -365,7 +386,7 @@ async fn execute(
                     &prepared.compiled,
                     capabilities,
                     checkpointer,
-                    &request.run_id,
+                    &prepared.checkpoint_thread_id,
                     approvals.clone(),
                     rejections.clone(),
                     journal,

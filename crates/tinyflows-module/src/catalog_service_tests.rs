@@ -437,4 +437,3 @@ async fn catalog_list_reports_corrupt_rows_it_skips() {
     assert!(result.workflows.is_empty());
     assert_eq!(result.skipped_rows, 1);
 }
-

@@ -1,5 +1,5 @@
 use super::tests::{connections, graph, put_proxy, scope};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinyflows_bus::catalog::{self, LegacyFlowRecord, LegacyImportRecord};
 
 #[tokio::test]
@@ -56,12 +56,10 @@ async fn legacy_import_rejects_oversized_batches_before_writing() {
     let storage = scope(&host, "legacy_import_limits").await;
     let proxy = put_proxy(&host).unwrap();
     let records = (0..=catalog::MAX_IMPORT_BATCH_RECORDS)
-        .map(|index| {
-            LegacyImportRecord::Invalid {
-                record_kind: catalog::LegacyImportKind::Flow,
-                identity: Some(index.to_string()),
-                message: "test record".into(),
-            }
+        .map(|index| LegacyImportRecord::Invalid {
+            record_kind: catalog::LegacyImportKind::Flow,
+            identity: Some(index.to_string()),
+            message: "test record".into(),
         })
         .collect();
     let reply: Result<Value, _> = proxy

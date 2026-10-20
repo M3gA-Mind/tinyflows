@@ -53,12 +53,12 @@
 
 #[cfg(feature = "catalog")]
 mod catalog;
-#[cfg(feature = "flow-write")]
-mod legacy_batch;
 #[cfg(feature = "engine")]
 mod checkpoints;
 #[cfg(feature = "schedule")]
 mod cron;
+#[cfg(feature = "flow-write")]
+mod legacy_batch;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
 #[cfg(any(feature = "flow-read", feature = "schedule-read"))]
@@ -86,11 +86,11 @@ pub use catalog::import_flow_catalog;
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "schedule")]
 pub use cron::import_cron;
+#[cfg(feature = "flow-write")]
+pub use legacy_batch::apply_legacy_batch;
 #[cfg(feature = "schedule-read")]
 pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};
-#[cfg(feature = "flow-write")]
-pub use legacy_batch::apply_legacy_batch;
 #[cfg(feature = "catalog")]
 pub use state::import_file_state;
 #[cfg(feature = "store")]
