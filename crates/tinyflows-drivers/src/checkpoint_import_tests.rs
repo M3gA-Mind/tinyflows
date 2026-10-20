@@ -15,7 +15,7 @@ async fn legacy_write_import_cas_preserves_existing_task_values() {
             .unwrap()
             .documents(),
     );
-    let checkpointer = DriverCheckpointer::<Value>::new(docs);
+    let checkpointer = DriverCheckpointer::<Value>::new(Arc::clone(&docs));
     let checkpoint = Checkpoint {
         thread_id: "legacy-thread".into(),
         checkpoint_id: "legacy-checkpoint".into(),
@@ -161,7 +161,8 @@ async fn legacy_control_updates_cross_batches_but_data_writes_remain_append_once
         )
         .await
         .unwrap();
-    let second = checkpointer
+    let next_batch = DriverCheckpointer::<Value>::new(Arc::clone(&docs));
+    let second = next_batch
         .import_writes_if_absent(
             &config,
             &[
@@ -174,12 +175,12 @@ async fn legacy_control_updates_cross_batches_but_data_writes_remain_append_once
 
     assert_eq!(first, (2, 0));
     assert_eq!(second, (1, 1));
-    let writes = checkpointer.get_writes(&config).await.unwrap();
+    let writes = next_batch.get_writes(&config).await.unwrap();
     assert_eq!(writes.len(), 2);
     assert_eq!(writes[0].payload, json!("second batch"));
     assert_eq!(writes[1].payload, json!("first data"));
 
-    let replay = checkpointer
+    let replay = next_batch
         .import_writes_if_absent(
             &config,
             &[
