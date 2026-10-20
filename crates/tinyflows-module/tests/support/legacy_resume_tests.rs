@@ -306,3 +306,11 @@ async fn poll_until_parked_count(
     .expect("a legacy resumed run should reach its next approval park")
 }
 
+async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
+    !DriverCheckpointer::<serde_json::Value>::new(owner.docs.clone())
+        .get_scoped(thread, None, &[])
+        .await
+        .unwrap()
+        .is_some()
+}
+
