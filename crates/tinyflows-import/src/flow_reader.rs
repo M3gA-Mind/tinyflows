@@ -14,22 +14,14 @@ use tinyflows_bus::catalog::{
 
 use crate::legacy_db::{LegacyDb, column_or};
 
-fn fields(names: &[&str]) -> Vec<(String, String)> {
-    names
-        .iter()
-        .map(|name| ((*name).to_string(), (*name).to_string()))
-        .collect()
+fn fields(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| (*name).to_string()).collect()
 }
 
-fn bounded_page_query(
-    table: &str,
-    fields: &[(String, String)],
-    _size_fields: &[&str],
-    order: &str,
-) -> String {
+fn bounded_page_query(table: &str, fields: &[String], order: &str) -> String {
     let size = fields
         .iter()
-        .map(|(expression, _)| {
+        .map(|expression| {
             let expression = expression
                 .split_once(" AS ")
                 .map_or(expression.as_str(), |(expression, _)| expression);
@@ -39,7 +31,7 @@ fn bounded_page_query(
         .join(" + ");
     let guarded = fields
         .iter()
-        .map(|(expression, _)| {
+        .map(|expression| {
             let expression = expression
                 .split_once(" AS ")
                 .map_or(expression.as_str(), |(expression, _)| expression);
@@ -75,24 +67,8 @@ where
                 "last_run_at",
                 "last_status",
             ]);
-            fields.push((
-                column_or(&columns, "require_approval", "0"),
-                "require_approval".into(),
-            ));
-            let query = bounded_page_query(
-                "flow_definitions",
-                &fields,
-                &[
-                    "id",
-                    "name",
-                    "graph_json",
-                    "created_at",
-                    "updated_at",
-                    "last_run_at",
-                    "last_status",
-                ],
-                "created_at,id",
-            );
+            fields.push(column_or(&columns, "require_approval", "0"));
+            let query = bounded_page_query("flow_definitions", &fields, "created_at,id");
             page_rows(
                 &db,
                 PageSpec {
@@ -129,12 +105,7 @@ where
                 "require_approval",
                 "created_at",
             ]);
-            let query = bounded_page_query(
-                "flow_revisions",
-                &fields,
-                &["id", "flow_id", "graph_json", "name", "created_at"],
-                "created_at,id",
-            );
+            let query = bounded_page_query("flow_revisions", &fields, "created_at,id");
             page_rows(
                 &db,
                 PageSpec {
@@ -172,27 +143,8 @@ where
                 "pending_approvals_json",
                 "error",
             ]);
-            fields.push((
-                column_or(&columns, "graph_hash", "NULL"),
-                "graph_hash".into(),
-            ));
-            let query = bounded_page_query(
-                "flow_runs",
-                &fields,
-                &[
-                    "id",
-                    "flow_id",
-                    "thread_id",
-                    "status",
-                    "started_at",
-                    "finished_at",
-                    "steps_json",
-                    "pending_approvals_json",
-                    "error",
-                    "graph_hash",
-                ],
-                "started_at,id",
-            );
+            fields.push(column_or(&columns, "graph_hash", "NULL"));
+            let query = bounded_page_query("flow_runs", &fields, "started_at,id");
             page_rows(
                 &db,
                 PageSpec {
@@ -223,12 +175,7 @@ where
         }
         if tables.contains("flow_state") {
             let fields = fields(&["namespace", "key", "value"]);
-            let query = bounded_page_query(
-                "flow_state",
-                &fields,
-                &["namespace", "key", "value"],
-                "namespace,key",
-            );
+            let query = bounded_page_query("flow_state", &fields, "namespace,key");
             page_rows(
                 &db,
                 PageSpec {
@@ -266,25 +213,7 @@ where
                 "created_at",
                 "source_run_id",
             ]);
-            let query = bounded_page_query(
-                "flow_suggestions",
-                &fields,
-                &[
-                    "id",
-                    "title",
-                    "one_liner",
-                    "rationale",
-                    "trigger_hint",
-                    "steps_json",
-                    "connections_json",
-                    "slugs_json",
-                    "build_prompt",
-                    "status",
-                    "created_at",
-                    "source_run_id",
-                ],
-                "created_at,id",
-            );
+            let query = bounded_page_query("flow_suggestions", &fields, "created_at,id");
             page_rows(
                 &db,
                 PageSpec {

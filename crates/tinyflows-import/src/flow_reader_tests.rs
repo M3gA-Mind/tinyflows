@@ -234,12 +234,7 @@ fn oversized_sqlite_projection_avoids_materializing_the_source_value() {
         );
     }
 
-    let query = bounded_page_query(
-        "legacy_rows",
-        &fields(&["id", "body"]),
-        &["id", "body"],
-        "id",
-    );
+    let query = bounded_page_query("legacy_rows", &fields(&["id", "body"]), "id");
     let row = connection
         .query_row(&query, [1024_i64, 0_i64], |row| {
             Ok((
