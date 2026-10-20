@@ -28,7 +28,7 @@ engine = ["checkpoint-read", "checkpoint-write"]
 # `import_workflow_store`.
 store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
 # `import_flow_catalog`, `import_file_state`.
-catalog = ["flow-write", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
+catalog = ["engine", "flow-write", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
 # `import_cron`.
 schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", "tinyflows-drivers/schedule"]
 # `read_legacy_cron`: reads `jobs.db` into bus DTOs without linking the

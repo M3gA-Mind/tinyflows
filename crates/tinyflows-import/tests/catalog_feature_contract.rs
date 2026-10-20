@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use tinyflows_drivers::DriverCheckpointer;
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 use tinyflows_import::{import_file_checkpoints, import_sqlite_checkpoints};
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
 #[tokio::test]
 async fn catalog_feature_retains_checkpoint_import_entry_points() {
