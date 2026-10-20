@@ -32,17 +32,17 @@ async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
             .unwrap();
     }
     sender.flush(&mut send).await.unwrap();
-    let batches = batches.lock().unwrap();
-    assert_eq!(batches.len(), 2);
-    assert_eq!(batches[0].len(), MAX_IMPORT_BATCH_RECORDS);
-    assert_eq!(batches[1].len(), 1);
-    assert!(
-        batches
-            .iter()
-            .all(|batch| batch.len() <= MAX_IMPORT_BATCH_RECORDS)
-    );
-
-    drop(batches);
+    {
+        let batches = batches.lock().unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), MAX_IMPORT_BATCH_RECORDS);
+        assert_eq!(batches[1].len(), 1);
+        assert!(
+            batches
+                .iter()
+                .all(|batch| batch.len() <= MAX_IMPORT_BATCH_RECORDS)
+        );
+    }
     let mut sender = BatchSender::default();
     let oversized = LegacyImportRecord::Flow(LegacyFlowRecord {
         id: "i".repeat(10_000),

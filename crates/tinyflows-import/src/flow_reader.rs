@@ -68,7 +68,7 @@ where
         if tables.contains("flow_revisions") {
             page_rows(&db, "flow revisions", "SELECT id,flow_id,graph_json,name,require_approval,created_at FROM flow_revisions ORDER BY created_at,id LIMIT ?1 OFFSET ?2", |row| {
                 Ok(LegacyRevisionRecord { id: row.get(0)?, flow_id: row.get(1)?, graph_json: row.get(2)?, name: row.get(3)?, require_approval: row.get::<_, i64>(4)? != 0, created_at: row.get(5)? })
-            }, |row| LegacyImportRecord::Revision(row), &mut batches, &mut send).await?;
+            }, LegacyImportRecord::Revision, &mut batches, &mut send).await?;
         }
         if tables.contains("flow_runs") {
             let columns = db.columns("flow_runs").await?;
@@ -94,7 +94,7 @@ where
                         graph_hash: row.get(9)?,
                     })
                 },
-                |row| LegacyImportRecord::Run(row),
+                LegacyImportRecord::Run,
                 &mut batches,
                 &mut send,
             )
@@ -103,12 +103,12 @@ where
         if tables.contains("flow_state") {
             page_rows(&db, "flow state", "SELECT namespace,key,value FROM flow_state ORDER BY namespace,key LIMIT ?1 OFFSET ?2", |row| {
                 Ok(LegacyStateRecord { namespace: row.get(0)?, key: row.get(1)?, value_json: row.get(2)? })
-            }, |row| LegacyImportRecord::State(row), &mut batches, &mut send).await?;
+            }, LegacyImportRecord::State, &mut batches, &mut send).await?;
         }
         if tables.contains("flow_suggestions") {
             page_rows(&db, "flow suggestions", "SELECT id,title,one_liner,rationale,trigger_hint,steps_json,connections_json,slugs_json,build_prompt,confidence,status,created_at,source_run_id FROM flow_suggestions ORDER BY created_at,id LIMIT ?1 OFFSET ?2", |row| {
                 Ok(LegacySuggestionRecord { id: row.get(0)?, title: row.get(1)?, one_liner: row.get(2)?, rationale: row.get(3)?, trigger_hint: row.get(4)?, steps_json: row.get(5)?, connections_json: row.get(6)?, slugs_json: row.get(7)?, build_prompt: row.get(8)?, confidence: row.get(9)?, status: row.get(10)?, created_at: row.get(11)?, source_run_id: row.get(12)? })
-            }, |row| LegacyImportRecord::Suggestion(row), &mut batches, &mut send).await?;
+            }, LegacyImportRecord::Suggestion, &mut batches, &mut send).await?;
         }
     }
     read_drafts(&dir.join("drafts"), &mut batches, &mut send).await?;

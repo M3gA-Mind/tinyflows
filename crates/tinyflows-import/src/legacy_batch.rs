@@ -224,14 +224,10 @@ pub async fn apply_legacy_batch(
                 checkpoint_records.push(record.clone());
             }
             LegacyImportRecord::Invalid {
-                record_kind,
+                record_kind: LegacyImportKind::Checkpoint | LegacyImportKind::Write,
                 identity,
                 message,
-            } if matches!(
-                record_kind,
-                LegacyImportKind::Checkpoint | LegacyImportKind::Write
-            ) =>
-            {
+            } => {
                 checkpoint_records.push(record.clone());
             }
             LegacyImportRecord::Invalid {

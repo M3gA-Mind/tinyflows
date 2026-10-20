@@ -201,10 +201,12 @@ async fn jsonl_reader_splits_batches_at_record_count_and_byte_budgets() {
     read_legacy_file_checkpoint_batches(&count_dir, &mut count_send)
         .await
         .unwrap();
-    let count_batches = count_batches.lock().unwrap();
-    assert_eq!(count_batches.len(), 2);
-    assert_eq!(count_batches[0].len(), MAX_IMPORT_BATCH_RECORDS);
-    assert_eq!(count_batches[1].len(), 1);
+    {
+        let count_batches = count_batches.lock().unwrap();
+        assert_eq!(count_batches.len(), 2);
+        assert_eq!(count_batches[0].len(), MAX_IMPORT_BATCH_RECORDS);
+        assert_eq!(count_batches[1].len(), 1);
+    }
 
     let byte_dir = dir.path().join("bytes");
     std::fs::create_dir(&byte_dir).unwrap();
