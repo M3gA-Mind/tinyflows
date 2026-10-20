@@ -14,8 +14,6 @@ use tinyflows_bus::catalog::{
 
 use crate::legacy_db::{LegacyDb, column_or};
 
-const SQLITE_PAGE_ROWS: i64 = 1;
-
 fn fields(names: &[&str]) -> Vec<(String, String)> {
     names
         .iter()
