@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use tinyflows_bus::catalog::{
     LegacyImportKind, LegacyImportRecord, LegacySqliteCheckpointWrite,
+    MAX_IMPORT_RECORD_PAYLOAD_BYTES,
 };
-use tinyflows_bus::catalog::MAX_IMPORT_RECORD_PAYLOAD_BYTES;
 
 use crate::flow_reader::BatchSender;
 use crate::legacy_db::LegacyDb;
