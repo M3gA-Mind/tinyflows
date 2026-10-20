@@ -1,5 +1,6 @@
 use super::*;
 use crate::catalog::test_support::{catalog, catalog_in, trigger_graph};
+use std::sync::Arc;
 use tinystoragedrivers_core::MemoryStorage;
 
 #[tokio::test]
@@ -242,7 +243,12 @@ async fn summary_retry_revalidates_the_run_after_a_concurrent_cancellation() {
                         .await
                         .unwrap()
                 );
-                assert!(cancellation.record_run_for_run(run_id, "cancelled").await.unwrap());
+                assert!(
+                    cancellation
+                        .record_run_for_run(run_id, "cancelled")
+                        .await
+                        .unwrap()
+                );
             })
         }),
     );
@@ -253,7 +259,10 @@ async fn summary_retry_revalidates_the_run_after_a_concurrent_cancellation() {
         .await
         .unwrap();
 
-    assert!(!recorded, "the stale parked summary must stop after the CAS conflict");
+    assert!(
+        !recorded,
+        "the stale parked summary must stop after the CAS conflict"
+    );
     let current_run = original.get_flow_run(run_id).await.unwrap().unwrap();
     assert_eq!(current_run.status, "cancelled");
     let current_flow = original.get_flow(&flow.id).await.unwrap().unwrap();
@@ -261,14 +270,7 @@ async fn summary_retry_revalidates_the_run_after_a_concurrent_cancellation() {
     assert!(current_flow.last_run_at.is_some());
 
     // The canceled run remains queryable under the same flow incarnation.
-    assert!(
-        raw_docs
-            .get(RUNS, run_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .doc["status"] == "cancelled"
-    );
+    assert!(raw_docs.get(RUNS, run_id).await.unwrap().unwrap().doc["status"] == "cancelled");
     assert!(raw_docs.get(DEFINITIONS, &flow.id).await.unwrap().is_some());
 }
 
