@@ -1,4 +1,3 @@
-use super::module_proxies;
 use super::*;
 
 #[tokio::test]
