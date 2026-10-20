@@ -158,7 +158,7 @@ async fn pending_approval_takes_precedence_over_a_continued_step_error() {
         .find(|event| event.kind == "parked")
         .expect("the downstream approval parks the continued run");
     let parked: runs::RunParked = serde_json::from_value(parked_event.data.clone()).unwrap();
-    assert_eq!(parked.pending_approvals, ["review-after-error"]);
+    assert_eq!(parked.pending_approvals, ["approval"]);
 
     let row: Option<catalog::FlowRun> = catalog_proxy
         .call(
