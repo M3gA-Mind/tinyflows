@@ -471,9 +471,15 @@ async fn legacy_write_import_is_cas_merged_and_never_replaces_existing_identitie
         checkpoint_id: Some("legacy-checkpoint".into()),
         namespace: vec![],
     };
-    cp.put(checkpoint("legacy-thread", "legacy-checkpoint", None, 1, json!({})))
-        .await
-        .unwrap();
+    cp.put(checkpoint(
+        "legacy-thread",
+        "legacy-checkpoint",
+        None,
+        1,
+        json!({}),
+    ))
+    .await
+    .unwrap();
     cp.put_writes(
         &config,
         &[

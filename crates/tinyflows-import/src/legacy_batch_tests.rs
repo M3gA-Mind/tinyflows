@@ -98,13 +98,21 @@ async fn pending_writes_import_in_a_later_batch_and_never_replace_existing_value
         }))
         .unwrap(),
     };
-    let first = apply_legacy_batch(&[write(json!({"value":"original"}))], &catalog, &checkpointer)
-        .await
-        .unwrap();
+    let first = apply_legacy_batch(
+        &[write(json!({"value":"original"}))],
+        &catalog,
+        &checkpointer,
+    )
+    .await
+    .unwrap();
     assert_eq!(first.tallies[0].written, 1);
-    let replay = apply_legacy_batch(&[write(json!({"value":"newer-live-value"}))], &catalog, &checkpointer)
-        .await
-        .unwrap();
+    let replay = apply_legacy_batch(
+        &[write(json!({"value":"newer-live-value"}))],
+        &catalog,
+        &checkpointer,
+    )
+    .await
+    .unwrap();
     assert_eq!(replay.tallies[0].existing, 1);
     let config = CheckpointConfig {
         thread_id: saved.thread_id,
