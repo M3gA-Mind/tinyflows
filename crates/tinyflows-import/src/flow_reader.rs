@@ -95,10 +95,12 @@ where
             );
             page_rows(
                 &db,
-                "flow definitions",
-                &query,
-                fields.len(),
-                LegacyImportKind::Flow,
+                PageSpec {
+                    what: "flow definitions",
+                    query: &query,
+                    field_count: fields.len(),
+                    kind: LegacyImportKind::Flow,
+                },
                 |row| {
                     Ok(LegacyFlowRecord {
                         id: row.get(0)?,
@@ -135,10 +137,12 @@ where
             );
             page_rows(
                 &db,
-                "flow revisions",
-                &query,
-                fields.len(),
-                LegacyImportKind::Revision,
+                PageSpec {
+                    what: "flow revisions",
+                    query: &query,
+                    field_count: fields.len(),
+                    kind: LegacyImportKind::Revision,
+                },
                 |row| {
                     Ok(LegacyRevisionRecord {
                         id: row.get(0)?,
@@ -191,10 +195,12 @@ where
             );
             page_rows(
                 &db,
-                "flow runs",
-                &query,
-                fields.len(),
-                LegacyImportKind::Run,
+                PageSpec {
+                    what: "flow runs",
+                    query: &query,
+                    field_count: fields.len(),
+                    kind: LegacyImportKind::Run,
+                },
                 |row| {
                     Ok(LegacyRunRecord {
                         id: row.get(0)?,
@@ -225,10 +231,12 @@ where
             );
             page_rows(
                 &db,
-                "flow state",
-                &query,
-                fields.len(),
-                LegacyImportKind::State,
+                PageSpec {
+                    what: "flow state",
+                    query: &query,
+                    field_count: fields.len(),
+                    kind: LegacyImportKind::State,
+                },
                 |row| {
                     Ok(LegacyStateRecord {
                         namespace: row.get(0)?,
@@ -279,10 +287,12 @@ where
             );
             page_rows(
                 &db,
-                "flow suggestions",
-                &query,
-                fields.len(),
-                LegacyImportKind::Suggestion,
+                PageSpec {
+                    what: "flow suggestions",
+                    query: &query,
+                    field_count: fields.len(),
+                    kind: LegacyImportKind::Suggestion,
+                },
                 |row| {
                     Ok(LegacySuggestionRecord {
                         id: row.get(0)?,
@@ -316,12 +326,16 @@ enum BoundedRow<T> {
     Oversized,
 }
 
-async fn page_rows<T, ToRecord, F, Fut>(
-    db: &LegacyDb,
+struct PageSpec<'a> {
     what: &'static str,
-    query: &str,
+    query: &'a str,
     field_count: usize,
     kind: LegacyImportKind,
+}
+
+async fn page_rows<T, ToRecord, F, Fut>(
+    db: &LegacyDb,
+    spec: PageSpec<'_>,
     decode: impl Fn(
         &tinystoragedrivers_sqlite::rusqlite::Row<'_>,
     ) -> tinystoragedrivers_sqlite::rusqlite::Result<T>
@@ -338,6 +352,12 @@ where
     F: FnMut(Vec<LegacyImportRecord>) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
+    let PageSpec {
+        what,
+        query,
+        field_count,
+        kind,
+    } = spec;
     let query = query.to_string();
     let decode = Arc::new(decode);
     let mut offset = 0_i64;
