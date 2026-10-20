@@ -296,3 +296,82 @@ async fn legacy_write_import_retries_after_concurrent_live_write_and_counts_the_
     assert_eq!(writes[2].payload, json!("concurrent-live"));
     assert_eq!(writes[3].payload, json!("concurrent-control"));
 }
+
+#[cfg(feature = "catalog")]
+#[tokio::test]
+async fn a_live_control_write_claims_an_imported_identity_before_cas_retry() {
+    let storage = MemoryStorage::new();
+    let docs = Arc::clone(
+        storage
+            .for_scope(&Scope::new("local").unwrap())
+            .unwrap()
+            .documents(),
+    );
+    let initial = DriverCheckpointer::<Value>::new(Arc::clone(&docs));
+    initial
+        .put(Checkpoint {
+            thread_id: "legacy-live-claim".into(),
+            checkpoint_id: "legacy-checkpoint-live-claim".into(),
+            run_id: Some("run-owner".into()),
+            parent_checkpoint_id: None,
+            namespace: vec![],
+            state: json!({}),
+            next_nodes: vec![NodeId::new("node")],
+            completed_tasks: vec![],
+            pending_writes: vec![],
+            interrupts: vec![],
+            pending_activations: None,
+            barrier_arrivals: vec![],
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+    let config = CheckpointConfig {
+        thread_id: "legacy-live-claim".into(),
+        checkpoint_id: Some("legacy-checkpoint-live-claim".into()),
+        namespace: vec![],
+    };
+    let imported = PendingWrite::data("node", "retry", -1, "resume", json!("same value"));
+    assert_eq!(
+        initial
+            .import_writes_if_absent(&config, std::slice::from_ref(&imported))
+            .await
+            .unwrap(),
+        (1, 0)
+    );
+
+    let interjected_config = config.clone();
+    let interjected_write = imported.clone();
+    let interjection: crate::catalog::test_support::Interjection = Box::new(move |inner| {
+        Box::pin(async move {
+            DriverCheckpointer::<Value>::new(inner)
+                .put_writes(&interjected_config, &[interjected_write])
+                .await
+                .unwrap();
+        })
+    });
+    let wrapped = crate::catalog::test_support::Interposed::wrap(
+        docs,
+        ("put_with", "graph.writes"),
+        interjection,
+    );
+    let importer = DriverCheckpointer::<Value>::new(wrapped);
+    let result = importer
+        .import_writes_if_absent(
+            &config,
+            &[PendingWrite::data(
+                "node",
+                "retry",
+                -1,
+                "resume",
+                json!("later legacy value"),
+            )],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result, (0, 1));
+    let writes = importer.get_writes(&config).await.unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].payload, json!("same value"));
+}
