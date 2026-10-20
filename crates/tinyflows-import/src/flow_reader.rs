@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tinyflows_bus::catalog::{
-    LegacyDraftRecord, LegacyFlowRecord, LegacyImportKind, LegacyImportRecord,
+    LegacyDraftRecord, LegacyFlowRecord, LegacyImportRecord,
     LegacyRevisionRecord, LegacyRunRecord, LegacyStateRecord, LegacySuggestionRecord,
-    MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_BATCH_RECORDS,
+    MAX_IMPORT_BATCH_RECORDS, MAX_IMPORT_RECORD_PAYLOAD_BYTES,
+    MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
 };
 
 use crate::legacy_db::{LegacyDb, column_or};
@@ -141,13 +142,13 @@ impl BatchSender {
     async fn push<F, Fut>(&mut self, mut record: LegacyImportRecord, send: &mut F) -> Result<()>
     where F: FnMut(Vec<LegacyImportRecord>) -> Fut, Fut: Future<Output = Result<()>> {
         let mut size = serde_json::to_vec(&record)?.len();
-        if size > MAX_IMPORT_BATCH_BYTES {
+        if size > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
             let kind = record.record_kind();
             let identity = record_identity(&record);
             record = LegacyImportRecord::Invalid { record_kind: kind, identity, message: "record exceeds the import byte limit".into() };
             size = serde_json::to_vec(&record)?.len();
         }
-        if !self.current.is_empty() && (self.current.len() >= MAX_IMPORT_BATCH_RECORDS || self.bytes + size > MAX_IMPORT_BATCH_BYTES) {
+        if !self.current.is_empty() && (self.current.len() >= MAX_IMPORT_BATCH_RECORDS || self.bytes + size > MAX_IMPORT_RECORD_PAYLOAD_BYTES) {
             self.flush(send).await?;
         }
         self.bytes += size;
@@ -164,7 +165,7 @@ impl BatchSender {
 }
 
 fn record_identity(record: &LegacyImportRecord) -> Option<String> {
-    match record {
+    let value = match record {
         LegacyImportRecord::Flow(row) => Some(row.id.clone()),
         LegacyImportRecord::Revision(row) => Some(row.id.clone()),
         LegacyImportRecord::Run(row) => Some(row.id.clone()),
@@ -174,7 +175,8 @@ fn record_identity(record: &LegacyImportRecord) -> Option<String> {
         LegacyImportRecord::FileCheckpointWrite { thread_id, .. } => Some(thread_id.clone()),
         LegacyImportRecord::SqliteCheckpointWrite(row) => Some(row.task_id.clone()),
         LegacyImportRecord::Checkpoint { .. } | LegacyImportRecord::Invalid { .. } => None,
-    }
+    };
+    value.map(|identity| identity.chars().take(128).collect())
 }
 
 #[cfg(test)]
