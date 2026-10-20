@@ -437,3 +437,55 @@ async fn catalog_list_reports_corrupt_rows_it_skips() {
     assert!(result.workflows.is_empty());
     assert_eq!(result.skipped_rows, 1);
 }
+
+#[tokio::test]
+async fn legacy_import_batches_preserve_historic_enablement_and_are_idempotent() {
+    let (_server, host) = connections().await;
+    let storage = scope(&host, "legacy_import").await;
+    let proxy = put_proxy(&host).unwrap();
+    let graph_json = serde_json::to_string(&graph("schedule", false)).unwrap();
+    let request = json!({
+        "storage": storage,
+        "records": [{
+            "kind": "flow",
+            "record": {
+                "id": "historic-scheduled-flow",
+                "name": "Historic scheduled flow",
+                "graph_json": graph_json,
+                "enabled": true,
+                "created_at": "2025-01-02T03:04:05Z",
+                "updated_at": "2025-01-03T03:04:05Z",
+                "last_run_at": null,
+                "last_status": null,
+                "require_approval": false
+            }
+        }]
+    });
+
+    let first: Value = proxy
+        .call("ImportLegacyBatch", &(request.clone(),))
+        .await
+        .expect("Catalog serves legacy batch import");
+    assert_eq!(first["tallies"][0]["kind"], "flows");
+    assert_eq!(first["tallies"][0]["written"], 1);
+    assert_eq!(first["tallies"][0]["existing"], 0);
+    assert_eq!(first["problems"], json!([]));
+
+    let imported: Option<catalog::Workflow> = proxy
+        .call("GetWorkflow", &(storage.clone(), "historic-scheduled-flow"))
+        .await
+        .unwrap();
+    let imported = imported.expect("legacy flow is present");
+    assert!(imported.enabled, "import must retain historic enablement");
+    assert!(
+        !imported.require_approval,
+        "import must retain historic approval state"
+    );
+
+    let second: Value = proxy
+        .call("ImportLegacyBatch", &(request,))
+        .await
+        .expect("replaying the batch is supported");
+    assert_eq!(second["tallies"][0]["written"], 0);
+    assert_eq!(second["tallies"][0]["existing"], 1);
+}
