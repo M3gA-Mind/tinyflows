@@ -246,6 +246,7 @@ async fn jsonl_reader_splits_batches_at_record_count_and_byte_budgets() {
     }
 }
 
+#[cfg(feature = "checkpoint-write")]
 #[tokio::test]
 async fn jsonl_control_retries_keep_the_latest_value_across_import_batches() {
     use tinyflows::graph::{CheckpointConfig, Checkpointer};
