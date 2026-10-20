@@ -1,17 +1,20 @@
 //! Bounded, host-side readers for the retired flow catalog and draft files.
 
 use std::future::Future;
+use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tinyflows_bus::catalog::{
-    LegacyDraftRecord, LegacyFlowRecord, LegacyImportRecord, LegacyRevisionRecord, LegacyRunRecord,
-    LegacyStateRecord, LegacySuggestionRecord, MAX_IMPORT_BATCH_RECORDS,
-    MAX_IMPORT_RECORD_PAYLOAD_BYTES,
+    LegacyDraftRecord, LegacyFlowRecord, LegacyImportKind, LegacyImportRecord,
+    LegacyRevisionRecord, LegacyRunRecord, LegacyStateRecord, LegacySuggestionRecord,
+    MAX_IMPORT_BATCH_RECORDS, MAX_IMPORT_RECORD_PAYLOAD_BYTES,
 };
 
 use crate::legacy_db::{LegacyDb, column_or};
+
+const SQLITE_PAGE_ROWS: i64 = 8;
 
 /// Reads legacy flow database rows and draft files as bounded ordered batches.
 ///
@@ -28,58 +31,133 @@ where
         let tables = db.tables().await?;
         if tables.contains("flow_definitions") {
             let columns = db.columns("flow_definitions").await?;
-            let select = format!(
-                "SELECT id,name,graph_json,enabled,created_at,updated_at,last_run_at,last_status,{} FROM flow_definitions ORDER BY created_at,id LIMIT ?1 OFFSET ?2",
-                column_or(&columns, "require_approval", "0")
+            let mut fields = fields(&[
+                "id",
+                "name",
+                "graph_json",
+                "enabled",
+                "created_at",
+                "updated_at",
+                "last_run_at",
+                "last_status",
+            ]);
+            fields.push((
+                column_or(&columns, "require_approval", "0"),
+                "require_approval".into(),
+            ));
+            let query = bounded_page_query(
+                "flow_definitions",
+                &fields,
+                &[
+                    "id",
+                    "name",
+                    "graph_json",
+                    "created_at",
+                    "updated_at",
+                    "last_run_at",
+                    "last_status",
+                ],
+                "created_at,id",
             );
-            let mut offset = 0_i64;
-            loop {
-                let query = select.clone();
-                let rows = db
-                    .read("flow definitions", move |conn| {
-                        let mut statement = conn.prepare(&query)?;
-                        let mapped = statement.query_map([64_i64, offset], |row| {
-                            Ok(LegacyFlowRecord {
-                                id: row.get(0)?,
-                                name: row.get(1)?,
-                                graph_json: row.get(2)?,
-                                enabled: row.get::<_, i64>(3)? != 0,
-                                created_at: row.get(4)?,
-                                updated_at: row.get(5)?,
-                                last_run_at: row.get(6)?,
-                                last_status: row.get(7)?,
-                                require_approval: row.get::<_, i64>(8)? != 0,
-                            })
-                        })?;
-                        mapped.collect::<std::result::Result<Vec<_>, _>>()
+            page_rows(
+                &db,
+                "flow definitions",
+                &query,
+                fields.len(),
+                LegacyImportKind::Flow,
+                |row| {
+                    Ok(LegacyFlowRecord {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        graph_json: row.get(2)?,
+                        enabled: row.get::<_, i64>(3)? != 0,
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                        last_run_at: row.get(6)?,
+                        last_status: row.get(7)?,
+                        require_approval: row.get::<_, i64>(8)? != 0,
                     })
-                    .await?;
-                if rows.is_empty() {
-                    break;
-                }
-                offset += rows.len() as i64;
-                for row in rows {
-                    batches
-                        .push(LegacyImportRecord::Flow(row), &mut send)
-                        .await?;
-                }
-            }
+                },
+                LegacyImportRecord::Flow,
+                &mut batches,
+                &mut send,
+            )
+            .await?;
         }
         if tables.contains("flow_revisions") {
-            page_rows(&db, "flow revisions", "SELECT id,flow_id,graph_json,name,require_approval,created_at FROM flow_revisions ORDER BY created_at,id LIMIT ?1 OFFSET ?2", |row| {
-                Ok(LegacyRevisionRecord { id: row.get(0)?, flow_id: row.get(1)?, graph_json: row.get(2)?, name: row.get(3)?, require_approval: row.get::<_, i64>(4)? != 0, created_at: row.get(5)? })
-            }, LegacyImportRecord::Revision, &mut batches, &mut send).await?;
+            let fields = fields(&[
+                "id",
+                "flow_id",
+                "graph_json",
+                "name",
+                "require_approval",
+                "created_at",
+            ]);
+            let query = bounded_page_query(
+                "flow_revisions",
+                &fields,
+                &["id", "flow_id", "graph_json", "name", "created_at"],
+                "created_at,id",
+            );
+            page_rows(
+                &db,
+                "flow revisions",
+                &query,
+                fields.len(),
+                LegacyImportKind::Revision,
+                |row| {
+                    Ok(LegacyRevisionRecord {
+                        id: row.get(0)?,
+                        flow_id: row.get(1)?,
+                        graph_json: row.get(2)?,
+                        name: row.get(3)?,
+                        require_approval: row.get::<_, i64>(4)? != 0,
+                        created_at: row.get(5)?,
+                    })
+                },
+                LegacyImportRecord::Revision,
+                &mut batches,
+                &mut send,
+            )
+            .await?;
         }
         if tables.contains("flow_runs") {
             let columns = db.columns("flow_runs").await?;
-            let select = format!(
-                "SELECT id,flow_id,thread_id,status,started_at,finished_at,steps_json,pending_approvals_json,error,{} FROM flow_runs ORDER BY started_at,id LIMIT ?1 OFFSET ?2",
-                column_or(&columns, "graph_hash", "NULL")
+            let mut fields = fields(&[
+                "id",
+                "flow_id",
+                "thread_id",
+                "status",
+                "started_at",
+                "finished_at",
+                "steps_json",
+                "pending_approvals_json",
+                "error",
+            ]);
+            fields.push((column_or(&columns, "graph_hash", "NULL"), "graph_hash".into()));
+            let query = bounded_page_query(
+                "flow_runs",
+                &fields,
+                &[
+                    "id",
+                    "flow_id",
+                    "thread_id",
+                    "status",
+                    "started_at",
+                    "finished_at",
+                    "steps_json",
+                    "pending_approvals_json",
+                    "error",
+                    "graph_hash",
+                ],
+                "started_at,id",
             );
             page_rows(
                 &db,
                 "flow runs",
-                &select,
+                &query,
+                fields.len(),
+                LegacyImportKind::Run,
                 |row| {
                     Ok(LegacyRunRecord {
                         id: row.get(0)?,
@@ -101,14 +179,95 @@ where
             .await?;
         }
         if tables.contains("flow_state") {
-            page_rows(&db, "flow state", "SELECT namespace,key,value FROM flow_state ORDER BY namespace,key LIMIT ?1 OFFSET ?2", |row| {
-                Ok(LegacyStateRecord { namespace: row.get(0)?, key: row.get(1)?, value_json: row.get(2)? })
-            }, LegacyImportRecord::State, &mut batches, &mut send).await?;
+            let fields = fields(&["namespace", "key", "value"]);
+            let query = bounded_page_query(
+                "flow_state",
+                &fields,
+                &["namespace", "key", "value"],
+                "namespace,key",
+            );
+            page_rows(
+                &db,
+                "flow state",
+                &query,
+                fields.len(),
+                LegacyImportKind::State,
+                |row| {
+                    Ok(LegacyStateRecord {
+                        namespace: row.get(0)?,
+                        key: row.get(1)?,
+                        value_json: row.get(2)?,
+                    })
+                },
+                LegacyImportRecord::State,
+                &mut batches,
+                &mut send,
+            )
+            .await?;
         }
         if tables.contains("flow_suggestions") {
-            page_rows(&db, "flow suggestions", "SELECT id,title,one_liner,rationale,trigger_hint,steps_json,connections_json,slugs_json,build_prompt,confidence,status,created_at,source_run_id FROM flow_suggestions ORDER BY created_at,id LIMIT ?1 OFFSET ?2", |row| {
-                Ok(LegacySuggestionRecord { id: row.get(0)?, title: row.get(1)?, one_liner: row.get(2)?, rationale: row.get(3)?, trigger_hint: row.get(4)?, steps_json: row.get(5)?, connections_json: row.get(6)?, slugs_json: row.get(7)?, build_prompt: row.get(8)?, confidence: row.get(9)?, status: row.get(10)?, created_at: row.get(11)?, source_run_id: row.get(12)? })
-            }, LegacyImportRecord::Suggestion, &mut batches, &mut send).await?;
+            let fields = fields(&[
+                "id",
+                "title",
+                "one_liner",
+                "rationale",
+                "trigger_hint",
+                "steps_json",
+                "connections_json",
+                "slugs_json",
+                "build_prompt",
+                "confidence",
+                "status",
+                "created_at",
+                "source_run_id",
+            ]);
+            let query = bounded_page_query(
+                "flow_suggestions",
+                &fields,
+                &[
+                    "id",
+                    "title",
+                    "one_liner",
+                    "rationale",
+                    "trigger_hint",
+                    "steps_json",
+                    "connections_json",
+                    "slugs_json",
+                    "build_prompt",
+                    "status",
+                    "created_at",
+                    "source_run_id",
+                ],
+                "created_at,id",
+            );
+            page_rows(
+                &db,
+                "flow suggestions",
+                &query,
+                fields.len(),
+                LegacyImportKind::Suggestion,
+                |row| {
+                    Ok(LegacySuggestionRecord {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        one_liner: row.get(2)?,
+                        rationale: row.get(3)?,
+                        trigger_hint: row.get(4)?,
+                        steps_json: row.get(5)?,
+                        connections_json: row.get(6)?,
+                        slugs_json: row.get(7)?,
+                        build_prompt: row.get(8)?,
+                        confidence: row.get(9)?,
+                        status: row.get(10)?,
+                        created_at: row.get(11)?,
+                        source_run_id: row.get(12)?,
+                    })
+                },
+                LegacyImportRecord::Suggestion,
+                &mut batches,
+                &mut send,
+            )
+            .await?;
         }
     }
     read_drafts(&dir.join("drafts"), &mut batches, &mut send).await?;
@@ -212,8 +371,8 @@ impl BatchSender {
         F: FnMut(Vec<LegacyImportRecord>) -> Fut,
         Fut: Future<Output = Result<()>>,
     {
-        let mut size = serde_json::to_vec(&record)?.len();
-        if size > MAX_IMPORT_RECORD_PAYLOAD_BYTES {
+        let mut size = serialized_size(&record, MAX_IMPORT_RECORD_PAYLOAD_BYTES)?;
+        if size.is_none() {
             let kind = record.record_kind();
             let identity = record_identity(&record);
             record = LegacyImportRecord::Invalid {
@@ -221,8 +380,9 @@ impl BatchSender {
                 identity,
                 message: "record exceeds the import byte limit".into(),
             };
-            size = serde_json::to_vec(&record)?.len();
+            size = serialized_size(&record, MAX_IMPORT_RECORD_PAYLOAD_BYTES)?;
         }
+        let size = size.context("bounded invalid import record exceeds its byte limit")?;
         if !self.current.is_empty()
             && (self.current.len() >= MAX_IMPORT_BATCH_RECORDS
                 || self.bytes + size > MAX_IMPORT_RECORD_PAYLOAD_BYTES)
@@ -244,6 +404,44 @@ impl BatchSender {
         }
         self.bytes = 0;
         send(std::mem::take(&mut self.current)).await
+    }
+}
+
+#[derive(Default)]
+struct SizeCounter {
+    bytes: usize,
+    limit: usize,
+    exceeded: bool,
+}
+
+impl Write for SizeCounter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let Some(next) = self.bytes.checked_add(bytes.len()) else {
+            self.exceeded = true;
+            return Err(io::Error::other("serialized import record exceeds its byte limit"));
+        };
+        if next > self.limit {
+            self.exceeded = true;
+            return Err(io::Error::other("serialized import record exceeds its byte limit"));
+        }
+        self.bytes = next;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialized_size<T: serde::Serialize>(value: &T, limit: usize) -> Result<Option<usize>> {
+    let mut counter = SizeCounter {
+        limit,
+        ..SizeCounter::default()
+    };
+    match serde_json::to_writer(&mut counter, value) {
+        Ok(()) => Ok(Some(counter.bytes)),
+        Err(_) if counter.exceeded => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 

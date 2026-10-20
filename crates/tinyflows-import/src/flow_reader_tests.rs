@@ -3,8 +3,9 @@ use std::sync::Mutex;
 use tinyflows_bus::catalog::LegacyImportKind;
 use tinyflows_bus::catalog::{
     CallbackAddress, CatalogStorage, ImportLegacyBatchRequest, MAX_IMPORT_BATCH_BYTES,
-    MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
+    MAX_IMPORT_RECORD_PAYLOAD_BYTES, MAX_IMPORT_REQUEST_ENVELOPE_BYTES,
 };
+use tinystoragedrivers_sqlite::rusqlite::Connection;
 
 #[tokio::test]
 async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
@@ -77,6 +78,139 @@ async fn batches_are_bounded_and_a_single_oversized_record_becomes_invalid() {
     };
     assert_eq!(*record_kind, LegacyImportKind::Flow);
     assert_eq!(identity.as_ref().unwrap().len(), 128);
+}
+
+#[tokio::test]
+async fn escape_expansion_is_bounded_and_later_records_still_import() {
+    let mut sender = BatchSender::default();
+    let escaped = LegacyImportRecord::Flow(LegacyFlowRecord {
+        id: "escaped".into(),
+        name: "legacy".into(),
+        graph_json: "\u{1}".repeat(MAX_IMPORT_RECORD_PAYLOAD_BYTES / 4),
+        enabled: true,
+        created_at: "2025-01-01T00:00:00Z".into(),
+        updated_at: "2025-01-01T00:00:00Z".into(),
+        last_run_at: None,
+        last_status: None,
+        require_approval: false,
+    });
+    let valid = LegacyImportRecord::Flow(LegacyFlowRecord {
+        id: "later".into(),
+        name: "valid".into(),
+        graph_json: "{}".into(),
+        enabled: true,
+        created_at: "2025-01-02T00:00:00Z".into(),
+        updated_at: "2025-01-02T00:00:00Z".into(),
+        last_run_at: None,
+        last_status: None,
+        require_approval: false,
+    });
+    let batches = Arc::new(Mutex::new(Vec::new()));
+    let output = Arc::clone(&batches);
+    let mut send = move |batch| {
+        let output = Arc::clone(&output);
+        async move {
+            output.lock().unwrap().push(batch);
+            Ok(())
+        }
+    };
+    sender.push(escaped, &mut send).await.unwrap();
+    sender.push(valid, &mut send).await.unwrap();
+    sender.flush(&mut send).await.unwrap();
+
+    let batches = batches.lock().unwrap();
+    assert!(matches!(
+        batches[0][0],
+        LegacyImportRecord::Invalid {
+            record_kind: LegacyImportKind::Flow,
+            ..
+        }
+    ));
+    assert!(matches!(
+        batches[0][1],
+        LegacyImportRecord::Flow(ref row) if row.id == "later"
+    ));
+}
+
+#[test]
+fn sqlite_octet_length_counts_text_bytes() {
+    let connection = Connection::open_in_memory().unwrap();
+    let bytes = connection
+        .query_row("SELECT octet_length('é')", [], |row| row.get::<_, usize>(0))
+        .unwrap();
+    assert_eq!(bytes, 2);
+}
+
+#[tokio::test]
+async fn oversized_catalog_rows_and_drafts_are_invalid_but_later_records_survive() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("flows.db");
+    let oversized_graph = "x".repeat(MAX_IMPORT_RECORD_PAYLOAD_BYTES + 1);
+    let connection = Connection::open(&db_path).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE flow_definitions (
+                id TEXT, name TEXT, graph_json TEXT, enabled INTEGER,
+                created_at TEXT, updated_at TEXT, last_run_at TEXT,
+                last_status TEXT, require_approval INTEGER
+            );",
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO flow_definitions VALUES
+                ('oversized', 'large graph', ?1, 1, '2025-01-01', '2025-01-01', NULL, NULL, 0),
+                ('later-flow', 'valid graph', '{}', 1, '2025-01-02', '2025-01-02', NULL, NULL, 0)",
+            [&oversized_graph],
+        )
+        .unwrap();
+    drop(connection);
+
+    let drafts = dir.path().join("drafts");
+    std::fs::create_dir(&drafts).unwrap();
+    std::fs::write(
+        drafts.join("a-oversized.json"),
+        vec![b'x'; MAX_IMPORT_RECORD_PAYLOAD_BYTES + 1],
+    )
+    .unwrap();
+    std::fs::write(drafts.join("z-valid.json"), br#"{"draft":true}"#).unwrap();
+
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&output);
+    read_legacy_flow_catalog(dir.path(), move |batch| {
+        let captured = Arc::clone(&captured);
+        async move {
+            captured.lock().unwrap().extend(batch);
+            Ok(())
+        }
+    })
+    .await
+    .unwrap();
+
+    let output = output.lock().unwrap();
+    assert!(output.iter().any(|record| matches!(
+        record,
+        LegacyImportRecord::Invalid {
+            record_kind: LegacyImportKind::Flow,
+            ..
+        }
+    )));
+    assert!(output.iter().any(|record| matches!(
+        record,
+        LegacyImportRecord::Flow(row) if row.id == "later-flow"
+    )));
+    assert!(output.iter().any(|record| matches!(
+        record,
+        LegacyImportRecord::Invalid {
+            record_kind: LegacyImportKind::Draft,
+            identity: Some(name),
+            ..
+        } if name == "a-oversized.json"
+    )));
+    assert!(output.iter().any(|record| matches!(
+        record,
+        LegacyImportRecord::Draft(row) if row.file_name == "z-valid.json"
+    )));
 }
 
 #[tokio::test]
