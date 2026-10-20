@@ -62,7 +62,15 @@ pub(super) async fn resume(
         let current =
             tinyflows_catalog::graph_hash::compute_graph_hash(&flow.graph, flow.require_approval);
         if current.as_deref() != Some(expected) {
-            refuse_stale_graph(connection, &request, &catalog, &request.run_id, &row.steps).await?;
+            refuse_stale_graph(
+                connection,
+                &request,
+                &catalog,
+                &request.run_id,
+                &row.thread_id,
+                &row.steps,
+            )
+            .await?;
             bail!(GRAPH_CHANGED)
         }
     } else {
@@ -85,6 +93,7 @@ pub(super) async fn resume(
             &request,
             &catalog,
             &request.run_id,
+            &row.thread_id,
             &row.steps,
             "failed",
             &error,
@@ -190,6 +199,7 @@ pub(super) async fn resume(
             &request,
             &catalog,
             &request.run_id,
+            &row.thread_id,
             &row.steps,
             "failed",
             &error,
@@ -406,6 +416,7 @@ async fn refuse_stale_graph(
     request: &ResumeRun,
     catalog: &FlowCatalogDocuments,
     run_id: &str,
+    thread_id: &str,
     steps: &[tinyflows_catalog::FlowRunStep],
 ) -> Result<()> {
     refuse_parked_run(
@@ -413,6 +424,7 @@ async fn refuse_stale_graph(
         request,
         catalog,
         run_id,
+        thread_id,
         steps,
         "cancelled",
         GRAPH_CHANGED,
@@ -443,6 +455,7 @@ async fn refuse_parked_run(
     request: &ResumeRun,
     catalog: &FlowCatalogDocuments,
     run_id: &str,
+    thread_id: &str,
     steps: &[tinyflows_catalog::FlowRunStep],
     status: &str,
     error: &str,
@@ -480,7 +493,7 @@ async fn refuse_parked_run(
     match Documents::new(connection.clone(), request.storage.callback.clone()).await {
         Ok(documents) => {
             let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
-            if let Err(error) = checkpointer.delete_thread(run_id).await {
+            if let Err(error) = checkpointer.delete_thread(thread_id).await {
                 tracing::warn!(%error, run_id, "parked-run compatibility refusal checkpoint cleanup failed");
             }
         }

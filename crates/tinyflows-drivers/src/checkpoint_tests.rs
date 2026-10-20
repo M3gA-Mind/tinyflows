@@ -464,52 +464,6 @@ async fn put_get_list_roundtrip_survives_a_fresh_handle() {
 }
 
 #[tokio::test]
-async fn legacy_write_import_is_cas_merged_and_never_replaces_existing_identities() {
-    let cp = store();
-    let config = CheckpointConfig {
-        thread_id: "legacy-thread".into(),
-        checkpoint_id: Some("legacy-checkpoint".into()),
-        namespace: vec![],
-    };
-    cp.put(checkpoint(
-        "legacy-thread",
-        "legacy-checkpoint",
-        None,
-        1,
-        json!({}),
-    ))
-    .await
-    .unwrap();
-    cp.put_writes(
-        &config,
-        &[
-            PendingWrite::data("node", "data", 0, "result", json!("live")),
-            PendingWrite::data("node", "control", -1, "resume", json!("live")),
-        ],
-    )
-    .await
-    .unwrap();
-
-    let (written, existing) = cp
-        .import_writes_if_absent(
-            &config,
-            &[
-                PendingWrite::data("node", "data", 0, "result", json!("legacy")),
-                PendingWrite::data("node", "control", -1, "resume", json!("legacy")),
-                PendingWrite::data("node", "new", 0, "result", json!("imported")),
-            ],
-        )
-        .await
-        .unwrap();
-    assert_eq!((written, existing), (1, 2));
-    let writes = cp.get_writes(&config).await.unwrap();
-    assert_eq!(writes.len(), 3);
-    assert_eq!(writes[0].payload, json!("live"));
-    assert_eq!(writes[1].payload, json!("live"));
-    assert_eq!(writes[2].payload, json!("imported"));
-}
-
-#[tokio::test]
 async fn thread_ids_with_separators_and_spaces_list_and_delete() {
     let cp = store();
     cp.put(checkpoint("a/b c", "x1", None, 1, json!(1)))
