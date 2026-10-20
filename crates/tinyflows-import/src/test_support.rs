@@ -13,6 +13,14 @@
     feature = "store"
 ))]
 use std::collections::BTreeMap;
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-read",
+    feature = "checkpoint-read"
+))]
 use std::path::{Path, PathBuf};
 #[cfg(any(
     feature = "engine",
@@ -47,6 +55,14 @@ use sha2::{Digest, Sha256};
 use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, StorageBackend};
 
 /// The committed legacy stores.
+#[cfg(any(
+    feature = "engine",
+    feature = "catalog",
+    feature = "schedule",
+    feature = "store",
+    feature = "flow-read",
+    feature = "checkpoint-read"
+))]
 pub(crate) fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
