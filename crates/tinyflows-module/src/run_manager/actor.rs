@@ -233,7 +233,10 @@ async fn drive_inner(
     let output_value = output.clone().unwrap_or(Value::Null);
     let settled_steps = run_summary::settle_steps(observed, &output_value);
     let pending = !pending_approvals.is_empty() && !cancelled && failure.is_none();
-    let terminal = run_summary::terminal_status(&settled_steps, &[]);
+    let terminal = run_summary::terminal_status(
+        &settled_steps,
+        if pending { &pending_approvals } else { &[] },
+    );
     let status = if pending {
         "pending_approval"
     } else if cancelled || timed_out {
