@@ -24,6 +24,7 @@ pub(super) struct Prepared {
     pub inputs: Map<String, Value>,
     pub checkpointer: DriverCheckpointer<Value>,
     pub require_approval: bool,
+    pub checkpoint_thread_id: String,
 }
 
 pub(super) async fn catalog(
@@ -67,6 +68,7 @@ pub(super) async fn prepare(connection: &Connection, request: &StartRun) -> Resu
         inputs: request.inputs.clone(),
         checkpointer: DriverCheckpointer::new(document_port),
         require_approval: saved.require_approval,
+        checkpoint_thread_id: request.run_id.clone(),
     })
 }
 

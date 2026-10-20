@@ -1,6 +1,5 @@
 use super::*;
 use serde_json::json;
-use tinystoragedrivers_core::DocumentStoreExt;
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
