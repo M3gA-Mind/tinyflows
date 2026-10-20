@@ -24,7 +24,8 @@
 //! - `graph.threads`: one counter document per thread, `{ns, thread, next}`,
 //!   advanced with [`Repo::update`] so concurrent writers never share a `seq`.
 //! - `graph.writes`: one document per `(thread, subgraph, checkpoint)` holding
-//!   the merged pending writes (see [`merge_writes`]).
+//!   the merged pending writes (see
+//!   [`tinyflows::graph::checkpoint::merge_writes`]).
 //!
 //! The engine's checkpointer trait has no execution lease, so no `tsd.leases`
 //! record is written here; a host that fences a thread uses the lease key
