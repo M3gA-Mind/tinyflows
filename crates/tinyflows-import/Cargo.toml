@@ -22,7 +22,7 @@ publish = false
 # Every importer by default. A host builds with `default-features = false` and
 # only the importers it ships: a build that runs scheduled jobs but no flows
 # takes `schedule` alone and pulls neither the engine nor its expression stack.
-default = ["engine", "store", "catalog", "schedule", "checkpoint-read"]
+default = ["engine", "store", "catalog", "schedule", "checkpoint-read", "checkpoint-write"]
 # `import_sqlite_checkpoints`, `import_file_checkpoints`.
 engine = ["dep:tinyflows", "dep:tinyflows-drivers", "tinyflows-drivers/engine"]
 # `import_workflow_store`.
@@ -31,19 +31,17 @@ store = ["engine", "tinyflows/store", "tinyflows-drivers/store"]
 catalog = ["flow-write", "flow-read", "dep:tinyflows-catalog", "dep:tinyflows-drivers", "tinyflows-drivers/catalog"]
 # `import_cron`.
 schedule = ["schedule-read", "dep:tinyflows-schedule", "dep:tinyflows-drivers", "tinyflows-drivers/schedule"]
-# `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
-# replays them through the scheduler module. Links neither the scheduler
-# implementation nor the cron store.
-# `read_legacy_cron`: decodes `jobs.db` into bus records only, for a host that
-# replays them through the scheduler module. Links neither implementation crate.
+# `read_legacy_cron`: reads `jobs.db` into bus DTOs without linking the
+# scheduler implementation or cron store.
 schedule-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
-# Host-side legacy flow/checkpoint records without linking flow implementation
-# crates. The catalog module owns applying these records through scoped ports.
+# Host-side legacy flow definitions/revisions/runs/state/suggestions/drafts.
+# Links bus and SQLite reader only, no TinyFlows implementation crates.
 flow-read = ["dep:tinyflows-bus", "dep:tinystoragedrivers-sqlite"]
-# Shared semantic importer used by both the legacy public API and Catalog bus.
+# Shared semantic writer used by the public API and owning Catalog module.
 flow-write = ["checkpoint-write", "dep:tinyflows-catalog", "tinyflows-drivers/catalog"]
-# Host-side checkpoint source reader; kept separate from the engine writer.
-checkpoint-read = ["flow-read", "checkpoint-write"]
+# Host-side SQLite and JSONL checkpoint/write readers; implementation-free.
+checkpoint-read = ["flow-read"]
+# Shared checkpoint decode/replay logic. This does not pull in the catalog API.
 checkpoint-write = ["engine", "dep:tinyflows-bus"]
 
 [dependencies]
