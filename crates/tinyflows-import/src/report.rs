@@ -50,9 +50,19 @@ impl ImportReport {
             total.invalid += tally.invalid as usize;
         }
         for problem in response.problems {
-            let identity = problem
-                .identity
-                .map_or_else(String::new, |id| format!(" '{id}'"));
+            let identity = problem.identity.map_or_else(String::new, |id| {
+                let label = match problem.kind {
+                    tinyflows_bus::catalog::LegacyImportKind::Flow => "flow",
+                    tinyflows_bus::catalog::LegacyImportKind::Revision => "revision",
+                    tinyflows_bus::catalog::LegacyImportKind::Run => "run",
+                    tinyflows_bus::catalog::LegacyImportKind::State => "state",
+                    tinyflows_bus::catalog::LegacyImportKind::Suggestion => "suggestion",
+                    tinyflows_bus::catalog::LegacyImportKind::Draft => "draft",
+                    tinyflows_bus::catalog::LegacyImportKind::Checkpoint => "checkpoint",
+                    tinyflows_bus::catalog::LegacyImportKind::Write => "write",
+                };
+                format!(" {label} '{id}'")
+            });
             let message = format!(
                 "{}{}: {}",
                 legacy_kind_name(problem.kind),

@@ -210,9 +210,6 @@ where
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut reader = BufReader::new(file);
     while let Some((line, terminated, oversized)) = read_bounded_line(&mut reader)? {
-        if line.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
         if oversized {
             batches
                 .push(
@@ -224,6 +221,9 @@ where
                     send,
                 )
                 .await?;
+            continue;
+        }
+        if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
         if !terminated && serde_json::from_slice::<serde_json::Value>(&line).is_err() {
