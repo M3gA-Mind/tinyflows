@@ -1,6 +1,6 @@
 use super::*;
 use tinyflows_catalog::FlowRunStep;
-use tinystoragedrivers_core::{DocumentStoreExt, MemoryStorage, StorageBackend};
+use tinystoragedrivers_core::{MemoryStorage, StorageBackend};
 
 async fn running_with_lease(lease: &str) -> (FlowCatalogDocuments, String) {
     let storage = MemoryStorage::new();
