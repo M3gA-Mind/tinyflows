@@ -260,7 +260,7 @@ pub(super) async fn resume(
     if legacy {
         let checkpoints = prepared
             .checkpointer
-            .get_thread(&thread_id)
+            .get_scoped(&thread_id, None, &[])
             .await
             .context("reading legacy parked run checkpoint")?;
         if checkpoints.is_empty() {

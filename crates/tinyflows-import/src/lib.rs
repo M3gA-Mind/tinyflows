@@ -59,6 +59,8 @@ mod checkpoints;
 mod cron;
 #[cfg(feature = "flow-write")]
 mod legacy_batch;
+#[cfg(feature = "flow-read")]
+mod flow_reader;
 #[cfg(feature = "schedule-read")]
 mod legacy_cron;
 #[cfg(any(feature = "flow-read", feature = "schedule-read"))]
@@ -88,6 +90,8 @@ pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 pub use cron::import_cron;
 #[cfg(feature = "flow-write")]
 pub use legacy_batch::apply_legacy_batch;
+#[cfg(feature = "flow-read")]
+pub use flow_reader::read_legacy_flow_catalog;
 #[cfg(feature = "schedule-read")]
 pub use legacy_cron::{LegacyCron, read_legacy_cron};
 pub use report::{ImportReport, Tally};

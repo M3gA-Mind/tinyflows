@@ -295,6 +295,382 @@ async fn transient_legacy_checkpoint_read_error_leaves_the_parked_row_retryable(
     assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
 }
 
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn imported_legacy_resume_does_not_borrow_a_checkpoint_from_another_owner() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let source = owner(&connection, "foreign-checkpoint-source", None, None, None, None).await;
+    let target = owner(&connection, "foreign-checkpoint-target", None, None, None, None).await;
+    let graph = parked_graph();
+    let source_flow = create_flow_with_graph(
+        &catalog_proxy,
+        &source.storage,
+        "Foreign checkpoint source",
+        graph.clone(),
+    )
+    .await;
+    let target_flow = create_flow_with_graph(
+        &catalog_proxy,
+        &target.storage,
+        "Foreign checkpoint target",
+        graph.clone(),
+    )
+    .await;
+    let callback = serve_agent(&connection, "foreign-checkpoint-source").await;
+    let thread_id = "foreign-owner-checkpoint";
+    let mut start = request(&source, source_flow, thread_id, graph, 20_000);
+    start.trigger_data = json!({"id":"foreign-item"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&callback.approval_started, "source approval callback").await;
+    poll_until_kind(&runs_proxy, &source.storage, thread_id, "parked").await;
+    let source_row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: source.storage.clone(),
+                id: thread_id.into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let source_row = source_row.unwrap();
+    assert!(target_checkpointer_has_thread(&source, thread_id).await);
+
+    let imported: catalog::ImportLegacyBatchResponse = catalog_proxy
+        .call(
+            "ImportLegacyBatch",
+            &(catalog::ImportLegacyBatchRequest {
+                storage: target.storage.clone(),
+                records: vec![catalog::LegacyImportRecord::Run(
+                    catalog::LegacyRunRecord {
+                        id: "legacy-foreign-run".into(),
+                        flow_id: target_flow.clone(),
+                        thread_id: thread_id.into(),
+                        status: "pending_approval".into(),
+                        started_at: source_row.started_at,
+                        finished_at: source_row.finished_at,
+                        steps_json: serde_json::to_string(&source_row.steps).unwrap(),
+                        pending_approvals_json:
+                            serde_json::to_string(&source_row.pending_approvals).unwrap(),
+                        error: None,
+                        graph_hash: None,
+                    },
+                )],
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(imported.problems.is_empty(), "{imported:?}");
+    assert!(!target_checkpointer_has_thread(&target, thread_id).await);
+
+    let error = runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (runs::ResumeRun {
+                run_id: "legacy-foreign-run".into(),
+                flow_id: target_flow,
+                storage: target.storage.clone(),
+                caps_host: runs::CapsHost {
+                    callback: target.caps,
+                },
+                approvals: vec!["approval".into()],
+                rejections: Vec::new(),
+                timeout_ms: 20_000,
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("legacy parked run has no durable checkpoint"));
+    let failed: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: target.storage.clone(),
+                id: "legacy-foreign-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failed.unwrap().status, "failed");
+    assert!(
+        target_checkpointer_has_thread(&source, thread_id).await,
+        "a checkpoint owned by another scope must remain untouched"
+    );
+    let events: runs::PollRun = runs_proxy
+        .call(
+            "PollRun",
+            (RunControlRequest {
+                storage: target.storage,
+                run_id: "legacy-foreign-run".into(),
+                cursor: 0,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(events.done);
+    assert_eq!(events.events.last().unwrap().data["status"], "failed");
+    assert!(!events.events.iter().any(|event| event.kind == "resumed"));
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn stale_imported_legacy_resume_deletes_only_its_checkpoint_thread() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let source = owner(&connection, "legacy-stale-source", None, None, None, None).await;
+    let target = owner(&connection, "legacy-stale-target", None, None, None, None).await;
+    let graph = parked_graph();
+    let source_flow = create_flow_with_graph(
+        &catalog_proxy,
+        &source.storage,
+        "Stale legacy source",
+        graph.clone(),
+    )
+    .await;
+    let target_flow = create_flow_with_graph(
+        &catalog_proxy,
+        &target.storage,
+        "Stale legacy target",
+        graph.clone(),
+    )
+    .await;
+    let callback = serve_agent(&connection, "legacy-stale-source").await;
+    let thread_id = "stale-legacy-checkpoint-thread";
+    let mut start = request(&source, source_flow, thread_id, graph, 20_000);
+    start.trigger_data = json!({"id":"stale-legacy-item"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&callback.approval_started, "source approval callback").await;
+    poll_until_kind(&runs_proxy, &source.storage, thread_id, "parked").await;
+    let source_row: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: source.storage.clone(),
+                id: thread_id.into(),
+            },),
+        )
+        .await
+        .unwrap();
+    let source_row = source_row.unwrap();
+    let checkpoints = DriverCheckpointer::<serde_json::Value>::new(source.docs.clone())
+        .get_thread(thread_id)
+        .await
+        .unwrap();
+    assert!(!checkpoints.is_empty());
+
+    let mut records = vec![catalog::LegacyImportRecord::Run(
+        catalog::LegacyRunRecord {
+            id: "legacy-stale-import".into(),
+            flow_id: target_flow.clone(),
+            thread_id: thread_id.into(),
+            status: "pending_approval".into(),
+            started_at: source_row.started_at,
+            finished_at: source_row.finished_at,
+            steps_json: serde_json::to_string(&source_row.steps).unwrap(),
+            pending_approvals_json:
+                serde_json::to_string(&source_row.pending_approvals).unwrap(),
+            error: None,
+            graph_hash: Some("deliberately-stale-graph-hash".into()),
+        },
+    )];
+    records.extend(checkpoints.into_iter().map(|checkpoint| {
+        catalog::LegacyImportRecord::Checkpoint {
+            raw_json: serde_json::to_string(&checkpoint).unwrap(),
+        }
+    }));
+    let imported: catalog::ImportLegacyBatchResponse = catalog_proxy
+        .call(
+            "ImportLegacyBatch",
+            &(catalog::ImportLegacyBatchRequest {
+                storage: target.storage.clone(),
+                records,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(imported.problems.is_empty(), "{imported:?}");
+
+    let error = runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (runs::ResumeRun {
+                run_id: "legacy-stale-import".into(),
+                flow_id: target_flow,
+                storage: target.storage.clone(),
+                caps_host: runs::CapsHost {
+                    callback: target.caps,
+                },
+                approvals: vec!["approval".into()],
+                rejections: Vec::new(),
+                timeout_ms: 20_000,
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("workflow graph changed"));
+    let failed: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: target.storage.clone(),
+                id: "legacy-stale-import".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(failed.unwrap().status, "cancelled");
+    assert!(target_checkpointer_has_no_thread(&target, thread_id).await);
+    assert!(target_checkpointer_has_thread(&source, thread_id).await);
+}
+
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn legacy_resume_marker_survives_repark_and_continues_again() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let owner = owner(&connection, "legacy-repark", None, None, None, None).await;
+    let graph = json!({
+        "inputs":[{"name":"declared","type":"string","required":true}],
+        "nodes":[
+            {"id":"trigger","name":"Trigger","kind":"trigger","config":{}},
+            {"id":"first","name":"First approval","kind":"approval","config":{"request_id":"first-review"}},
+            {"id":"second","name":"Second approval","kind":"approval","config":{"request_id":"second-review"}},
+            {"id":"done","name":"Done","kind":"transform","config":{"set":{"done":true}}}
+        ],
+        "edges":[
+            {"from_node":"trigger","from_port":"main","to_node":"first","to_port":"main"},
+            {"from_node":"first","from_port":"approved","to_node":"second","to_port":"main"},
+            {"from_node":"second","from_port":"approved","to_node":"done","to_port":"main"}
+        ]
+    });
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Legacy multiple approval",
+        graph.clone(),
+    )
+    .await;
+    let callback = serve_agent(&connection, "legacy-repark").await;
+    let mut start = request(&owner, flow_id.clone(), "legacy-repark-run", graph, 20_000);
+    start.trigger_data = json!({"id":"repark-item"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&callback.approval_started, "first approval callback").await;
+    poll_until_kind(&runs_proxy, &owner.storage, "legacy-repark-run", "parked").await;
+    let stored = owner
+        .docs
+        .get("flows.runs", "legacy-repark-run")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut legacy = stored.doc.clone();
+    legacy.as_object_mut().unwrap().remove("execution_snapshot");
+    owner
+        .docs
+        .put("flows.runs", "legacy-repark-run", legacy, stored.unchanged())
+        .await
+        .unwrap();
+
+    runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (runs::ResumeRun {
+                run_id: "legacy-repark-run".into(),
+                flow_id: flow_id.clone(),
+                storage: owner.storage.clone(),
+                caps_host: runs::CapsHost {
+                    callback: owner.caps.clone(),
+                },
+                approvals: vec!["first".into()],
+                rejections: Vec::new(),
+                timeout_ms: 20_000,
+            },),
+        )
+        .await
+        .unwrap();
+    let first_park = poll_until_parked_count(&runs_proxy, &owner.storage, "legacy-repark-run", 2).await;
+    let marker = owner
+        .docs
+        .get("flows.runs", "legacy-repark-run")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(marker.doc["status"], "pending_approval");
+    assert_eq!(marker.doc["execution_snapshot"]["legacy_resume"], true);
+    assert_eq!(marker.doc["execution_snapshot"]["thread_id"], "legacy-repark-run");
+    assert!(first_park.events.iter().any(|event| event.kind == "resumed"));
+
+    runs_proxy
+        .call::<runs::ResumeRunResponse>(
+            "ResumeRun",
+            (runs::ResumeRun {
+                run_id: "legacy-repark-run".into(),
+                flow_id,
+                storage: owner.storage.clone(),
+                caps_host: runs::CapsHost {
+                    callback: owner.caps,
+                },
+                approvals: vec!["second".into()],
+                rejections: Vec::new(),
+                timeout_ms: 20_000,
+            },),
+        )
+        .await
+        .unwrap();
+    let terminal = poll_until_done(&runs_proxy, &owner.storage, "legacy-repark-run").await;
+    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
+    assert_eq!(
+        terminal.events.iter().filter(|event| event.kind == "finished").count(),
+        1
+    );
+}
+
+async fn poll_until_parked_count(
+    proxy: &tinybus::Proxy,
+    storage: &catalog::CatalogStorage,
+    run_id: &str,
+    count: usize,
+) -> runs::PollRun {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut cursor = 0;
+        let mut events = Vec::new();
+        loop {
+            let page: runs::PollRun = proxy
+                .call(
+                    "PollRun",
+                    (RunControlRequest {
+                        storage: storage.clone(),
+                        run_id: run_id.into(),
+                        cursor,
+                    },),
+                )
+                .await
+                .unwrap();
+            cursor = page.next_cursor;
+            events.extend(page.events);
+            if events.iter().filter(|event| event.kind == "parked").count() >= count {
+                return runs::PollRun {
+                    events,
+                    next_cursor: cursor,
+                    done: page.done,
+                };
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a legacy resumed run should reach its next approval park")
+}
+
 async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
     !DriverCheckpointer::<serde_json::Value>::new(owner.docs.clone())
         .get_thread(thread)
