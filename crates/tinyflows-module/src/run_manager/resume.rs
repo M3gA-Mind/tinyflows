@@ -270,8 +270,6 @@ pub(super) async fn resume(
                     &request,
                     &catalog,
                     &prepared.checkpointer,
-                    &observed,
-                    &row.steps,
                     error,
                     snapshot.as_ref(),
                     &thread_id,
@@ -331,8 +329,6 @@ async fn settle_missing_legacy_checkpoint(
     request: &ResumeRun,
     catalog: &FlowCatalogDocuments,
     checkpointer: &DriverCheckpointer<Value>,
-    _observed: &tinystoragedrivers_core::Versioned<Value>,
-    steps: &[tinyflows_catalog::FlowRunStep],
     error: &str,
     snapshot: Option<&Value>,
     thread_id: &str,
@@ -374,7 +370,6 @@ async fn settle_missing_legacy_checkpoint(
         bail!("legacy resume failure terminal cursor was not committed")
     }
     drop(dedup_settlement);
-    let _ = steps;
     Ok(())
 }
 
