@@ -261,6 +261,18 @@ fn draft_read_consumes_at_most_the_limit_plus_one_bytes() {
     assert_eq!(input.position(), 18);
 }
 
+#[test]
+fn streaming_record_size_counter_stops_on_escape_expansion() {
+    let mut counter = SizeCounter {
+        limit: 32,
+        ..SizeCounter::default()
+    };
+    let escaped = "\u{1}".repeat(1024);
+    assert!(serde_json::to_writer(&mut counter, &escaped).is_err());
+    assert!(counter.exceeded);
+    assert!(counter.bytes <= counter.limit);
+}
+
 #[tokio::test]
 async fn reader_payload_reserves_envelope_space_for_the_actual_wire_request() {
     let mut sender = BatchSender::default();
