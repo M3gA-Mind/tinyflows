@@ -61,15 +61,7 @@ pub(super) async fn resume(
         let current =
             tinyflows_catalog::graph_hash::compute_graph_hash(&flow.graph, flow.require_approval);
         if current.as_deref() != Some(expected) {
-            refuse_stale_graph(
-                connection,
-                &request,
-                &catalog,
-                &request.run_id,
-                &row.thread_id,
-                &row.steps,
-            )
-            .await?;
+            refuse_stale_graph(connection, &request, &catalog, &row).await?;
             bail!(GRAPH_CHANGED)
         }
     } else {
@@ -91,9 +83,7 @@ pub(super) async fn resume(
             connection,
             &request,
             &catalog,
-            &request.run_id,
-            &row.thread_id,
-            &row.steps,
+            &row,
             "failed",
             &error,
         )
@@ -102,7 +92,7 @@ pub(super) async fn resume(
     }
 
     let snapshot = catalog.flow_run_snapshot(&request.run_id).await?;
-    let legacy = snapshot.as_ref().map_or(true, |snapshot| {
+    let legacy = snapshot.as_ref().is_none_or(|snapshot| {
         snapshot.get("legacy_resume") == Some(&Value::Bool(true))
     });
     let (graph, context, require_approval, thread_id, legacy_marker) = if legacy {
@@ -325,7 +315,6 @@ pub(super) async fn resume(
         actor_admitted,
         request,
         row.steps,
-        legacy,
     ));
     active.admitted.notify_waiters();
     let _ = actor_ready.send(());
@@ -415,17 +404,13 @@ async fn refuse_stale_graph(
     connection: &tinybus::Connection,
     request: &ResumeRun,
     catalog: &FlowCatalogDocuments,
-    run_id: &str,
-    thread_id: &str,
-    steps: &[tinyflows_catalog::FlowRunStep],
+    row: &tinyflows_catalog::FlowRun,
 ) -> Result<()> {
     refuse_parked_run(
         connection,
         request,
         catalog,
-        run_id,
-        thread_id,
-        steps,
+        row,
         "cancelled",
         GRAPH_CHANGED,
     )
@@ -454,25 +439,23 @@ async fn refuse_parked_run(
     connection: &tinybus::Connection,
     request: &ResumeRun,
     catalog: &FlowCatalogDocuments,
-    run_id: &str,
-    thread_id: &str,
-    steps: &[tinyflows_catalog::FlowRunStep],
+    row: &tinyflows_catalog::FlowRun,
     status: &str,
     error: &str,
 ) -> Result<()> {
-    let snapshot = match catalog.flow_run_snapshot(run_id).await {
+    let snapshot = match catalog.flow_run_snapshot(&row.id).await {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            tracing::warn!(%error, run_id, "parked-run compatibility refusal could not read execution snapshot");
+            tracing::warn!(%error, run_id = %row.id, "parked-run compatibility refusal could not read execution snapshot");
             None
         }
     };
     if !catalog
         .finish_parked_flow_run(
-            run_id,
+            &row.id,
             status,
             &chrono::Utc::now().to_rfc3339(),
-            steps,
+            &row.steps,
             &[],
             Some(error),
             None,
@@ -481,31 +464,36 @@ async fn refuse_parked_run(
     {
         return Ok(());
     }
-    if let Some(active) = active(&key(&request.storage, run_id))
+    if let Some(active) = active(&key(&request.storage, &row.id))
         && active.phase.load(std::sync::atomic::Ordering::Acquire) == PARKED
     {
         unregister(&active);
     }
-    super::record_settled_summary(catalog, run_id, status).await;
+    super::record_settled_summary(catalog, &row.id, status).await;
     let dedup_settlement =
-        super::sweeps::settle_snapshot_dedup(&request.storage, catalog, snapshot.as_ref(), run_id)
-            .await;
+        super::sweeps::settle_snapshot_dedup(
+            &request.storage,
+            catalog,
+            snapshot.as_ref(),
+            &row.id,
+        )
+        .await;
     match Documents::new(connection.clone(), request.storage.callback.clone()).await {
         Ok(documents) => {
             let checkpointer = DriverCheckpointer::<Value>::new(Arc::new(documents));
-            if let Err(error) = checkpointer.delete_thread(thread_id).await {
-                tracing::warn!(%error, run_id, "parked-run compatibility refusal checkpoint cleanup failed");
+            if let Err(error) = checkpointer.delete_thread(&row.thread_id).await {
+                tracing::warn!(%error, run_id = %row.id, "parked-run compatibility refusal checkpoint cleanup failed");
             }
         }
-        Err(error) => tracing::warn!(%error, run_id, "opening refused-run checkpoint scope failed"),
+        Err(error) => tracing::warn!(%error, run_id = %row.id, "opening refused-run checkpoint scope failed"),
     }
     let seq = catalog
-        .flow_run_event_last_seq(run_id)
+        .flow_run_event_last_seq(&row.id)
         .await?
         .saturating_add(1);
     catalog
         .append_flow_run_event(
-            run_id,
+            &row.id,
             serde_json::to_value(tinyflows_bus::runs::RunEvent {
                 seq,
                 kind: "finished".into(),
@@ -520,7 +508,7 @@ async fn refuse_parked_run(
             })?,
         )
         .await?;
-    if !catalog.mark_flow_run_terminal_event(run_id, seq).await? {
+    if !catalog.mark_flow_run_terminal_event(&row.id, seq).await? {
         bail!("parked-run refusal terminal event cursor was not committed")
     }
     drop(dedup_settlement);

@@ -89,8 +89,8 @@ pub(super) fn drive_resume(
     admitted: tokio::sync::oneshot::Receiver<()>,
     resume: ResumeRun,
     previous_steps: Vec<FlowRunStep>,
-    legacy: bool,
 ) -> impl Future<Output = ()> + Send + 'static {
+    let legacy = request.trigger.is_none();
     let recovery = ActorRecoveryGuard::new(
         &prepared.catalog,
         &prepared.checkpointer,
