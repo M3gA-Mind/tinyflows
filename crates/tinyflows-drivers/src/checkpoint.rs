@@ -483,6 +483,7 @@ where
     }
 }
 
+#[path = "checkpoint_import.rs"]
 mod checkpoint_import;
 #[cfg(test)]
 #[path = "checkpoint_history_tests.rs"]
@@ -495,4 +496,5 @@ mod tests;
 #[path = "checkpoint_import_tests.rs"]
 mod import_tests;
 
+#[path = "checkpoint_debug.rs"]
 mod checkpoint_debug;
