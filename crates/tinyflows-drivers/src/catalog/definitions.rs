@@ -295,6 +295,16 @@ impl FlowCatalogDocuments {
         let expected_incarnation = incarnation(&flow.doc).map(str::to_owned);
         let legacy_version = flow.version;
         for _ in 0..super::CAS_ATTEMPTS {
+            let Some(current_run) = docs.get(RUNS, run_id).await? else {
+                return Ok(false);
+            };
+            if text(&current_run.doc, "status") != Some(status)
+                || text(&current_run.doc, "flow_id") != Some(flow_id)
+                || !belongs(&current_run.doc, Some(&flow.doc))
+            {
+                return Ok(false);
+            }
+
             let mut next = flow.doc.clone();
             next["last_run_ms"] = json!(Utc::now().timestamp_millis());
             next["last_status"] = json!(status);
