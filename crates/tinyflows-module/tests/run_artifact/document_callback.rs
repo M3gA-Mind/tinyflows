@@ -17,6 +17,7 @@ pub(crate) struct OwnerDocuments {
     pub(super) release_run_insert: Option<Arc<Notify>>,
     pub(super) fail_snapshot: Option<Arc<AtomicBool>>,
     pub(super) fail_checkpoint_delete: Option<Arc<AtomicBool>>,
+    pub(super) fail_checkpoint_query: Option<Arc<AtomicBool>>,
     pub(super) fail_parked_expiry: Option<(String, Arc<AtomicBool>)>,
     pub(super) cleanup_started: Option<Arc<Notify>>,
     pub(super) release_cleanup: Option<Arc<Notify>>,
@@ -158,6 +159,19 @@ impl OwnerDocuments {
     }
 
     async fn doc_query(&self, request: Value) -> tinybus::Result<Value> {
+        if request["collection"] == "graph.checkpoints"
+            && self
+                .fail_checkpoint_query
+                .as_ref()
+                .is_some_and(|fail| fail.swap(false, Ordering::SeqCst))
+        {
+            return Ok(json!({
+                "error": {
+                    "kind": "unavailable",
+                    "message": "injected checkpoint lookup failure"
+                }
+            }));
+        }
         Ok(reply(
             self.docs
                 .query(text(&request, "collection"), &decode(&request["query"])?)
