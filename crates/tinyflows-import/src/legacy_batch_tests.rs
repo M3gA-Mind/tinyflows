@@ -34,7 +34,7 @@ fn checkpoint(thread_id: &str, checkpoint_id: &str) -> Checkpoint<Value> {
 #[tokio::test]
 async fn invalid_draft_is_reported_and_does_not_stop_later_records() {
     let (catalog, checkpointer) = stores();
-    let mut invalid = serde_json::to_vec(&FlowDraft {
+    let invalid = serde_json::to_vec(&FlowDraft {
         id: "../unsafe".into(),
         flow_id: None,
         name: "unsafe".into(),
@@ -87,7 +87,7 @@ async fn pending_writes_import_in_a_later_batch_and_never_replace_existing_value
         thread_id: saved.thread_id.clone(),
         raw_json: serde_json::to_string(&json!({
             "namespace": [],
-            "checkpoint_id": saved.checkpoint_id,
+            "checkpoint_id": saved.checkpoint_id.clone(),
             "write": {
                 "node": "next",
                 "task_id": "task-1",

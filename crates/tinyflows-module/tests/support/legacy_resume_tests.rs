@@ -219,6 +219,82 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
     assert!(target_checkpointer_has_no_thread(&target, "legacy-imported-run").await);
 }
 
+#[tokio::test]
+#[ignore = "run through scripts/verify-module-artifact.sh"]
+async fn transient_legacy_checkpoint_read_error_leaves_the_parked_row_retryable() {
+    let (_module_host, connection, catalog_proxy, runs_proxy) =
+        super::run_lifecycle_tests::module_proxies().await;
+    let (owner, fail_checkpoint_query) =
+        owner_with_checkpoint_query_failure(&connection, "legacy-checkpoint-retry").await;
+    let graph = parked_graph();
+    let flow_id = create_flow_with_graph(
+        &catalog_proxy,
+        &owner.storage,
+        "Legacy checkpoint retry",
+        graph.clone(),
+    )
+    .await;
+    let callback = serve_agent(&connection, "legacy-checkpoint-retry").await;
+    let mut start = request(&owner, flow_id.clone(), "legacy-retry-run", graph, 20_000);
+    start.trigger_data = json!({"id":"legacy-retry-item"});
+    runs_proxy
+        .call::<runs::StartRunResponse>("StartRun", (start,))
+        .await
+        .unwrap();
+    wait_notify(&callback.approval_started, "approval callback").await;
+    poll_until_kind(&runs_proxy, &owner.storage, "legacy-retry-run", "parked").await;
+    let stored = owner
+        .docs
+        .get("flows.runs", "legacy-retry-run")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut legacy = stored.doc.clone();
+    legacy.as_object_mut().unwrap().remove("execution_snapshot");
+    owner
+        .docs
+        .put("flows.runs", "legacy-retry-run", legacy, stored.unchanged())
+        .await
+        .unwrap();
+
+    fail_checkpoint_query.store(true, Ordering::SeqCst);
+    let resume = runs::ResumeRun {
+        run_id: "legacy-retry-run".into(),
+        flow_id,
+        storage: owner.storage.clone(),
+        caps_host: runs::CapsHost {
+            callback: owner.caps.clone(),
+        },
+        approvals: vec!["approval".into()],
+        rejections: Vec::new(),
+        timeout_ms: 20_000,
+    };
+    let error = runs_proxy
+        .call::<runs::ResumeRunResponse>("ResumeRun", (resume.clone(),))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("reading legacy parked run checkpoint"));
+    let parked: Option<catalog::FlowRun> = catalog_proxy
+        .call(
+            "GetRun",
+            (RunIdRequest {
+                storage: owner.storage.clone(),
+                id: "legacy-retry-run".into(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(parked.unwrap().status, "pending_approval");
+    assert!(target_checkpointer_has_thread(&owner, "legacy-retry-run").await);
+
+    runs_proxy
+        .call::<runs::ResumeRunResponse>("ResumeRun", (resume,))
+        .await
+        .unwrap();
+    let terminal = poll_until_done(&runs_proxy, &owner.storage, "legacy-retry-run").await;
+    assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
+}
+
 async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
     !DriverCheckpointer::<serde_json::Value>::new(owner.docs.clone())
         .get_thread(thread)
