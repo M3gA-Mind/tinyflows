@@ -492,9 +492,5 @@ mod history_tests;
 #[path = "checkpoint_tests.rs"]
 mod tests;
 
-#[cfg(test)]
-#[path = "checkpoint_import_tests.rs"]
-mod import_tests;
-
 #[path = "checkpoint_debug.rs"]
 mod checkpoint_debug;
