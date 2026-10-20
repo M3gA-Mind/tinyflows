@@ -46,7 +46,12 @@ async fn legacy_parked() -> (FlowCatalogDocuments, String) {
         .unwrap();
     let run_id = uuid::Uuid::new_v4().to_string();
     catalog
-        .insert_flow_run(&run_id, &flow.id, &format!("thread-{run_id}"), "2026-01-01T00:00:00Z")
+        .insert_flow_run(
+            &run_id,
+            &flow.id,
+            &format!("thread-{run_id}"),
+            "2026-01-01T00:00:00Z",
+        )
         .await
         .unwrap();
     catalog
@@ -212,14 +217,16 @@ async fn legacy_resume_claim_uses_the_exact_versioned_parked_row() {
     assert_eq!(run.status, "pending_approval");
     assert!(observed.doc.get("execution_snapshot").is_none());
 
-    assert!(catalog
-        .claim_legacy_parked_flow_run_for_resume(
-            &observed,
-            "legacy-actor",
-            serde_json::json!({"flow_id": run.flow_id, "thread_id": run.thread_id}),
-        )
-        .await
-        .unwrap());
+    assert!(
+        catalog
+            .claim_legacy_parked_flow_run_for_resume(
+                &observed,
+                "legacy-actor",
+                serde_json::json!({"flow_id": run.flow_id, "thread_id": run.thread_id}),
+            )
+            .await
+            .unwrap()
+    );
     let (claimed, version) = catalog
         .get_flow_run_versioned(&run_id)
         .await
@@ -251,21 +258,26 @@ async fn legacy_resume_claim_does_not_claim_a_replacement_parked_row() {
     .await
     .unwrap();
 
-    assert!(!catalog
-        .claim_legacy_parked_flow_run_for_resume(
-            &observed,
-            "late-actor",
-            serde_json::json!({"flow_id":"replacement"}),
-        )
-        .await
-        .unwrap());
+    assert!(
+        !catalog
+            .claim_legacy_parked_flow_run_for_resume(
+                &observed,
+                "late-actor",
+                serde_json::json!({"flow_id":"replacement"}),
+            )
+            .await
+            .unwrap()
+    );
     let (still_parked, version) = catalog
         .get_flow_run_versioned(&run_id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(still_parked.status, "pending_approval");
-    assert_eq!(version.doc["pending_approvals"], serde_json::json!(["replacement-gate"]));
+    assert_eq!(
+        version.doc["pending_approvals"],
+        serde_json::json!(["replacement-gate"])
+    );
     assert!(version.doc.get("execution_snapshot").is_none());
 }
 
@@ -289,21 +301,26 @@ async fn missing_legacy_checkpoint_failure_does_not_settle_a_replacement_row() {
     .await
     .unwrap();
 
-    assert!(!catalog
-        .fail_legacy_parked_flow_run_for_resume(
-            &observed,
-            "2026-01-01T00:00:05Z",
-            &[],
-            "legacy parked run has no durable checkpoint",
-        )
-        .await
-        .unwrap());
+    assert!(
+        !catalog
+            .fail_legacy_parked_flow_run_for_resume(
+                &observed,
+                "2026-01-01T00:00:05Z",
+                &[],
+                "legacy parked run has no durable checkpoint",
+            )
+            .await
+            .unwrap()
+    );
     let (still_parked, version) = catalog
         .get_flow_run_versioned(&run_id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(still_parked.status, "pending_approval");
-    assert_eq!(version.doc["pending_approvals"], serde_json::json!(["replacement-gate"]));
+    assert_eq!(
+        version.doc["pending_approvals"],
+        serde_json::json!(["replacement-gate"])
+    );
     assert!(still_parked.error.is_none());
 }

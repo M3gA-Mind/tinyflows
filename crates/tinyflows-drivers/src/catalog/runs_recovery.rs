@@ -288,8 +288,8 @@ impl FlowCatalogDocuments {
         }
         let mut next = expected.doc.clone();
         next["status"] = serde_json::json!("failed");
-        next["steps"] = serde_json::to_value(steps)
-            .context("serializing legacy resume failure steps")?;
+        next["steps"] =
+            serde_json::to_value(steps).context("serializing legacy resume failure steps")?;
         next["pending_approvals"] = serde_json::json!([]);
         next["finished_ms"] = serde_json::json!(instant_ms(finished_at));
         next["error"] = serde_json::json!(error);

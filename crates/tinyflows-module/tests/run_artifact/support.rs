@@ -202,17 +202,17 @@ pub(super) async fn owner_with_checkpoint_query_failure(
         .unwrap();
     (
         Owner {
-        storage: CatalogStorage {
-            callback: catalog::CallbackAddress {
-                destination: "test.CatalogStorage".into(),
-                object_path: path,
+            storage: CatalogStorage {
+                callback: catalog::CallbackAddress {
+                    destination: "test.CatalogStorage".into(),
+                    object_path: path,
+                },
             },
-        },
-        caps: runs::CallbackAddress {
-            destination: "test.CapsHost".into(),
-            object_path: format!("/test/caps/{}", name.replace('-', "_")),
-        },
-        docs,
+            caps: runs::CallbackAddress {
+                destination: "test.CapsHost".into(),
+                object_path: format!("/test/caps/{}", name.replace('-', "_")),
+            },
+            docs,
         },
         fail_checkpoint_query,
     )

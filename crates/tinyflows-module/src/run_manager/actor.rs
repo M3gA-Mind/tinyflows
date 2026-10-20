@@ -155,30 +155,24 @@ async fn drive_inner(
         Continuation::Resume { previous_steps, .. } => previous_steps.clone(),
     };
     let (kind, data) = match &continuation {
-        Continuation::Start => (
-            "started",
-            {
-                let (trigger_kind, _) = request
-                    .trigger
-                    .as_ref()
-                    .expect("new runs carry trigger metadata");
-                json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
-            },
-        ),
+        Continuation::Start => ("started", {
+            let (trigger_kind, _) = request
+                .trigger
+                .as_ref()
+                .expect("new runs carry trigger metadata");
+            json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
+        }),
         Continuation::Resume { legacy: true, .. } => (
             "resumed",
             json!({"flow_id":request.context.flow_id,"legacy_resume":true}),
         ),
-        Continuation::Resume { .. } => (
-            "resumed",
-            {
-                let (trigger_kind, _) = request
-                    .trigger
-                    .as_ref()
-                    .expect("snapshot resumes carry trigger metadata");
-                json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
-            },
-        ),
+        Continuation::Resume { .. } => ("resumed", {
+            let (trigger_kind, _) = request
+                .trigger
+                .as_ref()
+                .expect("snapshot resumes carry trigger metadata");
+            json!({"flow_id":request.context.flow_id,"trigger_kind":trigger_kind,"origin":request.context.origin})
+        }),
     };
     writer.emit(kind, data);
     if matches!(&continuation, Continuation::Resume { .. })

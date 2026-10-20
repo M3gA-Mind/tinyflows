@@ -6,14 +6,12 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use tinyflows::compiler;
 use tinyflows::engine::Checkpointer as _;
-use tinyflows_bus::runs::{
-    FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, RunEvent,
-};
+use tinyflows_bus::runs::{FlowRunTrigger, ResumeRun, ResumeRunResponse, RunContext, RunEvent};
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
 use tinystoragedrivers_core::DocumentStore;
 
-use super::preparation::Prepared;
 use super::actor::ActorRunRequest;
+use super::preparation::Prepared;
 use super::{PARKED, RUNNING, active, key, reserve_resume, unregister};
 use crate::catalog_documents::Documents;
 
@@ -138,7 +136,13 @@ pub(super) async fn resume(
             if thread_id != row.thread_id {
                 bail!("legacy resume marker checkpoint thread does not match the run row")
             }
-            (graph, context, require_approval, thread_id, snapshot.clone())
+            (
+                graph,
+                context,
+                require_approval,
+                thread_id,
+                snapshot.clone(),
+            )
         } else {
             let context = RunContext {
                 flow_id: request.flow_id.clone(),
@@ -292,11 +296,7 @@ pub(super) async fn resume(
     let active = reserve_resume(run_key)?;
     let claimed = match if legacy {
         catalog
-            .claim_legacy_parked_flow_run_for_resume(
-                &observed,
-                &active.lease,
-                legacy_marker,
-            )
+            .claim_legacy_parked_flow_run_for_resume(&observed, &active.lease, legacy_marker)
             .await
     } else {
         catalog
@@ -375,7 +375,10 @@ async fn settle_missing_legacy_checkpoint(
             })?,
         )
         .await?;
-    if !catalog.mark_flow_run_terminal_event(&request.run_id, seq).await? {
+    if !catalog
+        .mark_flow_run_terminal_event(&request.run_id, seq)
+        .await?
+    {
         bail!("legacy resume failure terminal cursor was not committed")
     }
     drop(dedup_settlement);

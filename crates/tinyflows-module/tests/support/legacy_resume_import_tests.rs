@@ -34,14 +34,12 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
         .call::<runs::StartRunResponse>("StartRun", (start,))
         .await
         .unwrap();
-    wait_notify(&source_callback.approval_started, "source approval callback").await;
-    poll_until_kind(
-        &runs_proxy,
-        &source.storage,
-        checkpoint_thread,
-        "parked",
+    wait_notify(
+        &source_callback.approval_started,
+        "source approval callback",
     )
     .await;
+    poll_until_kind(&runs_proxy, &source.storage, checkpoint_thread, "parked").await;
     let source_row: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -58,23 +56,23 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
         .get_thread(checkpoint_thread)
         .await
         .unwrap();
-    assert!(!checkpoints.is_empty(), "fixture must carry a real checkpoint");
+    assert!(
+        !checkpoints.is_empty(),
+        "fixture must carry a real checkpoint"
+    );
 
-    let mut records = vec![catalog::LegacyImportRecord::Run(
-        catalog::LegacyRunRecord {
-            id: "legacy-imported-run".into(),
-            flow_id: target_flow.clone(),
-            thread_id: checkpoint_thread.into(),
-            status: "pending_approval".into(),
-            started_at: source_row.started_at,
-            finished_at: source_row.finished_at,
-            steps_json: serde_json::to_string(&source_row.steps).unwrap(),
-            pending_approvals_json:
-                serde_json::to_string(&source_row.pending_approvals).unwrap(),
-            error: None,
-            graph_hash: None,
-        },
-    )];
+    let mut records = vec![catalog::LegacyImportRecord::Run(catalog::LegacyRunRecord {
+        id: "legacy-imported-run".into(),
+        flow_id: target_flow.clone(),
+        thread_id: checkpoint_thread.into(),
+        status: "pending_approval".into(),
+        started_at: source_row.started_at,
+        finished_at: source_row.finished_at,
+        steps_json: serde_json::to_string(&source_row.steps).unwrap(),
+        pending_approvals_json: serde_json::to_string(&source_row.pending_approvals).unwrap(),
+        error: None,
+        graph_hash: None,
+    })];
     records.extend(checkpoints.into_iter().map(|checkpoint| {
         catalog::LegacyImportRecord::Checkpoint {
             raw_json: serde_json::to_string(&checkpoint).unwrap(),
@@ -118,7 +116,11 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
         runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (resume.clone(),)),
         runs_proxy.call::<runs::ResumeRunResponse>("ResumeRun", (resume,)),
     );
-    assert_ne!(first.is_ok(), second.is_ok(), "exactly one resume may claim the imported row");
+    assert_ne!(
+        first.is_ok(),
+        second.is_ok(),
+        "exactly one resume may claim the imported row"
+    );
     let terminal = poll_until_done(&runs_proxy, &target.storage, "legacy-imported-run").await;
     assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     let resumed = terminal
@@ -138,8 +140,24 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
 async fn imported_legacy_resume_does_not_borrow_a_checkpoint_from_another_owner() {
     let (_module_host, connection, catalog_proxy, runs_proxy) =
         super::run_lifecycle_tests::module_proxies().await;
-    let source = owner(&connection, "foreign-checkpoint-source", None, None, None, None).await;
-    let target = owner(&connection, "foreign-checkpoint-target", None, None, None, None).await;
+    let source = owner(
+        &connection,
+        "foreign-checkpoint-source",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    let target = owner(
+        &connection,
+        "foreign-checkpoint-target",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     let graph = parked_graph();
     let source_flow = create_flow_with_graph(
         &catalog_proxy,
@@ -183,21 +201,19 @@ async fn imported_legacy_resume_does_not_borrow_a_checkpoint_from_another_owner(
             "ImportLegacyBatch",
             &(catalog::ImportLegacyBatchRequest {
                 storage: target.storage.clone(),
-                records: vec![catalog::LegacyImportRecord::Run(
-                    catalog::LegacyRunRecord {
-                        id: "legacy-foreign-run".into(),
-                        flow_id: target_flow.clone(),
-                        thread_id: thread_id.into(),
-                        status: "pending_approval".into(),
-                        started_at: source_row.started_at,
-                        finished_at: source_row.finished_at,
-                        steps_json: serde_json::to_string(&source_row.steps).unwrap(),
-                        pending_approvals_json:
-                            serde_json::to_string(&source_row.pending_approvals).unwrap(),
-                        error: None,
-                        graph_hash: None,
-                    },
-                )],
+                records: vec![catalog::LegacyImportRecord::Run(catalog::LegacyRunRecord {
+                    id: "legacy-foreign-run".into(),
+                    flow_id: target_flow.clone(),
+                    thread_id: thread_id.into(),
+                    status: "pending_approval".into(),
+                    started_at: source_row.started_at,
+                    finished_at: source_row.finished_at,
+                    steps_json: serde_json::to_string(&source_row.steps).unwrap(),
+                    pending_approvals_json: serde_json::to_string(&source_row.pending_approvals)
+                        .unwrap(),
+                    error: None,
+                    graph_hash: None,
+                })],
             },),
         )
         .await
@@ -222,7 +238,11 @@ async fn imported_legacy_resume_does_not_borrow_a_checkpoint_from_another_owner(
         )
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("legacy parked run has no durable checkpoint"));
+    assert!(
+        error
+            .to_string()
+            .contains("legacy parked run has no durable checkpoint")
+    );
     let failed: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -303,21 +323,18 @@ async fn stale_imported_legacy_resume_deletes_only_its_checkpoint_thread() {
         .unwrap();
     assert!(!checkpoints.is_empty());
 
-    let mut records = vec![catalog::LegacyImportRecord::Run(
-        catalog::LegacyRunRecord {
-            id: "legacy-stale-import".into(),
-            flow_id: target_flow.clone(),
-            thread_id: thread_id.into(),
-            status: "pending_approval".into(),
-            started_at: source_row.started_at,
-            finished_at: source_row.finished_at,
-            steps_json: serde_json::to_string(&source_row.steps).unwrap(),
-            pending_approvals_json:
-                serde_json::to_string(&source_row.pending_approvals).unwrap(),
-            error: None,
-            graph_hash: Some("deliberately-stale-graph-hash".into()),
-        },
-    )];
+    let mut records = vec![catalog::LegacyImportRecord::Run(catalog::LegacyRunRecord {
+        id: "legacy-stale-import".into(),
+        flow_id: target_flow.clone(),
+        thread_id: thread_id.into(),
+        status: "pending_approval".into(),
+        started_at: source_row.started_at,
+        finished_at: source_row.finished_at,
+        steps_json: serde_json::to_string(&source_row.steps).unwrap(),
+        pending_approvals_json: serde_json::to_string(&source_row.pending_approvals).unwrap(),
+        error: None,
+        graph_hash: Some("deliberately-stale-graph-hash".into()),
+    })];
     records.extend(checkpoints.into_iter().map(|checkpoint| {
         catalog::LegacyImportRecord::Checkpoint {
             raw_json: serde_json::to_string(&checkpoint).unwrap(),
@@ -376,7 +393,10 @@ async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thr
         .is_empty()
 }
 
-async fn target_checkpointer_has_no_thread(owner: &run_artifact_support::Owner, thread: &str) -> bool {
+async fn target_checkpointer_has_no_thread(
+    owner: &run_artifact_support::Owner,
+    thread: &str,
+) -> bool {
     DriverCheckpointer::<serde_json::Value>::new(owner.docs.clone())
         .get_thread(thread)
         .await

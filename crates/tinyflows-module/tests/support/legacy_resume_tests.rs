@@ -41,12 +41,7 @@ async fn compiled_module_continues_a_legacy_parked_run_without_a_snapshot() {
     legacy.as_object_mut().unwrap().remove("execution_snapshot");
     owner
         .docs
-        .put(
-            "flows.runs",
-            "legacy-run",
-            legacy,
-            stored.unchanged(),
-        )
+        .put("flows.runs", "legacy-run", legacy, stored.unchanged())
         .await
         .unwrap();
 
@@ -143,7 +138,11 @@ async fn transient_legacy_checkpoint_read_error_leaves_the_parked_row_retryable(
         .call::<runs::ResumeRunResponse>("ResumeRun", (resume.clone(),))
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("reading legacy parked run checkpoint"));
+    assert!(
+        error
+            .to_string()
+            .contains("reading legacy parked run checkpoint")
+    );
     let parked: Option<catalog::FlowRun> = catalog_proxy
         .call(
             "GetRun",
@@ -211,7 +210,12 @@ async fn legacy_resume_marker_survives_repark_and_continues_again() {
     legacy.as_object_mut().unwrap().remove("execution_snapshot");
     owner
         .docs
-        .put("flows.runs", "legacy-repark-run", legacy, stored.unchanged())
+        .put(
+            "flows.runs",
+            "legacy-repark-run",
+            legacy,
+            stored.unchanged(),
+        )
         .await
         .unwrap();
 
@@ -232,7 +236,8 @@ async fn legacy_resume_marker_survives_repark_and_continues_again() {
         )
         .await
         .unwrap();
-    let first_park = poll_until_parked_count(&runs_proxy, &owner.storage, "legacy-repark-run", 2).await;
+    let first_park =
+        poll_until_parked_count(&runs_proxy, &owner.storage, "legacy-repark-run", 2).await;
     let marker = owner
         .docs
         .get("flows.runs", "legacy-repark-run")
@@ -241,8 +246,16 @@ async fn legacy_resume_marker_survives_repark_and_continues_again() {
         .unwrap();
     assert_eq!(marker.doc["status"], "pending_approval");
     assert_eq!(marker.doc["execution_snapshot"]["legacy_resume"], true);
-    assert_eq!(marker.doc["execution_snapshot"]["thread_id"], "legacy-repark-run");
-    assert!(first_park.events.iter().any(|event| event.kind == "resumed"));
+    assert_eq!(
+        marker.doc["execution_snapshot"]["thread_id"],
+        "legacy-repark-run"
+    );
+    assert!(
+        first_park
+            .events
+            .iter()
+            .any(|event| event.kind == "resumed")
+    );
 
     runs_proxy
         .call::<runs::ResumeRunResponse>(
@@ -264,7 +277,11 @@ async fn legacy_resume_marker_survives_repark_and_continues_again() {
     let terminal = poll_until_done(&runs_proxy, &owner.storage, "legacy-repark-run").await;
     assert_eq!(terminal.events.last().unwrap().data["status"], "completed");
     assert_eq!(
-        terminal.events.iter().filter(|event| event.kind == "finished").count(),
+        terminal
+            .events
+            .iter()
+            .filter(|event| event.kind == "finished")
+            .count(),
         1
     );
 }
@@ -313,4 +330,3 @@ async fn target_checkpointer_has_thread(owner: &run_artifact_support::Owner, thr
         .unwrap()
         .is_some()
 }
-
