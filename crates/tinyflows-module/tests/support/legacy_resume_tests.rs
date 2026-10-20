@@ -114,7 +114,8 @@ async fn compiled_module_resumes_an_imported_legacy_row_by_its_checkpoint_thread
     let source_callback = serve_agent(&connection, "legacy-source").await;
     let _target_callback = serve_agent(&connection, "legacy-target").await;
     let checkpoint_thread = "legacy-checkpoint-thread";
-    let start = request(&source, source_flow, checkpoint_thread, graph, 20_000);
+    let mut start = request(&source, source_flow, checkpoint_thread, graph, 20_000);
+    start.trigger_data = json!({"id":"imported-legacy-item"});
     runs_proxy
         .call::<runs::StartRunResponse>("StartRun", (start,))
         .await
