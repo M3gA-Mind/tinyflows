@@ -49,7 +49,7 @@ fn bounded_page_query(
         .join(" + ");
     let guarded = fields
         .iter()
-        .map(|(_, alias)| format!("CASE WHEN __bytes <= ?1 THEN {alias} END"))
+        .map(|(_, alias)| alias.clone())
         .collect::<Vec<_>>()
         .join(", ");
     format!(
@@ -431,8 +431,10 @@ where
 
 fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    let _ = limit;
-    reader.read_to_end(&mut bytes)?;
+    reader
+        .by_ref()
+        .take(limit.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
