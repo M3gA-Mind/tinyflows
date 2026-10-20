@@ -93,7 +93,10 @@ mod test_support;
 #[cfg(feature = "catalog")]
 pub use catalog::import_flow_catalog;
 #[cfg(feature = "checkpoint-read")]
-pub use checkpoint_reader::read_legacy_checkpoint_batches;
+pub use checkpoint_reader::{
+    read_legacy_checkpoint_batches, read_legacy_file_checkpoint_batches,
+    read_legacy_sqlite_checkpoint_batches,
+};
 #[cfg(all(feature = "engine", feature = "checkpoint-read"))]
 pub use checkpoints::{import_file_checkpoints, import_sqlite_checkpoints};
 #[cfg(feature = "schedule")]

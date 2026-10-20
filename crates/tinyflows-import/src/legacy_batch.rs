@@ -227,14 +227,24 @@ pub async fn apply_legacy_batch(
                 record_kind,
                 identity,
                 message,
-            } if matches!(record_kind, LegacyImportKind::Checkpoint | LegacyImportKind::Write) => {
+            } if matches!(
+                record_kind,
+                LegacyImportKind::Checkpoint | LegacyImportKind::Write
+            ) =>
+            {
                 checkpoint_records.push(record.clone());
             }
             LegacyImportRecord::Invalid {
                 record_kind,
                 identity,
                 message,
-            } => problem(&mut counts, &mut problems, *record_kind, identity.as_deref(), message.clone()),
+            } => problem(
+                &mut counts,
+                &mut problems,
+                *record_kind,
+                identity.as_deref(),
+                message.clone(),
+            ),
         }
     }
     if !checkpoint_records.is_empty() {

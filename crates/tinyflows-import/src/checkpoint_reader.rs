@@ -20,6 +20,39 @@ use crate::legacy_db::LegacyDb;
 pub async fn read_legacy_checkpoint_batches<F, Fut>(
     sqlite_path: &Path,
     file_dir: &Path,
+    send: F,
+) -> Result<()>
+where
+    F: FnMut(Vec<LegacyImportRecord>) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    read_sources(Some(sqlite_path), Some(file_dir), send).await
+}
+
+/// Reads only the retired SQLite checkpoint database as bounded raw batches.
+pub async fn read_legacy_sqlite_checkpoint_batches<F, Fut>(
+    sqlite_path: &Path,
+    send: F,
+) -> Result<()>
+where
+    F: FnMut(Vec<LegacyImportRecord>) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    read_sources(Some(sqlite_path), None, send).await
+}
+
+/// Reads only the retired file/JSONL checkpoint directory as bounded raw batches.
+pub async fn read_legacy_file_checkpoint_batches<F, Fut>(file_dir: &Path, send: F) -> Result<()>
+where
+    F: FnMut(Vec<LegacyImportRecord>) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    read_sources(None, Some(file_dir), send).await
+}
+
+async fn read_sources<F, Fut>(
+    sqlite_path: Option<&Path>,
+    file_dir: Option<&Path>,
     mut send: F,
 ) -> Result<()>
 where
@@ -27,7 +60,9 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let mut batches = BatchSender::default();
-    if let Some(db) = LegacyDb::open(sqlite_path)? {
+    if let Some(sqlite_path) = sqlite_path
+        && let Some(db) = LegacyDb::open(sqlite_path)?
+    {
         let tables = db.tables().await?;
         if tables.contains("checkpoints") {
             let mut offset = 0_i64;
@@ -80,7 +115,9 @@ where
             }
         }
     }
-    read_file_checkpoints(file_dir, &mut batches, &mut send).await?;
+    if let Some(file_dir) = file_dir {
+        read_file_checkpoints(file_dir, &mut batches, &mut send).await?;
+    }
     batches.flush(&mut send).await
 }
 
