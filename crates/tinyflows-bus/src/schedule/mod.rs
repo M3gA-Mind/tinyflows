@@ -277,8 +277,5 @@ mod tests;
 #[path = "identity_tests.rs"]
 mod identity_tests;
 #[cfg(test)]
-#[path = "identity_tests.rs"]
-mod identity_tests;
-#[cfg(test)]
 #[path = "wire_tests.rs"]
 mod wire_tests;
