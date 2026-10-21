@@ -55,7 +55,7 @@ fn channel_job_origin_carries_optional_session_identity_without_changing_legacy_
         history_key: "telegram:chat-1".into(),
         sender: None,
         thread_id: None,
-        session_identity: Some(channel_identity()),
+        session_identity: Some(Box::new(channel_identity())),
     };
     let value = serde_json::to_value(&origin).unwrap();
     assert_eq!(value["kind"], "channel");

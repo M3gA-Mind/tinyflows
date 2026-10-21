@@ -138,7 +138,7 @@ fn channel_origin_with_session_identity_wire_bytes() {
             history_key: "telegram:42".into(),
             sender: None,
             thread_id: None,
-            session_identity: Some(ChannelSessionIdentity {
+            session_identity: Some(Box::new(ChannelSessionIdentity {
                 tenant_key: "tenant-1".into(),
                 agent_id: "agent-1".into(),
                 session_key: "session-1".into(),
@@ -152,7 +152,7 @@ fn channel_origin_with_session_identity_wire_bytes() {
                     thread_id: Some("thread-1".into()),
                     topic_id: None,
                 },
-            }),
+            })),
         },
     );
 }

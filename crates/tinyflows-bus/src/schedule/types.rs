@@ -102,7 +102,7 @@ pub enum JobOrigin {
         /// Validated durable session identity supplied by the channel host.
         /// Older origins omit it and retain their existing wire shape.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        session_identity: Option<ChannelSessionIdentity>,
+        session_identity: Option<Box<ChannelSessionIdentity>>,
     },
 }
 
