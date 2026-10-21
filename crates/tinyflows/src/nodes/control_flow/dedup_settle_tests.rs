@@ -237,3 +237,38 @@ fn an_unreadable_carryover_neither_blocks_a_commit_nor_is_overwritten() {
     assert_eq!(map["dedup:n1:committed"], json!(["a"]));
     assert_eq!(map["dedup:n1:uncommitted"], json!(["x"]));
 }
+
+#[test]
+fn an_unscoped_commit_folds_in_keys_a_scoped_commit_parked() {
+    let mut kv = MemKv::default();
+    kv.map
+        .lock()
+        .unwrap()
+        .insert("dedup:n1:uncommitted".into(), json!(["a"]));
+    kv.map
+        .lock()
+        .unwrap()
+        .insert(tentative_key("n1", None), json!(["b"]));
+
+    // A failed unscoped commit keeps the shared set and the carryover as is.
+    kv.fail_set = Some("dedup:n1:committed");
+    assert_eq!(
+        commit(&kv, "n1", None),
+        CommitOutcome::CommitFailed("disk full".into())
+    );
+    assert_eq!(kv.map.lock().unwrap()["dedup:n1:uncommitted"], json!(["a"]));
+    assert_eq!(
+        kv.map.lock().unwrap()[&tentative_key("n1", None)],
+        json!(["b"])
+    );
+
+    kv.fail_set = None;
+    assert!(matches!(
+        commit(&kv, "n1", None),
+        CommitOutcome::Committed { added: 2, .. }
+    ));
+    let map = kv.map.lock().unwrap();
+    assert_eq!(map["dedup:n1:committed"], json!(["a", "b"]));
+    assert!(!map.contains_key("dedup:n1:uncommitted"));
+    assert!(!map.contains_key(&tentative_key("n1", None)));
+}

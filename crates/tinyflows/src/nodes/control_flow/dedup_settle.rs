@@ -93,17 +93,19 @@ pub fn settle(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>, success: bo
 pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOutcome {
     let tentative_key = tentative_key(node_id, run_id);
     let committed_key = committed_key(node_id);
-    let carryover_key = run_id.map(|_| carryover_key(node_id));
+    let carryover_key = carryover_key(node_id);
 
     let tentative = match load_key_set(kv, &tentative_key) {
         Ok(set) => set,
         Err(e) => return CommitOutcome::CommitFailed(e),
     };
+    // Read the carryover whether or not this run is scoped: a run-scoped
+    // commit may have parked keys before the host stopped seeding run ids.
     // An unreadable carryover must not block this run's commit; it stays in
     // place (`None`) for a later run, and is never overwritten.
-    let carryover = carryover_key
-        .as_deref()
-        .and_then(|key| load_key_set(kv, key).ok());
+    let carryover = load_key_set(kv, &carryover_key).ok();
+    // Only a run-scoped set is parked on failure: the shared set stays put.
+    let park_key = run_id.map(|_| carryover_key.clone());
     if tentative.is_empty() && carryover.as_ref().is_none_or(HashSet::is_empty) {
         return CommitOutcome::NothingTentative;
     }
@@ -114,7 +116,7 @@ pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOu
     let mut committed = match load_key_set(kv, &committed_key) {
         Ok(set) => set,
         Err(e) => {
-            return park_for_retry(kv, &tentative_key, carryover_key, tentative, carryover, e);
+            return park_for_retry(kv, &tentative_key, park_key, tentative, carryover, e);
         }
     };
     let added = tentative
@@ -124,14 +126,12 @@ pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOu
         .count();
 
     if let Err(e) = store_key_set(kv, &committed_key, &committed) {
-        return park_for_retry(kv, &tentative_key, carryover_key, tentative, carryover, e);
+        return park_for_retry(kv, &tentative_key, park_key, tentative, carryover, e);
     }
     let mut clear_error = kv.kv_delete(&tentative_key).err();
-    if let (Some(key), Some(set)) = (&carryover_key, &carryover) {
-        if !set.is_empty() {
-            if let Err(e) = kv.kv_delete(key) {
-                clear_error.get_or_insert(e);
-            }
+    if carryover.as_ref().is_some_and(|set| !set.is_empty()) {
+        if let Err(e) = kv.kv_delete(&carryover_key) {
+            clear_error.get_or_insert(e);
         }
     }
     CommitOutcome::Committed {
