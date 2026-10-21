@@ -1,6 +1,6 @@
+use super::identity::ChannelSessionIdentity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
-use super::identity::ChannelSessionIdentity;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]

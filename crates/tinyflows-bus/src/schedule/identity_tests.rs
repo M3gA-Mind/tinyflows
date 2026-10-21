@@ -41,7 +41,10 @@ fn channel_session_identity_roundtrips_with_conversation_scope() {
             }
         })
     );
-    assert_eq!(serde_json::from_value::<ChannelSessionIdentity>(value).unwrap(), identity);
+    assert_eq!(
+        serde_json::from_value::<ChannelSessionIdentity>(value).unwrap(),
+        identity
+    );
 }
 
 #[test]
@@ -66,13 +69,16 @@ fn channel_job_origin_carries_optional_session_identity_without_changing_legacy_
         "history_key": "discord:room-1"
     });
     let parsed: JobOrigin = serde_json::from_value(legacy.clone()).unwrap();
-    assert_eq!(parsed, JobOrigin::Channel {
-        channel: "discord".into(),
-        reply_target: "room-1".into(),
-        history_key: "discord:room-1".into(),
-        sender: None,
-        thread_id: None,
-        session_identity: None,
-    });
+    assert_eq!(
+        parsed,
+        JobOrigin::Channel {
+            channel: "discord".into(),
+            reply_target: "room-1".into(),
+            history_key: "discord:room-1".into(),
+            sender: None,
+            thread_id: None,
+            session_identity: None,
+        }
+    );
     assert_eq!(serde_json::to_value(parsed).unwrap(), legacy);
 }

@@ -271,11 +271,11 @@ pub const DOCUMENT_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleDocuments"
 pub const DOCUMENT_METHOD: &str = "Document";
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
-mod tests;
-#[cfg(test)]
 #[path = "identity_tests.rs"]
 mod identity_tests;
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;
 #[cfg(test)]
 #[path = "wire_tests.rs"]
 mod wire_tests;
