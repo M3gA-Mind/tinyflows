@@ -1,3 +1,4 @@
+use super::identity::ChannelSessionIdentity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -98,6 +99,10 @@ pub enum JobOrigin {
         /// Channel-side thread or topic within the chat.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_id: Option<String>,
+        /// Validated durable session identity supplied by the channel host.
+        /// Older origins omit it and retain their existing wire shape.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_identity: Option<Box<ChannelSessionIdentity>>,
     },
 }
 

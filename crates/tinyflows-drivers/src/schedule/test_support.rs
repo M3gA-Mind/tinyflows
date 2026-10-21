@@ -38,6 +38,7 @@ pub(super) fn channel_origin() -> JobOrigin {
         history_key: "telegram:chat-42".into(),
         sender: Some("alice".into()),
         thread_id: None,
+        session_identity: None,
     }
 }
 

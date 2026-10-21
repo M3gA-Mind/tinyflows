@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn public_facade_reexports_channel_identity_types() {
+    let _: Option<crate::ChannelSessionIdentity> = None;
+    let _: Option<crate::ChannelConversationIdentity> = None;
+}
+
+#[test]
 fn delay_units_and_default_minutes_match_existing_jobs() {
     for (text, secs) in [
         ("5s", 5),
@@ -48,6 +54,7 @@ fn origin_requires_conversation_and_announce_can_reply_to_its_asker() {
         history_key: "conversation".into(),
         sender: None,
         thread_id: None,
+        session_identity: None,
     };
     assert!(validate_delivery(&delivery, Some(&origin), None).is_ok());
     let announce = DeliveryConfig {
