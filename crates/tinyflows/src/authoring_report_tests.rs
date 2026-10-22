@@ -217,7 +217,7 @@ fn every_code_node_is_reported_unexecuted_without_failing_the_run() {
 }
 
 #[test]
-fn a_code_source_reading_an_undefined_item_fails_the_dry_run() {
+fn a_code_source_reading_an_undefined_item_is_reported_but_does_not_fail_the_dry_run() {
     let g = code_graph("var txs = txsOf(item, 0);\nreturn txs;", "javascript");
     let report = AuthoringReport::build(&g, &[], &json!({}));
     assert_eq!(report.code_source_errors.len(), 1);
@@ -227,7 +227,7 @@ fn a_code_source_reading_an_undefined_item_fails_the_dry_run() {
             .message
             .contains("ReferenceError")
     );
-    assert!(report.is_failing());
+    assert!(!report.is_failing());
 
     let py = AuthoringReport::build(&code_graph("return item", "python"), &[], &json!({}));
     assert!(py.code_source_errors[0].message.contains("NameError"));
