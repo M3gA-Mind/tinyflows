@@ -11,10 +11,12 @@ use tinyflows_schedule::{
     SessionTarget, next_run_for_schedule, schedule_cron_expression, validate_agent_schedule,
     validate_schedule,
 };
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
+use tinyflows_storage::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
 use uuid::Uuid;
 
-use super::codec::{INCARNATION, doc_to_job, incarnation, job_to_doc, set_next_run, text};
+use super::codec::{
+    INCARNATION, doc_to_job, incarnation, job_created_ms, job_to_doc, set_next_run, text,
+};
 use super::patch::apply_patch;
 use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, new_id, storage_error};
 
@@ -36,6 +38,9 @@ fn updated_job_doc(job: &CronJob, previous: &Value) -> Result<Value> {
     let mut doc = job_to_doc(job)?;
     if let Some(incarnation) = incarnation(previous) {
         doc[INCARNATION] = json!(incarnation);
+    }
+    if let Some(created_ms) = previous.get("created_ms") {
+        doc["created_ms"] = created_ms.clone();
     }
     Ok(doc)
 }
@@ -316,7 +321,7 @@ impl CronDocuments {
                     .count(RUNS, &runs_of(&stored.id, &stored.doc))
                     .await
                     .map_err(storage_error)?;
-                let created = stored.meta.created_ms;
+                let created = job_created_ms(&stored.doc, stored.meta.created_ms)?;
                 ranked.push((std::cmp::Reverse(runs), created, stored.id.clone(), stored));
             }
             ranked.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));

@@ -129,10 +129,10 @@ pub fn commit(kv: &dyn DedupKv, node_id: &str, run_id: Option<&str>) -> CommitOu
         return park_for_retry(kv, &tentative_key, park_key, tentative, carryover, e);
     }
     let mut clear_error = kv.kv_delete(&tentative_key).err();
-    if carryover.as_ref().is_some_and(|set| !set.is_empty()) {
-        if let Err(e) = kv.kv_delete(&carryover_key) {
-            clear_error.get_or_insert(e);
-        }
+    if carryover.as_ref().is_some_and(|set| !set.is_empty())
+        && let Err(e) = kv.kv_delete(&carryover_key)
+    {
+        clear_error.get_or_insert(e);
     }
     CommitOutcome::Committed {
         added,
@@ -159,12 +159,12 @@ fn park_for_retry(
     carryover: Option<HashSet<String>>,
     error: String,
 ) -> CommitOutcome {
-    if let (Some(key), Some(mut carryover)) = (carryover_key, carryover) {
-        if !tentative.is_empty() {
-            carryover.extend(tentative);
-            if store_key_set(kv, &key, &carryover).is_ok() {
-                let _ = kv.kv_delete(tentative_key);
-            }
+    if let (Some(key), Some(mut carryover)) = (carryover_key, carryover)
+        && !tentative.is_empty()
+    {
+        carryover.extend(tentative);
+        if store_key_set(kv, &key, &carryover).is_ok() {
+            let _ = kv.kv_delete(tentative_key);
         }
     }
     CommitOutcome::CommitFailed(error)
