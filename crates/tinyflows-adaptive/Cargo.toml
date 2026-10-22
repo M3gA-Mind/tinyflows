@@ -16,7 +16,7 @@ serde_json = "1"
 async-trait = "0.1"
 thiserror = "2"
 # `storage-drivers` only: the storage ports (no database client), named by git
-# tag so a host that vendors tinystoragedrivers once can `[patch]` it; chrono
+# revision so a host that vendors tinystoragedrivers once can `[patch]` it; chrono
 # turns the RFC 3339 instants of the records into the stored `*_ms`; tokio's
 # `OnceCell` for one-time collection setup.
 tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456", optional = true }
