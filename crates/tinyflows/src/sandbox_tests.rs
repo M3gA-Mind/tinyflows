@@ -78,19 +78,18 @@ async fn a_clean_dry_run_says_its_code_nodes_never_ran() {
 }
 
 #[tokio::test]
-async fn a_code_node_reading_an_undefined_item_fails_the_dry_run() {
-    let result = dry_run_code("var txs = txsOf(item, 0);\nreturn txs;").await;
-    assert_eq!(result["ok"], false);
+async fn a_flagged_item_read_is_a_hint_and_does_not_fail_the_dry_run() {
+    // Valid code: `item` is bound by rename-destructuring, which the token
+    // scan cannot see.
+    let result = dry_run_code("const { json: item } = input[0];\nreturn item;").await;
+    assert_eq!(result["ok"], true);
     assert_eq!(result["code_source_errors"][0]["node_id"], "shape");
-    assert!(
-        result["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("CODE NOT EXECUTED")
-    );
+    let note = result["note"].as_str().unwrap();
+    assert!(note.starts_with("CODE NOT EXECUTED"));
+    assert!(note.contains("POSSIBLE UNDEFINED `item` in code node(s) (shape)"));
 }
 
 #[test]
 fn a_graph_without_code_nodes_gets_no_code_summary() {
-    assert_eq!(code_summary(&[]), "");
+    assert_eq!(code_summary(&[], &[]), "");
 }

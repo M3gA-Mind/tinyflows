@@ -11,8 +11,10 @@
 //! then every `item` word is classified as a binding (`const item`,
 //! `item =>`, `(item) =>`, `function (item)`, `def f(item)`, `for item in`,
 //! `lambda item:`, `item = …`) or a read. Any binding anywhere clears the
-//! source (no scoping), so it misses some bugs rather than flagging working
-//! code.
+//! source (no scoping), so it misses some bugs; binding forms it does not
+//! know (`const { json: item } = …`, `with … as item:`, `item := …`) read as
+//! reads, so it also flags some working code. Its result is a hint and never
+//! fails a dry run.
 
 /// Whether `source` reads an `item` variable it never binds. `python` selects
 /// Python comment and string syntax; otherwise JavaScript's.

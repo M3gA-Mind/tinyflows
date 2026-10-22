@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nodes, so a clean dry run never proved a script works.
 - **Added** `code_source_errors`, a static check that fails the dry run when a
   `code` source reads an `item` variable it never binds.
+- **Fixed** `code_source_errors` failing the dry run (`ok: false`) on valid
+  scripts that bind `item` in a form the token scan does not know, such as
+  `const { json: item } = input[0]` or Python `with … as item:`. The check is
+  now advisory: entries are still reported, and the `note`/`message` names
+  them on a `POSSIBLE UNDEFINED` line after `CODE NOT EXECUTED`, but they no
+  longer fail the dry run.
 
 ### Per-run dedup tentative keys
 

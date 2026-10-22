@@ -122,20 +122,20 @@ pub struct AuthoringReport {
     /// Every `code` node: the sandbox never runs their scripts.
     #[serde(default)]
     pub unexecuted_code_nodes: Vec<UnexecutedCodeNode>,
-    /// `code` sources that read an undefined `item` and fail every real run.
+    /// `code` sources that appear to read an undefined `item` (a token-scan
+    /// heuristic, advisory).
     #[serde(default)]
     pub code_source_errors: Vec<CodeSourceError>,
 }
 
 impl AuthoringReport {
-    /// Whether anything here should fail the dry run. Routing warnings and
-    /// unexecuted `code` nodes are advisory and never do.
+    /// Whether anything here should fail the dry run. Routing warnings,
+    /// unexecuted `code` nodes and code-source hints are advisory and never do.
     pub fn is_failing(&self) -> bool {
         !self.null_resolutions.is_empty()
             || !self.agent_prompt_nulls.is_empty()
             || !self.agent_input_context_nulls.is_empty()
             || !self.node_errors.is_empty()
-            || !self.code_source_errors.is_empty()
     }
 
     /// Reads a settled run: `steps` as the engine reported them and `output`,
@@ -251,7 +251,7 @@ pub fn unexecuted_code_nodes(graph: &WorkflowGraph) -> Vec<UnexecutedCodeNode> {
         .collect()
 }
 
-/// `code` nodes whose source reads `item` without binding it.
+/// `code` nodes whose source appears to read `item` without binding it.
 pub fn code_source_errors(graph: &WorkflowGraph) -> Vec<CodeSourceError> {
     code_nodes(graph)
         .filter_map(|node| {
@@ -261,9 +261,10 @@ pub fn code_source_errors(graph: &WorkflowGraph) -> Vec<CodeSourceError> {
             code_source::reads_undefined_item(source, python).then(|| CodeSourceError {
                 node_id: node.id.clone(),
                 message: format!(
-                    "code node '{}' reads a variable `item` its source never defines, so every \
-                     real run fails with {}. The script receives only `input`, the array of input \
-                     items: read input[0].json for one item, or map over input for each.",
+                    "code node '{}' appears to read a variable `item` its source never defines; \
+                     if it does, every real run fails with {}. The script receives only `input`, \
+                     the array of input items: read input[0].json for one item, or map over input \
+                     for each.",
                     node.id,
                     if python {
                         "NameError"
