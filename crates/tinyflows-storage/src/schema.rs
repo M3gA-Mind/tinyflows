@@ -3,10 +3,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use tinystoragedrivers_api::DocumentStore;
 use tinystoragedrivers_types::{CollectionSpec, Meta, Result, StorageError};
-
-use crate::Key;
 
 pub(super) const MIGRATIONS_COLLECTION: &str = "tsd.migrations";
 mod migrations;

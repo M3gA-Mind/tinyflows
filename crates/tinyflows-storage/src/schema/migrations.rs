@@ -9,7 +9,7 @@ use tinystoragedrivers_types::{
     WriteOptions,
 };
 
-use super::{MIGRATIONS_COLLECTION, Owner, Schema, SourceRecord};
+use super::{MIGRATIONS_COLLECTION, Schema, SourceRecord, Step, TargetRecord};
 use crate::Key;
 
 const PAGE_SIZE: usize = 100;
