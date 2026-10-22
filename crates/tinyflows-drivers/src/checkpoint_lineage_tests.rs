@@ -2,6 +2,7 @@
 
 use super::tests::{checkpoint, store};
 use serde_json::json;
+use tinyflows::graph::checkpoint::Checkpointer;
 
 #[tokio::test]
 async fn copy_thread_carries_the_lineage_under_the_new_thread_id() {
