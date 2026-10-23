@@ -1,4 +1,5 @@
 use super::*;
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use tinyflows_bus::runs::{
 };
 use tinyflows_catalog::FlowRunStep;
 use tinyflows_drivers::{DriverCheckpointer, catalog::FlowCatalogDocuments};
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+use tinyflows_storage::{Scope, StorageBackend};
 use tokio::sync::oneshot;
 
 #[tokio::test]
@@ -248,7 +249,9 @@ struct RunningFixture {
 }
 
 async fn running_fixture() -> RunningFixture {
-    let backend = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
+    let backend = MemoryStorage::new()
+        .for_scope(&Scope::new("local").expect("valid scope"))
+        .unwrap();
     let docs = Arc::clone(backend.documents());
     let catalog = FlowCatalogDocuments::new(Arc::clone(&docs));
     let graph_json = json!({
@@ -318,7 +321,7 @@ async fn running_fixture() -> RunningFixture {
     catalog
         .kv_set(
             &namespace,
-            &tinyflows::nodes::control_flow::dedup::tentative_key("dedup"),
+            &tinyflows::nodes::control_flow::dedup::tentative_key("dedup", Some(&run_id)),
             &json!(["dedup-item"]),
         )
         .await
@@ -411,7 +414,7 @@ async fn assert_reconciled(
         catalog
             .kv_get(
                 &format!("flow:{flow_id}"),
-                &tinyflows::nodes::control_flow::dedup::tentative_key("dedup"),
+                &tinyflows::nodes::control_flow::dedup::tentative_key("dedup", Some(run_id)),
             )
             .await
             .unwrap(),

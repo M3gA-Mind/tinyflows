@@ -3,12 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 mod frequency;
+mod identity;
 mod records;
 mod requests;
 mod store_types;
 pub mod types;
 
 pub use frequency::{MIN_AGENT_JOB_INTERVAL, TooFrequent, describe_gap};
+pub use identity::{ChannelConversationIdentity, ChannelSessionIdentity};
 pub use records::{Attempt, Completion, RunRecord};
 pub use requests::{
     AcknowledgeManualRun, CheckOriginRequest, CheckPatchRequest, DeliveryProjection,
@@ -21,9 +23,8 @@ pub use store_types::{
     AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, StoreOperation, TRUNCATED_OUTPUT_MARKER,
 };
 pub use types::{
-    ActiveHours, ChannelConversationIdentity, ChannelSessionIdentity, CronJob, CronJobPatch,
-    CronRun, DeliveryConfig, DeliveryStatus, JobOrigin, JobPolicy, JobType, Schedule,
-    SessionTarget, delivery_mode,
+    ActiveHours, CronJob, CronJobPatch, CronRun, DeliveryConfig, DeliveryStatus, JobOrigin,
+    JobPolicy, JobType, Schedule, SessionTarget, delivery_mode,
 };
 
 /// The module has one bus identity and separately served authoring/schedule objects.
@@ -45,8 +46,8 @@ pub const CALLBACK_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleHost";
 /// send/terminal delivery phases. 6 adds prepared handles and host-owned
 /// lifecycle observation for detached manual workers. 7 adds `TickSchedulerAt`,
 /// a manual pass at a host-supplied calendar instant, so a host can step a
-/// schedule forward instead of waiting for it. 8 adds an optional opaque
-/// durable channel-session identity to channel job origins.
+/// schedule forward instead of waiting for it. 8 adds an optional opaque,
+/// host-validated durable channel-session identity to channel job origins.
 pub const CONTRACT_VERSION: u32 = 8;
 /// Exact advertised scheduler member set.
 pub const METHODS: &[&str] = &[
@@ -263,12 +264,15 @@ pub const STORE_OPERATIONS: &[&str] = &[
 /// it accepts a JSON request with `op` and the corresponding core-port fields.
 /// Operations are ensure/get/put/delete/query/count/delete_where. Replies are
 /// `{value: JSON}` or `{error: {kind, message}}`, preserving conflict kinds.
-/// Core-port JSON uses the tinystoragedrivers-core vocabulary. The host
+/// Port JSON uses the tinystoragedrivers-types vocabulary. The host
 /// delegates mechanically to its scoped DocumentStore and owns no cron policy.
 pub const DOCUMENT_INTERFACE: &str = "ai.tinyhumans.tinyflows.ScheduleDocuments";
 /// Exact document callback member used by the module.
 pub const DOCUMENT_METHOD: &str = "Document";
 
+#[cfg(test)]
+#[path = "identity_tests.rs"]
+mod identity_tests;
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

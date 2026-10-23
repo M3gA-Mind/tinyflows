@@ -1,8 +1,8 @@
 [package]
 name = "tinyflows"
-version = "0.8.27"
+version = "0.8.29"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "A Rust-based workflow management solution."
 readme = "README.md"

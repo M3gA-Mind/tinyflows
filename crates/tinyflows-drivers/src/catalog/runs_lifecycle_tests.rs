@@ -4,6 +4,7 @@ use super::*;
 use crate::catalog::test_support::trigger_graph;
 use tinyflows::nodes::control_flow::dedup::{committed_key, tentative_key};
 use tinyflows::nodes::control_flow::dedup_settle;
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 fn step(node: &str) -> FlowRunStep {
     FlowRunStep {
@@ -19,7 +20,6 @@ fn step(node: &str) -> FlowRunStep {
 async fn two_handles_on_one_backend_agree_on_a_run_lifecycle() {
     use crate::catalog::FlowStateDocuments;
     use tinyflows::caps::StateStore;
-    use tinystoragedrivers_core::MemoryStorage;
 
     let storage = MemoryStorage::new();
     let a = crate::catalog::test_support::catalog_in(&storage, "tenant");
@@ -49,7 +49,7 @@ async fn two_handles_on_one_backend_agree_on_a_run_lifecycle() {
     // What the `dedup` node writes during the run, through the engine's
     // `StateStore`.
     state
-        .store(&tentative_key("d"), json!(["k1"]))
+        .store(&tentative_key("d", None), json!(["k1"]))
         .await
         .unwrap();
     state
@@ -78,9 +78,10 @@ async fn two_handles_on_one_backend_agree_on_a_run_lifecycle() {
     );
     // The host's real settlement, through the other handle's `DedupKv`.
     let settle = FlowStateDocuments::new(b.clone(), flow.clone());
-    let outcome = tokio::task::spawn_blocking(move || dedup_settle::settle(&settle, "d", true))
-        .await
-        .unwrap();
+    let outcome =
+        tokio::task::spawn_blocking(move || dedup_settle::settle(&settle, "d", None, true))
+            .await
+            .unwrap();
     assert!(
         matches!(
             outcome,
@@ -135,7 +136,7 @@ async fn two_handles_on_one_backend_agree_on_a_run_lifecycle() {
         assert_eq!(committed, ["k0", "k1"]);
         assert!(
             handle
-                .kv_get(&flow, &tentative_key("d"))
+                .kv_get(&flow, &tentative_key("d", None))
                 .await
                 .unwrap()
                 .is_none()

@@ -1,3 +1,4 @@
+use super::identity::ChannelSessionIdentity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -100,50 +101,15 @@ pub enum JobOrigin {
         thread_id: Option<String>,
         /// Opaque, host-derived durable session binding for this channel
         /// origin. TinyFlows stores and forwards it without interpreting it;
-        /// the host must compare it with its trusted dispatch context before
-        /// using it. Absent on legacy jobs.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// the host validates it against trusted context before using it.
+        /// `session_identity` is accepted as a wire alias for compatibility.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            alias = "session_identity"
+        )]
         channel_session: Option<Box<ChannelSessionIdentity>>,
     },
-}
-
-/// Host-derived identity captured for a channel-origin job.
-///
-/// This is transport data, not authority: TinyFlows must never use these
-/// fields to select a tenant, agent, or conversation. The callback host
-/// validates them against its own trusted context before use.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ChannelSessionIdentity {
-    /// Opaque namespace/profile identity derived by the host.
-    pub tenant_key: String,
-    /// The actual agent selected for the originating turn.
-    pub agent_id: String,
-    /// The host's deterministic durable session key.
-    pub session_key: String,
-    /// Provider name from the channel reference.
-    pub provider: String,
-    /// Configured provider account, when the channel has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account_id: Option<String>,
-    /// Full provider-neutral conversation identity. Optional fields remain
-    /// distinct so absent scope/thread/topic values cannot collide.
-    pub conversation: ChannelConversationIdentity,
-}
-
-/// Full conversation scope carried with a channel-origin job.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ChannelConversationIdentity {
-    /// Stable provider-neutral kind, such as `dm`, `group`, or `thread`.
-    pub kind: String,
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic_id: Option<String>,
 }
 
 impl JobOrigin {
