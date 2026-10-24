@@ -7,7 +7,7 @@ use serde_json::json;
 use tinyflows_storage::Precondition;
 
 async fn refuses_malformed_legacy_policy(policy: serde_json::Value) {
-    use tinystoragedrivers_core::CollectionSpec;
+    use tinystoragedrivers_api::CollectionSpec;
     let store = store();
     let job = store
         .add_shell_job(Some("system".into()), daily(), "system:seeded")
