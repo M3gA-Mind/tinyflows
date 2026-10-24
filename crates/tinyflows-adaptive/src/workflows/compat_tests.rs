@@ -12,20 +12,13 @@ async fn layer(ids: &[&str]) -> Arc<MemoryVault> {
 
 #[tokio::test]
 async fn a_plain_store_becomes_selectable_without_being_migrated() {
-    let dir = std::env::temp_dir().join(format!("adaptive-compat-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("workflows")).expect("temp dir");
-    let store: Arc<dyn WorkflowStore> = Arc::new(tinyflows::store::FileWorkflowStore::new(
-        vec![dir.join("workflows")],
-        dir.join("runs"),
-    ));
+    let store: Arc<dyn WorkflowStore> = crate::driver_store::shared();
     store.save(&record("theirs")).expect("save");
 
     let vault = StoreVault::new(store);
     let loaded = vault.load().await.expect("load");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].description, "does the theirs thing");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]

@@ -1,121 +1,72 @@
 //! Module-owned persistence dispatch. Hosts pass configuration and JSON only.
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tinybus::Connection;
-use tinyflows_bus::schedule::{StoreBackend, StoreConfig, StoreRequest};
-use tinyflows_drivers::schedule::CronDocuments;
-use tinyflows_schedule::{AgentJobSpec, CronJob, CronJobPatch, DeliveryStatus, Schedule};
-use tinyflows_sqlite::schedule::{self as sql, CronStoreOptions};
+use tinyflows_bus::schedule::{
+    OccurrenceClaim, RunJobRefusal, StoreBackend, StoreConfig, StoreOperation as Operation,
+    StoreRequest,
+};
+use tinyflows_drivers::schedule::{ClaimedOccurrence, CronDocuments};
+use tinyflows_schedule::{
+    CronJob,
+    runtime::{Completion, RunRecord},
+};
+use tinyflows_storage::MigrateOptions;
 
-#[derive(Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-enum Operation {
-    Add {
-        expression: String,
-        command: String,
-    },
-    AddShell {
-        name: Option<String>,
-        schedule: Schedule,
-        command: String,
-    },
-    AddAgent {
-        spec: AgentJobSpec,
-    },
-    AddFlow {
-        flow_id: String,
-        schedule: Schedule,
-    },
-    FindFlow {
-        flow_id: String,
-    },
-    List,
-    Get {
-        job_id: String,
-    },
-    Remove {
-        job_id: String,
-    },
-    Clear,
-    Dedup,
-    Due {
-        now: DateTime<Utc>,
-    },
-    Update {
-        job_id: String,
-        patch: CronJobPatch,
-    },
-    RecordLastRun {
-        job_id: String,
-        finished_at: DateTime<Utc>,
-        success: bool,
-        output: String,
-    },
-    Reschedule {
-        job: CronJob,
-        success: bool,
-        output: String,
-    },
-    RecordRun {
-        job_id: String,
-        started_at: DateTime<Utc>,
-        finished_at: DateTime<Utc>,
-        status: String,
-        output: Option<String>,
-        duration_ms: i64,
-        delivery_status: Option<DeliveryStatus>,
-    },
-    DeleteQueuedRuns {
-        job_id: String,
-    },
-    ListRuns {
-        job_id: String,
-        limit: usize,
-    },
-}
-
-pub(super) enum Store {
-    Sqlite(CronStoreOptions),
-    Documents(CronDocuments),
-}
+/// The module's schedule store: `CronDocuments` over the host's document port.
+pub(super) struct Store(CronDocuments);
 impl Store {
     pub(super) async fn new(connection: Connection, config: StoreConfig) -> Result<Self> {
-        Ok(match config.backend {
-            StoreBackend::Sqlite { path } => {
-                if path.is_empty() {
-                    bail!("empty schedule database path");
-                }
-                Self::Sqlite(CronStoreOptions {
-                    db_path: path.into(),
-                    max_run_history: config.max_run_history,
-                    max_tasks: config.max_tasks,
-                })
-            }
-            StoreBackend::Documents { callback } => Self::Documents(
-                CronDocuments::new(Arc::new(
-                    super::schedule_documents::Documents::new(connection, callback).await?,
-                ))
-                .with_limits(config.max_run_history, config.max_tasks),
-            ),
-        })
+        let StoreBackend::Documents { callback } = config.backend;
+        Ok(Self(
+            CronDocuments::new(Arc::new(
+                super::schedule_documents::Documents::new(connection, callback).await?,
+            ))
+            .with_limits(config.max_run_history, config.max_tasks),
+        ))
     }
     pub(super) async fn request(connection: Connection, request: StoreRequest) -> Result<Value> {
-        Self::new(connection, request.storage)
+        let StoreRequest { storage, operation } = request;
+        let operation: Operation = serde_json::from_value(operation)?;
+        if matches!(operation, Operation::Migrate) {
+            return Self::migrate(connection, storage).await;
+        }
+        Self::new(connection, storage)
             .await?
-            .execute(serde_json::from_value(request.operation)?)
+            .execute(operation)
             .await
     }
+    async fn migrate(connection: Connection, config: StoreConfig) -> Result<Value> {
+        let StoreBackend::Documents { callback } = config.backend;
+        let documents =
+            Arc::new(super::schedule_documents::Documents::new(connection, callback).await?);
+        documents.require_record_metadata()?;
+        let _guard = super::migration_lock::schedule().await;
+        CronDocuments::new(documents.clone())
+            .ensure()
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let schema = tinyflows_drivers::cron_storage_schema();
+        let document_store: Arc<dyn tinyflows_storage::DocumentStore> = documents.clone();
+        let report = schema
+            .migrate(&document_store, &MigrateOptions::default())
+            .await?;
+        let counter_imported =
+            tinyflows_drivers::import_legacy_cron_counters(&document_store).await?;
+        Ok(serde_json::json!({
+            "steps_run": report.ran.len(),
+            "already_done": report.already_done,
+            "counter_imported": counter_imported,
+        }))
+    }
     async fn execute(&self, operation: Operation) -> Result<Value> {
-        // Each backend owns validation, migration, output limits and history pruning.
+        // The store owns validation, migration, output limits and history pruning.
+        let documents = &self.0;
         macro_rules! dispatch {
             ($method:ident $(, $arg:expr)*) => {
-                match self {
-                    Self::Sqlite(options) => serde_json::to_value(sql::$method(options $(, $arg)*)?)?,
-                    Self::Documents(documents) => serde_json::to_value(documents.$method($($arg),*).await?)?,
-                }
+                serde_json::to_value(documents.$method($($arg),*).await?)?
             };
         }
         Ok(match operation {
@@ -171,56 +122,160 @@ impl Store {
             ),
             Operation::DeleteQueuedRuns { job_id } => dispatch!(delete_queued_runs, &job_id),
             Operation::ListRuns { job_id, limit } => dispatch!(list_runs, &job_id, limit),
+            Operation::SetMaxActiveJobs { limit } => dispatch!(set_max_active_jobs, limit),
+            Operation::ImportJob { job } => dispatch!(import_job, &job),
+            Operation::ImportRun { run } => dispatch!(import_run, &run),
+            Operation::Migrate => anyhow::bail!("migration operation was not dispatched"),
         })
     }
 }
 
 #[async_trait::async_trait]
 impl tinyflows_schedule::runtime::JobStore for Store {
+    async fn validate_manual_claim_support(&self) -> Result<()> {
+        self.0.require_manual_claim_support()
+    }
+
     async fn due_jobs(&self, now: DateTime<Utc>) -> Result<Vec<CronJob>> {
-        match self {
-            Self::Sqlite(options) => sql::due_jobs(options, now),
-            Self::Documents(documents) => documents.due_jobs(now).await,
-        }
+        self.0.due_jobs(now).await
     }
     async fn due_jobs_excluding(
         &self,
         now: DateTime<Utc>,
         excluded: &[String],
     ) -> Result<Vec<CronJob>> {
-        match self {
-            Self::Sqlite(options) => sql::due_jobs_excluding(options, now, excluded),
-            Self::Documents(documents) => documents.due_jobs_excluding(now, excluded).await,
-        }
+        self.0.due_jobs_excluding(now, excluded).await
     }
-    async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<()> {
-        let claimed = match self {
-            Self::Sqlite(options) => sql::claim_slot(options, job, next)?,
-            Self::Documents(documents) => documents.claim_slot(job, next).await?,
-        };
-        anyhow::ensure!(
-            claimed,
-            "schedule occurrence was removed, edited or already claimed"
-        );
-        Ok(())
-    }
-    async fn record_run(&self, record: tinyflows_schedule::runtime::RunRecord) -> Result<()> {
-        match self {
-            Self::Sqlite(options) => sql::record_claimed_run(options, &record),
-            Self::Documents(documents) => documents.record_claimed_run(&record).await,
-        }
-    }
-
-    async fn complete(
+    async fn claim_due_occurrence(
         &self,
         job: &CronJob,
-        completion: tinyflows_schedule::runtime::Completion,
-    ) -> Result<()> {
-        match self {
-            Self::Sqlite(options) => sql::complete_run(options, job, &completion),
-            Self::Documents(documents) => documents.complete_run(job, &completion).await,
-        }
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Option<OccurrenceClaim>> {
+        let Some(claim) = self.0.claim_due_job_for(job, owner, now, lease).await? else {
+            return Ok(None);
+        };
+        Ok(Some(occurrence_claim(claim)?))
     }
+    async fn claim_manual_occurrence(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<Result<OccurrenceClaim, RunJobRefusal>> {
+        let Some(claim) = self.0.claim_job_now(job, owner, now, lease).await? else {
+            let current = self.0.find_job(&job.id).await?;
+            let changed = current.is_none_or(|current| {
+                current.created_at != job.created_at
+                    || current.claim_generation != job.claim_generation
+                    || !current.same_execution_definition(job)
+                    || current.schedule != job.schedule
+                    || current.next_run != job.next_run
+            });
+            return Ok(Err(if changed {
+                RunJobRefusal::DefinitionChanged
+            } else {
+                RunJobRefusal::AlreadyRunning
+            }));
+        };
+        Ok(Ok(occurrence_claim(claim)?))
+    }
+    async fn find_owned_manual_claim(
+        &self,
+        job: &CronJob,
+        owner: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<OccurrenceClaim>> {
+        self.0
+            .reconcile_manual_claim_admission(job, owner, now)
+            .await?
+            .map(occurrence_claim)
+            .transpose()
+    }
+    async fn renew_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        now: DateTime<Utc>,
+        lease: chrono::Duration,
+    ) -> Result<bool> {
+        self.0.renew_claim(&decode_claim(claim)?, now, lease).await
+    }
+    async fn release_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        self.0.release_claim(&decode_claim(claim)?, now).await
+    }
+    async fn queue_occurrence(&self, claim: &OccurrenceClaim, record: RunRecord) -> Result<bool> {
+        self.0
+            .queue_claimed_run_with_id(
+                &decode_claim(claim)?,
+                record.started_at,
+                Some(&record.run_id),
+            )
+            .await
+    }
+    async fn complete_occurrence(
+        &self,
+        claim: &OccurrenceClaim,
+        record: RunRecord,
+        completion: Completion,
+    ) -> Result<bool> {
+        let claim = decode_claim(claim)?;
+        let completion_record = tinyflows_drivers::schedule::RunCompletion {
+            finished_at: record.finished_at,
+            success: completion.success,
+            output: completion.output,
+            delivery_status: record.delivery_status,
+            run_id: Some(record.run_id),
+        };
+        let completed = if completion.advance_schedule {
+            self.0
+                .complete_claim_with_run(&claim, completion_record)
+                .await?
+        } else {
+            self.0
+                .complete_manual_claim_with_run(&claim, completion_record)
+                .await?
+        };
+        if completed && completion.remove {
+            self.0.remove_completed_claim(&claim).await?;
+        }
+        if !completed {
+            let current = self.0.find_job(&claim.job().id).await?;
+            anyhow::ensure!(
+                current.is_some_and(|current| current.created_at == claim.job().created_at),
+                "removed job creation before terminal commit"
+            );
+        }
+        Ok(completed)
+    }
+}
+
+fn occurrence_claim(claim: ClaimedOccurrence) -> Result<OccurrenceClaim> {
+    Ok(OccurrenceClaim {
+        receipt: serde_json::to_string(&claim)?,
+        job: claim.job().clone(),
+        occurrence: claim.occurrence(),
+        started_at: claim.started_at(),
+        owner: claim.owner().to_owned(),
+        run_id: None,
+    })
+}
+
+fn decode_claim(claim: &OccurrenceClaim) -> Result<ClaimedOccurrence> {
+    let decoded: ClaimedOccurrence = serde_json::from_str(&claim.receipt)?;
+    anyhow::ensure!(
+        decoded.job().id == claim.job.id
+            && decoded.owner() == claim.owner
+            && decoded.occurrence() == claim.occurrence
+            && decoded.started_at() == claim.started_at,
+        "occurrence receipt does not match its captured metadata"
+    );
+    Ok(decoded)
 }
 
 #[cfg(test)]

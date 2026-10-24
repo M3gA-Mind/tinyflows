@@ -23,10 +23,10 @@ uses, so a reader who knows one knows them all.
 | --- | --- |
 | `crates/tinyflows` | The engine. One graph: validate → compile → run. Published to crates.io. |
 | `crates/tinyflows-catalog` | The saved-flow model *around* a graph — flows, revisions, runs, drafts, suggestions — the in-process run/build cancellation registries, the format importers (n8n), and the save/run safety predicates. Storage-free. |
-| `crates/tinyflows-sqlite` | SQLite implementations of the catalog and of the engine's checkpoint store, plus the JSON draft store. Every entry point takes a directory, never a host config type. |
+| `crates/tinyflows-drivers` | The catalog (flows, drafts, runs, state), the cron job/run store, the engine's checkpointer and state store, and `WorkflowStore` (workflows, revisions, runs, notes, proposals) on `tinystoragedrivers` document ports. It uses public storage API/types through the private `tinyflows-storage` helper; the host picks the backend. |
 | `crates/tinyflows-copilot` | The authoring copilot's *words*: the `workflow_builder` / `flow_discovery` standing archetypes, and the turn brief that opens a builder turn. Names no tool trait, no agent registry, no model client. |
 | `crates/tinyflows-adaptive` | The adaptive loop over the engine: select or author a workflow, run it, judge it, learn. |
-| `crates/tinyflows-schedule` | Schedule model and pure next-run logic (cron / interval / one-shot, time zones, active hours, cadence floor). No runtime, store or config. |
+| `crates/tinyflows-schedule` | Schedule model, pure next-run logic (cron / interval / one-shot, time zones, active hours, cadence floor), and the schedule runtime. Persistence and configuration are supplied by the host through `tinyflows-drivers` and `tinyflows-module`. |
 
 **Where a new thing goes.** Ask what it depends on, not what it is about. If it
 needs storage, it is not `tinyflows-catalog`. If it needs a tool trait or a model
@@ -53,11 +53,12 @@ model::WorkflowGraph  →  validate  →  compiler::compile  →  engine::run
 - `caps/` — host-injected capability traits (`caps/mod.rs`); `caps/mock.rs` has
   in-memory mock impls, gated behind the `mock` feature (always on inside tests).
   `caps/host/` has *real* implementations a host may opt into — out-of-process
-  script/shell running, a file-backed `StateStore`, an allowlisted HTTP client —
+  script/shell running, an allowlisted HTTP client —
   behind the `host-caps` feature. These are offered, never assumed: nothing in
   the engine reaches into them, and a host with a sandbox implements its own.
 - `store/` — the durable model *around* a graph (versioned documents, run
-  records, notes, proposals), a JSON file-backed store for it, and `authoring`
+  records, notes, proposals), the `WorkflowStore` contract (implemented over
+  storage ports by `tinyflows-drivers`, never by files), and `authoring`
   (patch-based editing: apply → validate → gate → save), behind the `store`
   feature. Not part of the engine: `engine::run` neither reads nor writes any of
   it. `store::HostPolicy` is where a host injects the judgements only it can
@@ -140,7 +141,7 @@ cargo check                        # fast type/borrow check
 cargo test                         # unit + compiler tests (all optional modules compile in tests)
 cargo test --features mock         # exercise the mock capabilities explicitly
 cargo check --features host-caps   # the opt-in host capability implementations
-cargo check --features store       # the file-backed workflow/run store
+cargo check --features store       # the workflow/run store contract and authoring
 cargo clippy --all-targets         # lint
 cargo fmt                          # format (run before committing)
 cargo build --release

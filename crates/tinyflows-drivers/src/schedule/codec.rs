@@ -1,7 +1,11 @@
-//! Jobs and runs to and from documents.
+//! Jobs and runs to and from documents (storage schema v2, owner `cron`).
 //!
-//! Optional fields are left out of a document rather than stored as `null`;
-//! nested values (`schedule`, `delivery`, `origin`) are JSON strings. A job
+//! Bodies are bare snake_case objects. Nested values (`schedule`, `delivery`,
+//! `origin`, `policy`) are real objects, not JSON strings; every instant is one
+//! `_ms` field (`next_run_ms`, `last_run_ms`, `started_ms`, `finished_ms`), and
+//! a job's creation time normally comes from document metadata, with a body
+//! `created_ms` override for imported or migrated jobs. Optional fields are
+//! left out rather than stored as `null`. A job
 //! document that cannot be read back is an error naming the field, never a
 //! silently defaulted job.
 
@@ -11,7 +15,7 @@ use serde_json::{Map, Value, json};
 use tinyflows_schedule::{
     CronJob, CronRun, DeliveryConfig, DeliveryStatus, JobOrigin, JobType, Schedule, SessionTarget,
 };
-use tinystoragedrivers_core::Versioned;
+use tinyflows_storage::Versioned;
 
 /// The string field `field` of `doc`.
 pub(super) fn text<'a>(doc: &'a Value, field: &str) -> Option<&'a str> {
@@ -52,10 +56,10 @@ pub(super) fn incarnation(doc: &Value) -> Option<&str> {
     text(doc, INCARNATION)
 }
 
-fn instant(raw: &str) -> Result<DateTime<Utc>> {
-    Ok(DateTime::parse_from_rfc3339(raw)
-        .with_context(|| format!("Invalid RFC3339 timestamp in cron store: {raw}"))?
-        .with_timezone(&Utc))
+/// `ms` (epoch milliseconds) as an instant.
+pub(super) fn from_ms(ms: i64) -> Result<DateTime<Utc>> {
+    DateTime::<Utc>::from_timestamp_millis(ms)
+        .ok_or_else(|| anyhow!("cron store: {ms} is not a valid instant"))
 }
 
 fn set(doc: &mut Map<String, Value>, field: &str, value: Option<Value>) {
@@ -69,7 +73,25 @@ fn set(doc: &mut Map<String, Value>, field: &str, value: Option<Value>) {
     }
 }
 
-/// The document for `job`.
+/// `schedule` as a storage value. Identical to its wire form except that a
+/// one-shot's instant is `at_ms`, never a formatted date.
+pub(super) fn schedule_to_value(schedule: &Schedule) -> Result<Value> {
+    match schedule {
+        Schedule::At { at } => Ok(json!({ "kind": "at", "at_ms": at.timestamp_millis() })),
+        other => serde_json::to_value(other).context("serialize cron schedule"),
+    }
+}
+
+/// The schedule a stored value holds.
+pub(super) fn schedule_from_value(value: &Value) -> Result<Schedule> {
+    if text(value, "kind") == Some("at") {
+        let ms = integer(value, "at_ms")?.ok_or_else(|| anyhow!("cron schedule has no `at_ms`"))?;
+        return Ok(Schedule::At { at: from_ms(ms)? });
+    }
+    serde_json::from_value(value.clone()).context("Failed to parse cron schedule")
+}
+
+/// The document for `job`. Its creation time is not part of the body.
 pub(super) fn job_to_doc(job: &CronJob) -> Result<Value> {
     let mut doc = Map::new();
     doc.insert("claim_generation".into(), json!(job.claim_generation));
@@ -78,23 +100,15 @@ pub(super) fn job_to_doc(job: &CronJob) -> Result<Value> {
     }
     doc.insert("expression".into(), json!(job.expression));
     doc.insert("command".into(), json!(job.command));
-    doc.insert(
-        "schedule".into(),
-        json!(serde_json::to_string(&job.schedule).context("serialize cron schedule")?),
-    );
+    doc.insert("schedule".into(), schedule_to_value(&job.schedule)?);
     doc.insert("job_type".into(), json!(job.job_type.as_str()));
     doc.insert("session_target".into(), json!(job.session_target.as_str()));
     doc.insert("enabled".into(), json!(job.enabled));
     doc.insert(
         "delivery".into(),
-        json!(serde_json::to_string(&job.delivery).context("serialize cron delivery")?),
+        serde_json::to_value(&job.delivery).context("serialize cron delivery")?,
     );
     doc.insert("delete_after_run".into(), json!(job.delete_after_run));
-    doc.insert("created_at".into(), json!(job.created_at.to_rfc3339()));
-    doc.insert(
-        "created_ms".into(),
-        json!(job.created_at.timestamp_millis()),
-    );
     set_next_run(&mut doc, job.next_run);
     set(&mut doc, "prompt", job.prompt.as_ref().map(|v| json!(v)));
     set(&mut doc, "name", job.name.as_ref().map(|v| json!(v)));
@@ -109,14 +123,14 @@ pub(super) fn job_to_doc(job: &CronJob) -> Result<Value> {
         "origin",
         job.origin
             .as_ref()
-            .map(|origin| serde_json::to_string(origin).map(Value::String))
+            .map(serde_json::to_value)
             .transpose()
             .context("Failed to serialize cron origin")?,
     );
     set(
         &mut doc,
-        "last_run",
-        job.last_run.map(|at| json!(at.to_rfc3339())),
+        "last_run_ms",
+        job.last_run.map(|at| json!(at.timestamp_millis())),
     );
     set(
         &mut doc,
@@ -131,24 +145,9 @@ pub(super) fn job_to_doc(job: &CronJob) -> Result<Value> {
     Ok(Value::Object(doc))
 }
 
-/// Writes `next_run` in its readable form and its two ordering forms:
-/// milliseconds (`next_run_ms`, kept so documents written before
-/// `next_run_ns` still order and match) and nanoseconds (`next_run_ns`, so
-/// two jobs due within one millisecond are picked in their real order).
+/// Writes `next_run` as its one field, `next_run_ms`.
 pub(super) fn set_next_run(doc: &mut Map<String, Value>, next_run: DateTime<Utc>) {
-    doc.insert("next_run".into(), json!(next_run.to_rfc3339()));
     doc.insert("next_run_ms".into(), json!(next_run.timestamp_millis()));
-    doc.insert("next_run_ns".into(), json!(nanos(next_run)));
-}
-
-/// `at` in epoch nanoseconds, saturating outside 1677–2262: to `i64::MIN`
-/// before that range and `i64::MAX` after it, so order is kept at both ends.
-pub(super) fn nanos(at: DateTime<Utc>) -> i64 {
-    at.timestamp_nanos_opt().unwrap_or(if at.timestamp() < 0 {
-        i64::MIN
-    } else {
-        i64::MAX
-    })
 }
 
 /// Records a run's outcome on a job document.
@@ -158,7 +157,7 @@ pub(super) fn set_last_run(
     success: bool,
     output: String,
 ) {
-    doc.insert("last_run".into(), json!(finished_at.to_rfc3339()));
+    doc.insert("last_run_ms".into(), json!(finished_at.timestamp_millis()));
     doc.insert(
         "last_status".into(),
         json!(if success { "ok" } else { "error" }),
@@ -166,19 +165,33 @@ pub(super) fn set_last_run(
     doc.insert("last_output".into(), json!(output));
 }
 
-/// The job a stored document holds.
+/// The creation identity used for run fencing and duplicate ranking.
+/// Migrated jobs carry their original creation time in the body because the
+/// module document port cannot write host-owned metadata.
+pub(super) fn job_created_ms(doc: &Value, metadata_created_ms: i64) -> Result<i64> {
+    Ok(integer(doc, "created_ms")?.unwrap_or(metadata_created_ms))
+}
+
+/// The job a stored document holds. Imported jobs retain their original
+/// creation time in the body because module document ports cannot set the
+/// host-owned record metadata; ordinary jobs still use backend metadata.
 pub(super) fn doc_to_job(stored: &Versioned<Value>) -> Result<CronJob> {
     let doc = &stored.doc;
-    let schedule: Schedule = serde_json::from_str(required(doc, "schedule")?)
-        .context("Failed to parse cron schedule JSON")?;
-    let delivery: DeliveryConfig = match optional(doc, "delivery")? {
-        Some(raw) => serde_json::from_str(raw).context("Failed to parse cron delivery JSON")?,
+    let schedule = schedule_from_value(
+        doc.get("schedule")
+            .ok_or_else(|| anyhow!("cron store: document has no `schedule`"))?,
+    )?;
+    let delivery: DeliveryConfig = match doc.get("delivery") {
+        Some(raw) => {
+            serde_json::from_value(raw.clone()).context("Failed to parse cron delivery")?
+        }
         None => DeliveryConfig::default(),
     };
-    let origin: Option<JobOrigin> = optional(doc, "origin")?
-        .map(serde_json::from_str)
+    let origin: Option<JobOrigin> = doc
+        .get("origin")
+        .map(|raw| serde_json::from_value(raw.clone()))
         .transpose()
-        .context("Failed to parse cron origin JSON")?;
+        .context("Failed to parse cron origin")?;
     let flag = |field: &str| match doc.get(field) {
         None => Ok(false),
         Some(Value::Bool(value)) => Ok(*value),
@@ -211,19 +224,16 @@ pub(super) fn doc_to_job(stored: &Versioned<Value>) -> Result<CronJob> {
         enabled: flag("enabled")?,
         delivery,
         delete_after_run: flag("delete_after_run")?,
-        created_at: instant(required(doc, "created_at")?)?,
-        next_run: instant(required(doc, "next_run")?)?,
-        last_run: optional(doc, "last_run")?.map(instant).transpose()?,
+        created_at: from_ms(job_created_ms(doc, stored.meta.created_ms)?)?,
+        next_run: from_ms(
+            integer(doc, "next_run_ms")?
+                .ok_or_else(|| anyhow!("cron store: document has no `next_run_ms`"))?,
+        )?,
+        last_run: integer(doc, "last_run_ms")?.map(from_ms).transpose()?,
         last_status: owned("last_status")?,
         last_output: owned("last_output")?,
         origin,
     })
-}
-
-/// The instant a job document was created, at full precision (for ordering
-/// jobs created within one millisecond).
-pub(super) fn created_at(doc: &Value) -> Option<DateTime<Utc>> {
-    text(doc, "created_at").and_then(|raw| instant(raw).ok())
 }
 
 /// The document id of run number `seq`: zero-padded, so ids sort as numbers.
@@ -236,6 +246,7 @@ pub(super) fn run_id(seq: i64) -> String {
 pub(super) fn run_to_doc(
     seq: i64,
     job_id: &str,
+    run_id: Option<&str>,
     incarnation: Option<&str>,
     started_at: DateTime<Utc>,
     finished_at: DateTime<Utc>,
@@ -247,11 +258,9 @@ pub(super) fn run_to_doc(
     let mut doc = Map::new();
     doc.insert("seq".into(), json!(seq));
     doc.insert("job_id".into(), json!(job_id));
-    doc.insert("started_at".into(), json!(started_at.to_rfc3339()));
-    // Nanoseconds: two runs of one job can start within a millisecond, and
-    // history order (and which run pruning keeps) follows the real start.
-    doc.insert("started_ns".into(), json!(nanos(started_at)));
-    doc.insert("finished_at".into(), json!(finished_at.to_rfc3339()));
+    set(&mut doc, "run_id", run_id.map(|value| json!(value)));
+    doc.insert("started_ms".into(), json!(started_at.timestamp_millis()));
+    doc.insert("finished_ms".into(), json!(finished_at.timestamp_millis()));
     doc.insert("status".into(), json!(status));
     doc.insert("duration_ms".into(), json!(duration_ms));
     set(&mut doc, INCARNATION, incarnation.map(|value| json!(value)));
@@ -271,11 +280,15 @@ pub(super) fn run_to_doc(
 /// does in the SQLite store.
 pub(super) fn doc_to_run(stored: &Versioned<Value>) -> Result<CronRun> {
     let doc = &stored.doc;
+    let instant = |field: &str| -> Result<DateTime<Utc>> {
+        from_ms(integer(doc, field)?.ok_or_else(|| anyhow!("cron store: run has no `{field}`"))?)
+    };
     Ok(CronRun {
         id: integer(doc, "seq")?.ok_or_else(|| anyhow!("cron store: run document has no `seq`"))?,
         job_id: required(doc, "job_id")?.to_string(),
-        started_at: instant(required(doc, "started_at")?)?,
-        finished_at: instant(required(doc, "finished_at")?)?,
+        run_id: optional(doc, "run_id")?.map(str::to_string),
+        started_at: instant("started_ms")?,
+        finished_at: instant("finished_ms")?,
         status: required(doc, "status")?.to_string(),
         output: optional(doc, "output")?.map(str::to_string),
         duration_ms: integer(doc, "duration_ms")?,

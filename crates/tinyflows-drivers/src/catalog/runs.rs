@@ -6,7 +6,7 @@
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use tinyflows_catalog::{FlowRun, FlowRunStep};
-use tinystoragedrivers_core::{
+use tinyflows_storage::{
     DocumentStoreExt, ErrorKind, Filter, Precondition, Query, Sort, Versioned,
 };
 
@@ -14,7 +14,7 @@ use super::lineage::{FLOW_INCARNATION, belongs, belongs_in, incarnation, live_fl
 use super::steps::steps_in;
 use super::{
     CAS_ATTEMPTS, DEFINITIONS, FlowCatalogDocuments, MAX_FLOW_RUNS_PER_FLOW, RUNS, best_effort,
-    compare_and_swap, instant_before, instant_ns, required, set_optional, text,
+    compare_and_swap, instant_ms, int, put_doc, required, rfc3339, set_optional, text,
 };
 
 /// Whether `current` (the definition read after a run query) is still the
@@ -33,23 +33,26 @@ fn still_the_flow(read: &Versioned<Value>, current: Option<&Versioned<Value>>) -
 /// `finish_flow_run` settles.
 const LIVE: [&str; 2] = ["running", "pending_approval"];
 
-fn status(doc: &Value) -> &str {
+pub(super) fn status(doc: &Value) -> &str {
     text(doc, "status").unwrap_or_default()
 }
 
 fn to_run(stored: &Versioned<Value>) -> Result<FlowRun> {
     let doc = &stored.doc;
     let steps = steps_in(doc).with_context(|| format!("run {} steps are corrupt", stored.id))?;
-    let pending_approvals: Vec<String> =
-        serde_json::from_str(text(doc, "pending_approvals_json").unwrap_or("[]"))
-            .with_context(|| format!("run {} pending approvals are corrupt", stored.id))?;
+    let pending_approvals: Vec<String> = serde_json::from_value(
+        doc.get("pending_approvals")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
+    )
+    .with_context(|| format!("run {} pending approvals are corrupt", stored.id))?;
     Ok(FlowRun {
         id: stored.id.clone(),
         flow_id: required(stored, "flow_id")?.to_string(),
         thread_id: required(stored, "thread_id")?.to_string(),
         status: required(stored, "status")?.to_string(),
-        started_at: required(stored, "started_at")?.to_string(),
-        finished_at: text(doc, "finished_at").map(str::to_string),
+        started_at: rfc3339(int(doc, "started_ms")),
+        finished_at: doc.get("finished_ms").and_then(Value::as_i64).map(rfc3339),
         steps,
         pending_approvals,
         error: text(doc, "error").map(str::to_string),
@@ -57,23 +60,22 @@ fn to_run(stored: &Versioned<Value>) -> Result<FlowRun> {
     })
 }
 
-/// Whether run `doc` was parked (its `finished_at`, else `started_at`)
-/// strictly before `cutoff`.
-fn parked_before(doc: &Value, cutoff: &str) -> bool {
-    let since = text(doc, "finished_at")
-        .or_else(|| text(doc, "started_at"))
-        .unwrap_or_default();
-    instant_before(since, cutoff)
+/// Whether run `doc` was parked (its `finished_ms`, else `started_ms`)
+/// strictly before `cutoff_ms`.
+pub(super) fn parked_before(doc: &Value, cutoff_ms: i64) -> bool {
+    doc.get("finished_ms")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| int(doc, "started_ms"))
+        < cutoff_ms
 }
 
-/// Stamps `finished_at` (and its sort key) on `doc`, or clears both.
-fn set_finished(doc: &mut Value, finished_at: Option<&str>) {
-    set_optional(doc, "finished_at", finished_at);
+/// Stamps `finished_ms` on `doc` from an RFC 3339 `finished_at`, or clears it.
+pub(super) fn set_finished(doc: &mut Value, finished_at: Option<&str>) {
     match finished_at {
-        Some(at) => doc["finished_ns"] = json!(instant_ns(at)),
+        Some(at) => doc["finished_ms"] = json!(instant_ms(at)),
         None => {
             if let Some(object) = doc.as_object_mut() {
-                object.remove("finished_ns");
+                object.remove("finished_ms");
             }
         }
     }
@@ -103,13 +105,12 @@ impl FlowCatalogDocuments {
             "flow_id": flow_id,
             "thread_id": thread_id,
             "status": "running",
-            "started_at": started_at,
-            "started_ns": instant_ns(started_at),
-            "steps_json": "[]",
-            "pending_approvals_json": "[]",
+            "started_ms": instant_ms(started_at),
+            "steps": [],
+            "pending_approvals": [],
         });
         set_optional(&mut run, FLOW_INCARNATION, incarnation(&flow.doc));
-        docs.put(RUNS, id, run.clone(), Precondition::Absent)
+        put_doc(docs, RUNS, id, run.clone(), Precondition::Absent)
             .await
             .context("Failed to insert flow run")?;
         // SQLite's foreign key, across processes: a `remove_flow` that raced
@@ -134,7 +135,7 @@ impl FlowCatalogDocuments {
     pub async fn prune_flow_runs(&self, flow_id: &str, keep: usize) -> Result<usize> {
         let docs = self.docs().await?;
         let query = Query::filter(Filter::eq("flow_id", flow_id))
-            .sort(Sort::desc("started_ns"))
+            .sort(Sort::desc("started_ms"))
             .sort(Sort::desc("_id"));
         let flow = docs.get(DEFINITIONS, flow_id).await?;
         let (runs, orphans): (Vec<_>, Vec<_>) = docs
@@ -178,22 +179,78 @@ impl FlowCatalogDocuments {
         error: Option<&str>,
         graph_hash: Option<&str>,
     ) -> Result<bool> {
-        let pending_json = serde_json::to_string(pending_approvals)
+        self.finish_flow_run_from_status(
+            id,
+            status,
+            finished_at,
+            steps,
+            pending_approvals,
+            error,
+            graph_hash,
+            &LIVE,
+        )
+        .await
+    }
+
+    /// Settles a run only while it is still parked for approval.
+    ///
+    /// Use this when an operation began from a previously observed
+    /// `pending_approval` row and must not settle a resume that claimed it in
+    /// the meantime. The status predicate is part of the compare-and-swap;
+    /// checking the row in the caller before [`Self::finish_flow_run`] would
+    /// leave a race between that read and this write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn finish_parked_flow_run(
+        &self,
+        id: &str,
+        status: &str,
+        finished_at: &str,
+        steps: &[FlowRunStep],
+        pending_approvals: &[String],
+        error: Option<&str>,
+        graph_hash: Option<&str>,
+    ) -> Result<bool> {
+        self.finish_flow_run_from_status(
+            id,
+            status,
+            finished_at,
+            steps,
+            pending_approvals,
+            error,
+            graph_hash,
+            &["pending_approval"],
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_flow_run_from_status(
+        &self,
+        id: &str,
+        status: &str,
+        finished_at: &str,
+        steps: &[FlowRunStep],
+        pending_approvals: &[String],
+        error: Option<&str>,
+        graph_hash: Option<&str>,
+        allowed_statuses: &[&str],
+    ) -> Result<bool> {
+        let pending = serde_json::to_value(pending_approvals)
             .context("Failed to serialize flow run pending approvals")?;
-        let steps_json =
-            serde_json::to_string(steps).context("Failed to serialize flow run steps")?;
+        let steps_value =
+            serde_json::to_value(steps).context("Failed to serialize flow run steps")?;
         let docs = self.docs().await?;
         // Status and steps in one swap: a run is never terminal with a stale
         // step list, and a failed write leaves it live and retryable.
         let settled = compare_and_swap(docs, RUNS, id, |doc| {
-            if !LIVE.contains(&super::runs::status(doc)) {
+            if !allowed_statuses.contains(&super::runs::status(doc)) {
                 return None;
             }
             let mut next = doc.clone();
             next["status"] = json!(status);
             set_finished(&mut next, Some(finished_at));
-            next["steps_json"] = json!(steps_json);
-            next["pending_approvals_json"] = json!(pending_json);
+            next["steps"] = steps_value.clone();
+            next["pending_approvals"] = pending.clone();
             set_optional(&mut next, "error", error);
             set_optional(&mut next, "graph_hash", graph_hash);
             Some(next)
@@ -201,165 +258,6 @@ impl FlowCatalogDocuments {
         .await
         .context("Failed to finish flow run")?;
         Ok(settled.is_some())
-    }
-
-    /// Cancels every parked `pending_approval` run parked (its `finished_at`,
-    /// else `started_at`) strictly before `cutoff`, stamping `now` and
-    /// `error_msg`. Returns the `(run_id, flow_id)` this call **actually**
-    /// flipped — a run resumed in between is left alone and not returned.
-    pub async fn expire_parked_runs(
-        &self,
-        cutoff: &str,
-        now: &str,
-        error_msg: &str,
-    ) -> Result<Vec<(String, String)>> {
-        let docs = self.docs().await?;
-        let parked = docs
-            .query_all(
-                RUNS,
-                &Query::filter(Filter::eq("status", "pending_approval")),
-            )
-            .await?;
-        let flows = live_flows(docs).await?;
-        let (parked, orphans): (Vec<_>, Vec<_>) = parked
-            .into_iter()
-            .partition(|run| belongs_in(&run.doc, &flows));
-        reclaim(docs, RUNS, &orphans).await;
-        let mut swept = Vec::new();
-        for run in parked {
-            if !parked_before(&run.doc, cutoff) {
-                continue;
-            }
-            let flipped = compare_and_swap(docs, RUNS, &run.id, |doc| {
-                // Re-checked on the current document: a run resumed and
-                // parked again since the query has a newer parking time.
-                if status(doc) != "pending_approval" || !parked_before(doc, cutoff) {
-                    return None;
-                }
-                let mut next = doc.clone();
-                next["status"] = json!("cancelled");
-                set_finished(&mut next, Some(now));
-                next["error"] = json!(error_msg);
-                Some(next)
-            })
-            .await
-            .context("Failed to expire parked flow run")?;
-            match flipped {
-                Some(stored) => swept.push((
-                    stored.id.clone(),
-                    text(&stored.doc, "flow_id").unwrap_or_default().to_string(),
-                )),
-                None => tracing::debug!(
-                    target: "flows",
-                    run_id = %run.id,
-                    "[flows] TTL sweep: run left 'pending_approval' concurrently — not expiring it"
-                ),
-            }
-        }
-        if !swept.is_empty() {
-            tracing::info!(target: "flows", swept = swept.len(), "[flows] expired parked pending_approval runs past TTL");
-        }
-        Ok(swept)
-    }
-
-    /// The `(id, flow_id)` of every `running` run started strictly before
-    /// `started_before`, for the boot orphan sweep (B42).
-    pub async fn list_running_run_ids(
-        &self,
-        started_before: &str,
-    ) -> Result<Vec<(String, String)>> {
-        let docs = self.docs().await?;
-        let running = docs
-            .query_all(
-                RUNS,
-                &Query::filter(Filter::eq("status", "running")).sort(Sort::asc("started_ns")),
-            )
-            .await?;
-        let flows = live_flows(docs).await?;
-        let (running, orphans): (Vec<_>, Vec<_>) = running
-            .into_iter()
-            .partition(|run| belongs_in(&run.doc, &flows));
-        reclaim(docs, RUNS, &orphans).await;
-        Ok(running
-            .iter()
-            .filter(|run| {
-                instant_before(
-                    text(&run.doc, "started_at").unwrap_or_default(),
-                    started_before,
-                )
-            })
-            .map(|run| {
-                (
-                    run.id.clone(),
-                    text(&run.doc, "flow_id").unwrap_or_default().to_string(),
-                )
-            })
-            .collect())
-    }
-
-    /// Test-only unconditional status write, bypassing the liveness guard, to
-    /// stage a run at an arbitrary status.
-    #[cfg(any(test, feature = "test-fixtures"))]
-    pub async fn force_run_status_for_test(
-        &self,
-        id: &str,
-        status: &str,
-        error: Option<&str>,
-    ) -> Result<()> {
-        let docs = self.docs().await?;
-        compare_and_swap(docs, RUNS, id, |doc| {
-            let mut next = doc.clone();
-            next["status"] = json!(status);
-            set_optional(&mut next, "error", error);
-            Some(next)
-        })
-        .await
-        .context("Failed to force flow run status (test fixture)")?;
-        Ok(())
-    }
-
-    /// Flips a parked run back to `running` for the duration of a resume,
-    /// only while it is still `pending_approval`; returns whether it flipped.
-    pub async fn mark_run_resuming(&self, id: &str) -> Result<bool> {
-        let docs = self.docs().await?;
-        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
-            if status(doc) != "pending_approval" {
-                return None;
-            }
-            let mut next = doc.clone();
-            next["status"] = json!("running");
-            set_finished(&mut next, None);
-            set_optional(&mut next, "error", None);
-            Some(next)
-        })
-        .await
-        .context("Failed to mark parked flow run as resuming")?;
-        if flipped.is_some() {
-            tracing::debug!(target: "flows", run_id = id, "[flows] marked parked run 'running' for the duration of the resume");
-        }
-        Ok(flipped.is_some())
-    }
-
-    /// Reconciles an orphaned `running` run to `interrupted`, only while it is
-    /// still `running`; returns whether it flipped.
-    pub async fn mark_run_interrupted(&self, id: &str, now: &str, reason: &str) -> Result<bool> {
-        let docs = self.docs().await?;
-        let flipped = compare_and_swap(docs, RUNS, id, |doc| {
-            if status(doc) != "running" {
-                return None;
-            }
-            let mut next = doc.clone();
-            next["status"] = json!("interrupted");
-            set_finished(&mut next, Some(now));
-            next["error"] = json!(reason);
-            Some(next)
-        })
-        .await
-        .context("Failed to reconcile orphaned running flow run")?;
-        if flipped.is_some() {
-            tracing::info!(target: "flows", run_id = id, "[flows] reconciled orphaned 'running' flow run to 'interrupted'");
-        }
-        Ok(flipped.is_some())
     }
 
     /// One run with its steps.
@@ -377,6 +275,29 @@ impl FlowCatalogDocuments {
             return Ok(None);
         }
         to_run(&stored).map(Some)
+    }
+
+    /// One owner-scoped run together with the exact document version from
+    /// which it was decoded. Lifecycle claims use this token so a row replaced
+    /// after the read cannot be mistaken for the row that was validated.
+    pub async fn get_flow_run_versioned(
+        &self,
+        id: &str,
+    ) -> Result<Option<(FlowRun, Versioned<Value>)>> {
+        let docs = self.docs().await?;
+        let Some(stored) = docs.get(RUNS, id).await? else {
+            return Ok(None);
+        };
+        let flow = match text(&stored.doc, "flow_id") {
+            Some(flow_id) => docs.get(DEFINITIONS, flow_id).await?,
+            None => None,
+        };
+        if !belongs(&stored.doc, flow.as_ref().map(|flow| &flow.doc)) {
+            reclaim(docs, RUNS, std::slice::from_ref(&stored)).await;
+            return Ok(None);
+        }
+        let run = to_run(&stored)?;
+        Ok(Some((run, stored)))
     }
 
     /// A flow's most recent runs, newest first (`limit` at least 1).
@@ -438,7 +359,7 @@ impl FlowCatalogDocuments {
         let docs = self.docs().await?;
         let limit = limit.max(1);
         let mut query = Query::filter(filter)
-            .sort(Sort::desc("started_ns"))
+            .sort(Sort::desc("started_ms"))
             .sort(Sort::desc("_id"))
             .limit(limit);
         let mut runs = Vec::with_capacity(limit);

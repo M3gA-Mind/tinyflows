@@ -130,7 +130,7 @@ pub async fn decide(
     // the one worth calling as one step of a bigger plan.
     //
     // Listed once for the same reason `ledger.rows` is read once above: against
-    // a file-backed store a second `list` is a second directory scan and a
+    // a store that reads from disk a second `list` is a second scan and a
     // second parse of every record, paid on every attempt for a result already
     // in hand.
     let listed = store

@@ -28,7 +28,7 @@ use tinyflows::engine::{
 };
 use tinyflows::error::{EngineError, Result as EngineResult};
 use tinyflows::model::{Edge, Node, NodeKind, WorkflowGraph};
-use tinyflows::store::{FileWorkflowStore, WorkflowRecord, WorkflowStore};
+use tinyflows::store::{WorkflowRecord, WorkflowStore};
 use tinyflows_adaptive::contracts::{Goal, ResumePoint};
 use tinyflows_adaptive::driver::{Clock, Loop};
 use tinyflows_adaptive::execute::{Ran, RunReport, Runner, StepOutcome, StepRecord};
@@ -329,11 +329,11 @@ impl Runner for Checkpointed {
     }
 }
 
-fn store(tag: &str) -> Arc<dyn WorkflowStore> {
-    let root = std::env::temp_dir().join(format!("adaptive-continue-{}-{tag}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("workflows")).expect("temp dir");
-    let store = FileWorkflowStore::new(vec![root.join("workflows")], root.join("runs"));
+#[path = "support/driver_store.rs"]
+mod driver_store;
+
+fn store(_tag: &str) -> Arc<dyn WorkflowStore> {
+    let store = driver_store::empty();
     store
         .save(&WorkflowRecord {
             id: PARENT.to_string(),

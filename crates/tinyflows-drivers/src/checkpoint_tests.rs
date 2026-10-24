@@ -1,12 +1,13 @@
-//! Behaviour of the storage-driver checkpointer: the same checks the
-//! host-owned SQLite checkpointer (`tinyflows-sqlite`) is held to, run against
-//! a driver document store, plus the isolation and key-encoding guarantees
-//! the driver layout adds.
+//! Behaviour of the storage-driver checkpointer, run against a driver document
+//! store: the checkpointer contract every durable backend is held to, plus the
+//! isolation and key-encoding guarantees the driver layout adds.
 
 use super::*;
+use crate::checkpoint_layout::{checkpoint_id_key, subgraph_key, thread_id_key};
 use serde_json::json;
 use tinyflows::graph::ids::NodeId;
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend, StorageError};
+use tinyflows_storage::{Precondition, Scope, StorageBackend, StorageError};
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 fn docs(storage: &MemoryStorage, scope: &str) -> Arc<dyn DocumentStore> {
     Arc::clone(
@@ -285,12 +286,12 @@ async fn prune_keeps_the_newest_checkpoints() {
 /// finds nothing.
 
 #[tokio::test]
-async fn scopes_and_prefixes_keep_threads_apart() {
+async fn scopes_and_namespaces_keep_threads_apart() {
     let storage = MemoryStorage::new();
     let alice = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "alice"));
     let bob = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "bob"));
     let other =
-        DriverCheckpointer::<serde_json::Value>::with_prefix(docs(&storage, "alice"), "other");
+        DriverCheckpointer::<serde_json::Value>::with_namespace(docs(&storage, "alice"), "other");
     alice
         .put(checkpoint("t", "c1", None, 1, json!(1)))
         .await
@@ -354,17 +355,44 @@ async fn pending_writes_never_merge_across_lookalike_namespaces() {
 }
 
 #[test]
-fn keys_are_unambiguous_and_long_ones_hashed() {
-    assert_ne!(key(&["a/b", "c"]), key(&["a", "b/c"]));
-    let hashed = key(&[&"t".repeat(500)]);
-    assert!(hashed.starts_with("h:") && hashed.len() == 66, "{hashed}");
-    assert_ne!(hashed, key(&[&"u".repeat(500)]));
-    let ns = |parts: &[&str]| parts.iter().map(|p| (*p).to_string()).collect::<Vec<_>>();
+fn keys_are_unambiguous_and_namespaces_encode_injectively() {
     assert_ne!(
-        namespace_key(&ns(&["a", "b"])),
-        namespace_key(&ns(&["a/b"]))
+        checkpoint_id_key("flows", "a/b", 1),
+        checkpoint_id_key("flows", "a", 1)
     );
-    assert_ne!(namespace_key(&ns(&["ab"])), namespace_key(&ns(&["a", "b"])));
+    assert_ne!(thread_id_key("flows", "a/b"), thread_id_key("flows/a", "b"));
+    let ns = |parts: &[&str]| parts.iter().map(|p| (*p).to_string()).collect::<Vec<_>>();
+    assert_ne!(subgraph_key(&ns(&["a", "b"])), subgraph_key(&ns(&["a/b"])));
+    assert_ne!(subgraph_key(&ns(&["ab"])), subgraph_key(&ns(&["a", "b"])));
+    assert_ne!(subgraph_key(&ns(&[""])), subgraph_key(&[]));
+}
+
+#[tokio::test]
+async fn documents_are_the_v2_graph_layout_under_the_flows_namespace() {
+    let storage = MemoryStorage::new();
+    let docs = docs(&storage, "local");
+    let saver = DriverCheckpointer::<serde_json::Value>::new(Arc::clone(&docs));
+    saver
+        .put(checkpoint("a/b", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
+    let row = docs
+        .get("graph.checkpoints", &format!("flows/a%2Fb/{:020}", 0))
+        .await
+        .unwrap()
+        .expect("id is Key::of([ns, thread, seq])");
+    assert_eq!(row.doc["ns"], "flows");
+    assert_eq!(row.doc["thread"], "a/b");
+    assert_eq!(row.doc["subgraph"], "");
+    assert_eq!(row.doc["checkpoint_id"], "c1");
+    assert!(row.doc["checkpoint"].is_object());
+    assert_eq!(row.meta.schema, 4);
+    let counter = docs
+        .get("graph.threads", "flows/a%2Fb")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(counter.doc["next"], 1);
 }
 
 #[tokio::test]
@@ -377,13 +405,13 @@ async fn a_corrupt_record_is_a_checkpoint_error() {
         .await
         .unwrap();
     let stored = docs
-        .query_all(&saver.checkpoints, &Query::all())
+        .query_all(CHECKPOINTS, &Query::all())
         .await
         .unwrap()
         .remove(0);
     let mut doc = stored.doc;
-    doc["record"] = json!("not a checkpoint");
-    docs.put(&saver.checkpoints, &stored.id, doc, Precondition::None)
+    doc["checkpoint"] = json!("not a checkpoint");
+    docs.put(CHECKPOINTS, &stored.id, doc, Precondition::None)
         .await
         .unwrap();
     let error = saver.get("t", None).await.unwrap_err();
@@ -393,4 +421,66 @@ async fn a_corrupt_record_is_a_checkpoint_error() {
             .to_string()
             .contains("busy")
     );
+}
+
+/// What the retired file backend's tests held every durable backend to: a
+/// fresh handle over the same storage reads what an earlier one wrote.
+#[tokio::test]
+async fn put_get_list_roundtrip_survives_a_fresh_handle() {
+    let storage = MemoryStorage::new();
+    let cp = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "local"));
+    cp.put(checkpoint("t1", "c1", None, 1, json!(1)))
+        .await
+        .unwrap();
+    cp.put(checkpoint("t1", "c2", Some("c1"), 2, json!(2)))
+        .await
+        .unwrap();
+
+    let reopened = DriverCheckpointer::<serde_json::Value>::new(docs(&storage, "local"));
+    let latest = reopened.get("t1", None).await.unwrap().unwrap();
+    assert_eq!(latest.checkpoint_id, "c2");
+    assert_eq!(latest.state, json!(2));
+    let first = reopened.get("t1", Some("c1")).await.unwrap().unwrap();
+    assert_eq!(first.checkpoint_id, "c1");
+    assert!(reopened.get("t1", Some("nope")).await.unwrap().is_none());
+    assert!(reopened.get("missing", None).await.unwrap().is_none());
+
+    let list = reopened.list("t1").await.unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].checkpoint_id, "c1");
+    assert_eq!(list[1].parent_checkpoint_id.as_deref(), Some("c1"));
+    assert_eq!(list[1].step, 2);
+
+    // The tuple convenience composes config + parent from the persisted record.
+    let tuple = reopened
+        .get_tuple(CheckpointConfig::latest("t1"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(tuple.config.checkpoint_id.as_deref(), Some("c2"));
+    assert_eq!(
+        tuple.parent_config.unwrap().checkpoint_id.as_deref(),
+        Some("c1")
+    );
+}
+
+#[tokio::test]
+async fn thread_ids_with_separators_and_spaces_list_and_delete() {
+    let cp = store();
+    cp.put(checkpoint("a/b c", "x1", None, 1, json!(1)))
+        .await
+        .unwrap();
+    cp.put(checkpoint("b", "b1", None, 1, json!(1)))
+        .await
+        .unwrap();
+
+    let mut threads = cp.list_threads().await.unwrap();
+    threads.sort();
+    assert_eq!(threads, vec!["a/b c".to_string(), "b".to_string()]);
+
+    cp.delete_thread("a/b c").await.unwrap();
+    assert_eq!(cp.list_threads().await.unwrap(), vec!["b".to_string()]);
+    assert!(cp.get("a/b c", None).await.unwrap().is_none());
+    // Deleting a missing thread is a no-op.
+    cp.delete_thread("missing").await.unwrap();
 }

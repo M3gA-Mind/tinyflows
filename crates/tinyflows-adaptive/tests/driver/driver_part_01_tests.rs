@@ -70,17 +70,29 @@ async fn the_next_episode_selects_what_the_last_one_learned() {
 #[tokio::test]
 async fn a_ledger_and_a_vault_of_different_kinds_drive_the_same_loop() {
     // `Ledger` and `Vault` are separate traits with separate handles, so the
-    // host mixes them freely — sqlite ledger beside a Mongo vault, or either
-    // beside memory. Nothing in the loop knows which it got.
-    use tinyflows_adaptive::ledger::sqlite::SqliteLedger;
+    // host mixes them freely — a durable ledger beside an ephemeral vault, or
+    // either beside the other. Nothing in the loop knows which it got.
+    #[cfg(feature = "storage-drivers")]
+    {
+        use tinyflows_storage::{Scope, StorageBackend};
+        use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
+        let scoped = MemoryStorage::new()
+            .for_scope(&Scope::new("local").expect("valid scope"))
+            .expect("scope");
+        let ledger = tinyflows_adaptive::drivers::DriverLedger::new(scoped.documents().clone());
+        drive_mixed(&ledger).await;
+    }
+    // The in-memory pairing, always available.
+    drive_mixed(&MemoryLedger::new()).await;
+}
+
+/// One episode over `ledger` with a vault of a different kind.
+async fn drive_mixed<L: Ledger>(ledger: &L) {
     use tinyflows_adaptive::workflows::{Snapshot, Vault, memory::MemoryVault};
 
-    let dir = std::env::temp_dir().join(format!("adaptive-mixed-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-
-    // Durable ledger, ephemeral vault. A deliberately silly pairing, chosen
-    // because if this compiles and runs then every sensible one does.
-    let ledger = SqliteLedger::open(dir.join("ledger.db")).expect("ledger");
+    // Whatever the ledger is, the vault is ephemeral. A deliberately silly
+    // pairing, chosen because if this compiles and runs then every sensible
+    // one does.
     let vault = MemoryVault::new();
 
     let llm = succeeding(parameterised(), true);
@@ -101,20 +113,18 @@ async fn a_ledger_and_a_vault_of_different_kinds_drive_the_same_loop() {
         workspace: &Unobserved,
     };
 
-    let finished = engine_over(&ledger, &store, &caps, &runner, &HostFacts::unknown())
+    let finished = engine_over(ledger, &store, &caps, &runner, &HostFacts::unknown())
         .run("ep-mixed", &Goal::new("review the PRs on acme/thing"))
         .await
         .expect("run");
     assert_eq!(finished.status, EpisodeStatus::Satisfied);
 
-    // The episode landed in sqlite; the learned procedure is waiting in the
+    // The episode landed in the ledger; the learned procedure is waiting in the
     // snapshot for a flush into the vault.
     assert!(ledger.episode("ep-mixed").await.expect("read").is_some());
     assert_eq!(snapshot.pending(), 1, "the procedure it learned");
     snapshot.flush(&vault).await.expect("flush");
     assert_eq!(vault.load().await.expect("load").len(), 1);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -284,4 +294,3 @@ impl LlmProvider for RepairFlow {
         })
     }
 }
-

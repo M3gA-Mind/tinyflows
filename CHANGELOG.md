@@ -7,6 +7,162 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Run event outcomes
+
+- **Added** the engine output to `Runs.PollRun` parked and finished event
+  payloads so hosts can preserve synchronous run/resume results without
+  reading module-owned checkpoints. The fields are optional when decoding
+  events from older module versions; recovery events omit output when no engine
+  outcome exists, and finished events identify host-deadline termination.
+
+### Code node contract and dry-run honesty
+
+- **Fixed** the `code` node contract (catalog and builder prompt): `source` is
+  a function body that receives one variable, `input` (the array of input
+  items, payload under `.json`), and `return`s the json of the node's single
+  output item. The old example read an undefined `item`, which builders copied
+  into scripts that failed every real run (tinyhumansai/openhuman#7830).
+- **Added** `unexecuted_code_nodes` to the dry-run report, with a leading
+  `CODE NOT EXECUTED` line in its `note`/`message`: the sandbox stubs `code`
+  nodes, so a clean dry run never proved a script works.
+- **Added** `code_source_errors`, a static check that fails the dry run when a
+  `code` source reads an `item` variable it never binds.
+- **Fixed** `code_source_errors` failing the dry run (`ok: false`) on valid
+  scripts that bind `item` in a form the token scan does not know, such as
+  `const { json: item } = input[0]` or Python `with … as item:`. The check is
+  now advisory: entries are still reported, and the `note`/`message` names
+  them on a `POSSIBLE UNDEFINED` line after `CODE NOT EXECUTED`, but they no
+  longer fail the dry run.
+
+### Per-run dedup tentative keys
+
+- **Changed** the `dedup` node to stage unseen keys under
+  `dedup:<node_id>:tentative:<run_id>` when the host seeds `run.id`
+  (`RunInput::run_id`), so overlapping runs of one flow no longer share a
+  tentative set and one run's settlement cannot commit or release another's
+  keys (tinyhumansai/openhuman#5268). A run with no seeded id keeps the shared
+  `dedup:<node_id>:tentative` key.
+- **Breaking:** `dedup::tentative_key` and `dedup_settle::{settle, commit,
+  release}` take the run id (`Option<&str>`). Hosts settle with the id they
+  seeded; the module run manager does. Tentative keys a pre-upgrade run wrote
+  under the shared key are not settled by a post-upgrade finish; the node only
+  reads `committed`, so those items are processed again once.
+- **Changed** a failed run-scoped commit to park that run's tentative keys in
+  `dedup:<node_id>:uncommitted`, which the node's next successful commit folds
+  into `committed`, so a successful run's keys are still retried once its own
+  tentative key can no longer be settled.
+
+### Bounded occurrence lease records
+
+- **Fixed** the `tsd.leases` record kept per cron occurrence (#159). Completing
+  an advancing claim whose job moved past the occurrence now drops the lease
+  with `Leases::compact`, conditional on the claim's token and epoch, so a
+  frequent job no longer retains one expired record per occurrence. Manual
+  claims and one-shots keep their released record. Stale holders stay fenced
+  by `claim_epoch` and the moved `next_run`.
+
+### Module CapsHost v2 callbacks and capability-backed tasks
+
+- **Added** the serde-only `Runs.CapsHost` v2 callback contract for LLM, tool,
+  HTTP, code, shell, memory, approval, and agent-runner capabilities. Agent
+  progress uses typed cursor pages and a typed terminal outcome; callback
+  addresses remain host-bound to the acting run. `AgentCancel` cancels an
+  individual outstanding agent callback with its matching request id.
+- **Added** module adapters that call only the exact run callback object,
+  construct flow-scoped state and catalog resolution over the document port,
+  and execute spawned tool, HTTP, and child-workflow tasks with the same run
+  capabilities.
+- **Added** `TaskExecutor` and `TokioTaskRunner::with_executor`; the existing
+  `TokioTaskRunner::new` behavior remains available for callers that do not
+  supply an executor.
+- **Changed** the runtime resolver and inline child-task path to reject saved
+  or inline graphs with engine-incompatible topology before compilation.
+
+### Schedule bus contract v3: hosts need only `tinyflows-bus`
+
+- **Moved** the schedule wire records (`Schedule`, `CronJob`, `CronRun`,
+  `CronJobPatch`, `JobOrigin`, `DeliveryConfig`, `DeliveryStatus`, `JobPolicy`,
+  `JobType`, `SessionTarget`, `ActiveHours`, `delivery_mode`), `AgentJobSpec`,
+  and the callback records `Attempt`/`RunRecord`/`Completion` from
+  `tinyflows-schedule` into `tinyflows_bus::schedule` (`tinyflows-bus` gains
+  `chrono`). `tinyflows-schedule` re-exports them at the same paths; the JSON
+  wire shape is unchanged (`wire_tests` pass unchanged and now also pin the bus).
+  The two `Schedule` deserializer `debug` logs were dropped with the move.
+- **Added** the typed `StoreOperation`, `ImportedJob`, `TooFrequent`,
+  `MIN_AGENT_JOB_INTERVAL` and request types to the contract, and `members::*`
+  constants for every Schedule member.
+- **Added** module members `NextRun`, `ValidateSchedule`, `RunsCloserThan`,
+  `NormalizeExpression`, `ScheduleCronExpression`, `DefaultDelivery`,
+  `CheckOriginRequirements`, `CheckPatch`, `TruncateCronOutput`, and
+  `ScheduleStore` operations `set_max_active_jobs`, `import_job`, `import_run`.
+- **Changed** Schedule `CONTRACT_VERSION` 2 -> 3.
+
+### Script spawner seam (`host-caps`)
+
+`caps::host::script` now launches every `code`/`shell` script through a
+`ScriptSpawner`. `install_script_spawner` lets a host route scripts through its
+jail; `require_script_spawner(true)` makes a run with no spawner fail closed.
+The default `DirectSpawner` keeps the previous unjailed behaviour.
+
+### Storage moves entirely onto the `tinystoragedrivers` ports
+
+tinyflows no longer ships any storage backend of its own. Every durable piece is
+a store on the `tinystoragedrivers` document ports, in `tinyflows-drivers`
+(which depends on `tinystoragedrivers-core` only; the host picks the backend).
+`tinystoragedrivers` is now pinned at `v0.7.0`.
+
+#### Removed (breaking)
+
+- **`tinyflows-sqlite`**, the whole crate: `flows.db` (catalog), `jobs.db`
+  (cron), `checkpoints.db` (the SQLite checkpointer) and the JSON draft files.
+  Their replacements are `tinyflows-drivers`' `catalog::FlowCatalogDocuments`
+  (drafts are the `flows_drafts` collection), `schedule::CronDocuments` and
+  `DriverCheckpointer`.
+- **`tinyflows::store::FileWorkflowStore`** with `LoadReport`, `workflow_dirs`,
+  `workspace_state_dir_under`, `read_workflow(_with)`, `safe_component`,
+  `workspace_scope` and `write_atomic`. `tinyflows::store` keeps the
+  `WorkflowStore` contract, the record types, `HostPolicy`, `parse_workflow`,
+  `validate_graph`, authoring, and now exports `prune_notes`,
+  `mint_revision_id` and `MAX_REVISIONS`. `tinyflows-drivers`'
+  `store::DriverWorkflowStore` implements the trait over documents, including
+  the notes journal and proposals. A new `WorkflowError::Storage` carries
+  backend failures. The `store` feature no longer depends on `fs2`.
+- **`tinyflows::graph::FileCheckpointer`** (and its re-exports). Use
+  `tinyflows_drivers::DriverCheckpointer`, or `InMemoryCheckpointer`.
+- **`tinyflows::caps::host::FileStateStore`.** Use `DriverStateStore` or
+  `FlowStateDocuments`. The `host-caps` feature no longer depends on `sha2`.
+- **`tinyflows-adaptive`'s SQLite and MongoDB backends** (`SqliteLedger`,
+  `MongoLedger`, `SqliteVault`, `MongoVault`, the `sqlite` and `mongo`
+  features, the `rusqlite` and `mongodb` dependencies). `default` is now empty;
+  `storage-drivers` (`DriverLedger`, `DriverVault`, `Storage::from_documents`)
+  is the durable path, over whichever backend the host opened. `Storage::open`
+  takes `memory` only, and a setting that names a SQLite path or a `mongodb://`
+  URI is refused at parse time with the way forward.
+- **The module-owned `sqlite` schedule store backend** in `tinyflows-bus` /
+  `tinyflows-module`. `StoreBackend` is the document port only, and the
+  schedule `CONTRACT_VERSION` is 2.
+
+#### Added
+
+- **`tinyflows-drivers`:** `store::DriverWorkflowStore` (feature `store`), and
+  write-if-absent, id-preserving `import_*` methods on `FlowCatalogDocuments`
+  (flows, revisions, runs, state, suggestions, drafts), `CronDocuments` (jobs,
+  runs) and `DriverWorkflowStore` (workflows, revisions, runs, notes,
+  proposals).
+- **`tinyflows-import` (new, unpublished crate):** reads the retired stores and
+  writes them through those methods. `import_flow_catalog` (`flows.db` and
+  `drafts/`), `import_cron` (`jobs.db`), `import_sqlite_checkpoints`
+  (`checkpoints.db`), `import_file_checkpoints` (the JSONL files),
+  `import_file_state` (the hashed state files, for the keys named) and
+  `import_workflow_store` (definitions, runs, journal, proposals and revisions,
+  with `FileStoreLayout` deriving the old directory layout). SQLite files are
+  copied to a scratch directory and read through the SQLite driver's native
+  handle, so the originals are never opened, modified or given a `-wal`; nothing
+  already in the target is replaced; a flow-schedule cron job is filed under the
+  id the document store derives from its flow. Tested against fixtures written
+  by the retired writers.
+
+
 ### Added
 
 - **`tinyflows-adaptive` on a `tinystoragedrivers` document port

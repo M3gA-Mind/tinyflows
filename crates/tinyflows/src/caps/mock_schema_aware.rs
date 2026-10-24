@@ -22,8 +22,9 @@
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
-use crate::caps::{AgentRunner, LlmProvider};
+use crate::caps::{AgentRunner, Capabilities, LlmProvider, ToolInvoker};
 use crate::error::Result;
 
 /// An [`AgentRunner`] that respects an `agent` node's
@@ -124,6 +125,17 @@ impl AgentRunner for SchemaAwareMockAgentRunner {
 /// bindings — stay identical to today.
 #[derive(Debug, Default, Clone)]
 pub struct SchemaAwareMockLlm;
+
+/// Builds a deterministic sandbox bundle with the caller's preflight-only tool
+/// invoker and schema-aware behavior on both agent execution paths.
+#[must_use]
+pub fn sandbox_capabilities(tools: Arc<dyn ToolInvoker>) -> Capabilities {
+    let mut capabilities =
+        crate::caps::mock::mock_capabilities_with_agent(SchemaAwareMockAgentRunner);
+    capabilities.llm = Arc::new(SchemaAwareMockLlm);
+    capabilities.tools = tools;
+    capabilities
+}
 
 #[async_trait]
 impl LlmProvider for SchemaAwareMockLlm {

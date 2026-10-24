@@ -19,6 +19,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+/// The validate-and-migrate door every authored graph passes before persistence.
+pub mod authoring;
 /// The builder-facing dry-run report: null `tool_call` args (with the honest
 /// "unverifiable" variant), null agent prompts / input_context, hidden
 /// `tool_call` errors and routing divergence, in a pinned JSON shape. Gated with
@@ -54,7 +56,7 @@ pub mod graph_ops;
 /// `StepInterceptor` returns is obeyed. What breakpoints and output overrides
 /// are built on.
 pub mod interception;
-// Only the file-backed store, the process-backed capabilities, and the
+// Only the workflow store's ids, the process-backed capabilities, and the
 // testkit's debug sessions need unique scratch names, and all three are
 // optional.
 #[cfg(any(test, feature = "store", feature = "host-caps", feature = "testkit"))]
@@ -63,6 +65,8 @@ pub mod migrate;
 pub mod model;
 pub mod nodes;
 pub mod observability;
+/// Pure step-status and exporter-observation mappers for run observability.
+pub mod observe;
 pub mod postcondition;
 /// Proving a graph's outbound arguments can resolve, by running it against
 /// mocks before an author is allowed to save it.
@@ -72,8 +76,12 @@ pub mod postcondition;
 /// them.
 #[cfg(any(test, feature = "mock"))]
 pub mod preflight;
+/// Shared deterministic graph execution for dry-run surfaces.
+#[cfg(feature = "mock")]
+pub mod sandbox;
 /// Stored workflows and their run history: the durable model around a graph,
-/// and a file-backed store for it. Behind the `store` feature.
+/// the `WorkflowStore` contract and patch-based authoring. Behind the `store`
+/// feature; storage is the ports' (`tinyflows-drivers`), not this crate's.
 #[cfg(any(test, feature = "store"))]
 pub mod store;
 /// A one-line trigger description and a per-step config hint for a graph,
@@ -85,7 +93,11 @@ pub mod summary;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod transcript;
+/// Which trigger kinds fire on their own, and the warning for those that do not.
+pub mod triggers;
 pub mod validate;
+/// Author-time checks over a tool's published output schema.
+pub mod wiring;
 // Resolving an author-supplied working directory against the run's workspace —
 // the containment rule a shell step's `args.cwd` already obeyed, shared with the
 // `agent` and `sub_workflow` nodes so there is exactly one of them.

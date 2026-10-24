@@ -11,23 +11,23 @@ use tinyflows_schedule::{
     SessionTarget, next_run_for_schedule, schedule_cron_expression, validate_agent_schedule,
     validate_schedule,
 };
-use tinystoragedrivers_core::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
+use tinyflows_storage::{DocumentStoreExt, Filter, Query, Sort, Versioned, WriteResult};
 use uuid::Uuid;
 
 use super::codec::{
-    INCARNATION, created_at, doc_to_job, incarnation, job_to_doc, nanos, set_next_run, text,
+    INCARNATION, doc_to_job, incarnation, job_created_ms, job_to_doc, set_next_run, text,
 };
 use super::patch::apply_patch;
-use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, storage_error};
+use super::{CAS_ATTEMPTS, CronDocuments, JOBS, RUNS, job_not_found, new_id, storage_error};
 
 /// The document id of `flow_id`'s schedule job. Deterministic, so writing it
 /// only if absent makes registration idempotent across processes.
-fn flow_job_id(flow_id: &str) -> String {
+pub(super) fn flow_job_id(flow_id: &str) -> String {
     format!("flow:{flow_id}")
 }
 
 /// The document for a newly created `job`, with a fresh incarnation.
-fn new_job_doc(job: &CronJob) -> Result<Value> {
+pub(super) fn new_job_doc(job: &CronJob) -> Result<Value> {
     let mut doc = job_to_doc(job)?;
     doc[INCARNATION] = json!(Uuid::new_v4().to_string());
     Ok(doc)
@@ -39,6 +39,9 @@ fn updated_job_doc(job: &CronJob, previous: &Value) -> Result<Value> {
     if let Some(incarnation) = incarnation(previous) {
         doc[INCARNATION] = json!(incarnation);
     }
+    if let Some(created_ms) = previous.get("created_ms") {
+        doc["created_ms"] = created_ms.clone();
+    }
     Ok(doc)
 }
 
@@ -47,7 +50,7 @@ fn new_job(job_type: JobType, schedule: Schedule, now: DateTime<Utc>) -> Result<
     Ok(CronJob {
         claim_generation: 0,
         policy: Default::default(),
-        id: Uuid::new_v4().to_string(),
+        id: new_id(),
         expression: schedule_cron_expression(&schedule).unwrap_or_default(),
         next_run: next_run_for_schedule(&schedule, now)?,
         schedule,
@@ -73,13 +76,14 @@ impl CronDocuments {
     /// Writes a new job and reads it back.
     async fn insert(&self, job: &CronJob, what: &str) -> Result<CronJob> {
         self.ensure().await?;
+        super::fresh_millisecond().await;
         let doc = new_job_doc(job)?;
         for _ in 0..CAS_ATTEMPTS {
             match self
                 .commit_job(&job.id, None, Some(doc.clone()), vec![])
                 .await
             {
-                Ok(_) => return self.get_job(&job.id).await,
+                Ok(_) => return self.created(&job.id).await,
                 Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => {
                     return Err(error).with_context(|| format!("Failed to insert cron {what}"));
@@ -87,6 +91,13 @@ impl CronDocuments {
             }
         }
         anyhow::bail!("cron store: insertion kept changing")
+    }
+
+    /// Reads back a job this call just created, noting its creation time.
+    async fn created(&self, id: &str) -> Result<CronJob> {
+        let job = self.get_job(id).await?;
+        super::note_created(job.created_at);
+        Ok(job)
     }
 
     /// Adds an enabled shell job on a plain cron `expression` (see
@@ -219,6 +230,7 @@ impl CronDocuments {
         job.name = Some(format!("flow:{flow_id}"));
         job.command = flow_id.to_string();
         self.ensure().await?;
+        super::fresh_millisecond().await;
         let doc = new_job_doc(&job)?;
         for _ in 0..CAS_ATTEMPTS {
             if let Some(existing) = self.find_flow_schedule_job(flow_id).await? {
@@ -228,7 +240,7 @@ impl CronDocuments {
                 .commit_job(&job.id, None, Some(doc.clone()), vec![])
                 .await
             {
-                Ok(_) => return self.get_job(&job.id).await,
+                Ok(_) => return self.created(&job.id).await,
                 Err(error) if super::admission::conflict(&error) => {}
                 Err(error) => return Err(error).context("Failed to insert cron flow-schedule job"),
             }
@@ -252,7 +264,6 @@ impl CronDocuments {
         self.ensure().await?;
         let query = Query::all()
             .sort(Sort::asc("next_run_ms"))
-            .sort(Sort::asc("next_run_ns"))
             .sort(Sort::asc("_id"));
         self.docs
             .query_all(JOBS, &query)
@@ -265,14 +276,21 @@ impl CronDocuments {
 
     /// The job with `job_id`, or an error when there is none.
     pub async fn get_job(&self, job_id: &str) -> Result<CronJob> {
+        self.find_job(job_id)
+            .await?
+            .ok_or_else(|| job_not_found(job_id))
+    }
+
+    /// The job with `job_id`, or `None` when it is absent.
+    pub async fn find_job(&self, job_id: &str) -> Result<Option<CronJob>> {
         self.ensure().await?;
-        let stored = self
-            .docs
+        self.docs
             .get(JOBS, job_id)
             .await
             .map_err(storage_error)?
-            .ok_or_else(|| job_not_found(job_id))?;
-        doc_to_job(&stored)
+            .as_ref()
+            .map(doc_to_job)
+            .transpose()
     }
 
     /// Removes duplicate jobs sharing a `name`: per name, keeps the job with
@@ -303,7 +321,7 @@ impl CronDocuments {
                     .count(RUNS, &runs_of(&stored.id, &stored.doc))
                     .await
                     .map_err(storage_error)?;
-                let created = created_at(&stored.doc).unwrap_or(DateTime::<Utc>::MAX_UTC);
+                let created = job_created_ms(&stored.doc, stored.meta.created_ms)?;
                 ranked.push((std::cmp::Reverse(runs), created, stored.id.clone(), stored));
             }
             ranked.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
@@ -338,21 +356,13 @@ impl CronDocuments {
         excluded: &[String],
     ) -> Result<Vec<CronJob>> {
         self.ensure().await?;
-        // Due by milliseconds; nanoseconds only order jobs due within the
-        // current millisecond, so a nanosecond value saturated outside
-        // 1677–2262 never decides on its own. A document written before
-        // `next_run_ns` existed is due by its milliseconds alone.
-        let now_ms = now.timestamp_millis();
-        let same_ms = Filter::eq("next_run_ms", now_ms);
-        let due = Filter::lt("next_run_ms", now_ms).or(same_ms
-            .and(Filter::lte("next_run_ns", nanos(now)).or(Filter::exists("next_run_ns", false))));
-        let mut filter = Filter::eq("enabled", true).and(due);
+        let mut filter =
+            Filter::eq("enabled", true).and(Filter::lte("next_run_ms", now.timestamp_millis()));
         for id in excluded {
             filter = filter.and(Filter::ne("_id", id.as_str()));
         }
         let query = Query::filter(filter)
             .sort(Sort::asc("next_run_ms"))
-            .sort(Sort::asc("next_run_ns"))
             .sort(Sort::asc("_id"))
             .limit(self.max_tasks);
         let page = self.docs.query(JOBS, &query).await.map_err(storage_error)?;
@@ -373,18 +383,27 @@ impl CronDocuments {
                 .ok_or_else(|| job_not_found(job_id))?;
             let job = apply_patch(doc_to_job(&stored)?, patch.clone())?;
             let doc = updated_job_doc(&job, &stored.doc)?;
+            let invalidated_queued_run = super::claims::queued_run_cleanup(&stored.doc)?;
             match self
-                .commit_job(job_id, Some(&stored), Some(doc.clone()), vec![])
+                .commit_job(
+                    job_id,
+                    Some(&stored),
+                    Some(doc.clone()),
+                    invalidated_queued_run,
+                )
                 .await
             {
                 Ok(results) => {
                     let Some(WriteResult::Put { version }) = results.first() else {
                         anyhow::bail!("cron store: invalid atomic write result");
                     };
+                    // An edit invalidates the claims taken on the old shape.
+                    self.fence_claims(job_id, &stored.doc).await;
                     return doc_to_job(&Versioned {
                         id: job_id.to_string(),
                         version: *version,
                         doc,
+                        meta: stored.meta,
                     });
                 }
                 Err(error) if super::admission::conflict(&error) => {}

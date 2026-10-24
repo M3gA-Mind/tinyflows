@@ -20,12 +20,9 @@
 //! - [`GraphLatencyMetrics`] / [`GraphHealthSummary`] — rollups derived from a
 //!   run's observations: per-step/per-node timings, and per-node
 //!   success/failure counts (node-level **tool health** telemetry).
-//! - [`GraphLangfuseExporter`] — exports a run's observations to Langfuse,
-//!   turning supersteps and nodes into timed spans (failures promoted to
-//!   `ERROR`) and attaching the health summary to the trace. It shares the
-//!   harness [`LangfuseClient`](crate::harness::observability::LangfuseClient)
-//!   transport and defaults its `traceId` to the run's `root_run_id`, so a
-//!   graph run and the agent/tool runs its nodes spawn land under one trace.
+//! - Exporters can consume these records independently; this module keeps only
+//!   the journal, status, and derived health data and does not provide a
+//!   Langfuse exporter.
 //!
 //! [`CompiledGraph`](crate::graph::CompiledGraph) can be wired to write to a
 //! status store and a journal through its builder-style

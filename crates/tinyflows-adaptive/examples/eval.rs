@@ -43,7 +43,7 @@ use serde_json::{Value, json};
 use tinyflows::caps::mock::mock_capabilities;
 use tinyflows::caps::{Capabilities, LlmProvider};
 use tinyflows::error::Result as EngineResult;
-use tinyflows::store::{FileWorkflowStore, WorkflowStore};
+use tinyflows::store::WorkflowStore;
 use tinyflows_adaptive::contracts::{Budget, Goal};
 use tinyflows_adaptive::driver::{Clock, Loop};
 use tinyflows_adaptive::evals::{Episode, Experiment, Forgetful, LEARNING_OFF, LEARNING_ON};
@@ -172,20 +172,15 @@ impl Runner for Simulated {
     }
 }
 
-/// A workflow store under a scratch directory of its own.
-///
-/// Cleared on the way in rather than on the way out, so a run that panicked
-/// half way through does not quietly seed the next one — the treatment arm
-/// starting with a workflow it did not earn would fake the entire result.
-fn store(tag: &str) -> Arc<dyn WorkflowStore> {
-    let root = std::env::temp_dir().join(format!("adaptive-eval-{}-{tag}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("workflows")).expect("scratch dir");
-    Arc::new(FileWorkflowStore::new(
-        vec![root.join("workflows")],
-        root.join("runs"),
-    ))
+/// A workflow store of its own: a fresh in-memory backend per call, so one run
+/// never quietly seeds the next — the treatment arm starting with a workflow it
+/// did not earn would fake the entire result.
+fn store(_tag: &str) -> Arc<dyn WorkflowStore> {
+    driver_store::shared()
 }
+
+#[path = "../tests/support/driver_store.rs"]
+mod driver_store;
 
 /// Run one arm over the whole family, in order.
 ///

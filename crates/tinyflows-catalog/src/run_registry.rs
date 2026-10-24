@@ -15,6 +15,7 @@
 //! can never leave a stale token wedged in the map.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
@@ -30,7 +31,8 @@ static IN_FLIGHT: LazyLock<Mutex<HashMap<String, (u64, CancellationToken)>>> =
 
 /// Registers `run_id` as in-flight and returns both a clone of its
 /// cancellation token (to `select!` on) and a [`RunGuard`] that deregisters it
-/// on drop. Hold the guard for the whole run.
+/// on drop. Hold the guard for the whole run. Use [`try_register`] when the id
+/// is stable and a duplicate must not replace the existing cancellation owner.
 ///
 /// A duplicate `run_id` replaces the prior token, and each registration carries
 /// a unique id so a guard only ever removes the entry it installed.
@@ -70,6 +72,45 @@ pub fn register(run_id: &str) -> (CancellationToken, RunGuard) {
             registration,
         },
     )
+}
+
+/// Reserves `run_id` as in-flight only if no registration currently owns it.
+///
+/// This is the resume path for a durable run id: concurrent resume requests can
+/// both observe a parked row before either claims it in storage. The caller
+/// reserves the registry entry before its row compare-and-swap, so cancellation
+/// can always find the winning resume. A duplicate receives `None` and leaves
+/// the existing token and its RAII guard untouched.
+pub fn try_register(run_id: &str) -> Option<(CancellationToken, RunGuard)> {
+    let mut runs = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+    match runs.entry(run_id.to_string()) {
+        Entry::Occupied(_) => {
+            tracing::debug!(
+                target: "flows",
+                run_id,
+                "[flows] run_registry: duplicate reservation refused — existing run remains registered"
+            );
+            None
+        }
+        Entry::Vacant(entry) => {
+            let token = CancellationToken::new();
+            let registration = NEXT_REGISTRATION.fetch_add(1, Ordering::Relaxed);
+            entry.insert((registration, token.clone()));
+            tracing::debug!(
+                target: "flows",
+                run_id,
+                registration,
+                "[flows] run_registry: reserved in-flight run"
+            );
+            Some((
+                token,
+                RunGuard {
+                    run_id: run_id.to_string(),
+                    registration,
+                },
+            ))
+        }
+    }
 }
 
 /// Signals the in-flight run keyed by `run_id` to cancel, if one is registered.

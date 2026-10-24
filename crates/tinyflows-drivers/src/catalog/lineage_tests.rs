@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::json;
 use std::collections::HashMap;
-use tinystoragedrivers_core::Precondition;
+use tinyflows_storage::Precondition;
 
 use crate::catalog::test_support::{catalog, trigger_graph};
 use crate::catalog::{FlowCatalogDocuments, RUNS};
@@ -103,6 +103,58 @@ async fn a_recreated_flow_does_not_inherit_the_old_runs() {
             .await
             .unwrap()
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn a_recreated_flow_revision_number_excludes_late_old_incarnation_snapshots() {
+    let store = catalog();
+    let old = store
+        .create_flow("old".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    let docs = store.docs().await.unwrap();
+    let old_incarnation = docs
+        .get(crate::catalog::DEFINITIONS, &old.id)
+        .await
+        .unwrap()
+        .and_then(|stored| text(&stored.doc, INCARNATION).map(str::to_owned))
+        .unwrap();
+    store.remove_flow(&old.id).await.unwrap();
+    docs.put(
+        crate::catalog::REVISIONS,
+        "late-old-revision",
+        json!({
+            "flow_id": old.id,
+            "flow_incarnation": old_incarnation,
+            "graph_json": "{}",
+            "name": "Old incarnation",
+            "require_approval": false,
+            "created_at": "2026-01-01T00:00:00Z",
+        }),
+        Precondition::Absent,
+    )
+    .await
+    .unwrap();
+
+    let mut recreated = store
+        .create_flow("new".into(), trigger_graph(), false, true)
+        .await
+        .unwrap();
+    recreated.id = old.id.clone();
+    store.upsert_flow(&recreated).await.unwrap();
+
+    assert_eq!(
+        store.latest_revision_number(&old.id).await.unwrap(),
+        Some(1)
+    );
+    assert!(store.list_revisions(&old.id, 10).await.unwrap().is_empty());
+    assert!(
+        docs.get(crate::catalog::REVISIONS, "late-old-revision")
+            .await
+            .unwrap()
+            .is_none(),
+        "the count hides and reclaims a snapshot from the old incarnation"
     );
 }
 

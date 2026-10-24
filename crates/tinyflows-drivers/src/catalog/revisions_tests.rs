@@ -68,6 +68,10 @@ async fn a_stale_expected_version_is_a_conflict_carrying_the_current_flow() {
         FlowUpdateError::Conflict(current) => assert_eq!(current.name, "v1"),
         other => panic!("expected a conflict, got {other}"),
     }
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
     assert!(matches!(
         store
             .update_flow_graph(
@@ -231,6 +235,10 @@ async fn concurrent_updates_from_one_version_have_one_winner() {
         1,
         "losers leave no revision behind"
     );
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
 }
 
 #[tokio::test]
@@ -256,7 +264,7 @@ async fn a_corrupt_revision_is_an_error() {
     let docs = store.docs().await.unwrap();
     compare_and_swap(docs, REVISIONS, &revision.id, |doc| {
         let mut next = doc.clone();
-        next["graph_json"] = json!("{broken");
+        next["graph"] = json!("{broken");
         Some(next)
     })
     .await
@@ -285,11 +293,13 @@ async fn rapid_updates_always_advance_updated_at() {
             )
             .await
             .unwrap();
-        assert!(crate::catalog::instant_before(&seen, &updated.updated_at));
+        assert!(
+            crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&updated.updated_at)
+        );
         seen = updated.updated_at;
     }
     let toggled = store.set_enabled(&flow.id, false).await.unwrap();
-    assert!(crate::catalog::instant_before(&seen, &toggled.updated_at));
+    assert!(crate::catalog::instant_ms(&seen) < crate::catalog::instant_ms(&toggled.updated_at));
     let names: Vec<String> = store
         .list_revisions(&flow.id, 3)
         .await
@@ -313,12 +323,16 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
         REVISIONS,
         "orphan",
         json!({ "flow_id": flow.id, "graph_json": "{}", "name": "ghost",
-                "require_approval": false, "created_at": "2026-01-01T00:00:00Z",
+                "require_approval": false, "created_at": "2026-01-01T00:00:00.000+00:00",
                 "created_ns": 1, "pending": true }),
         Precondition::Absent,
     )
     .await
     .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(1)
+    );
     assert!(store.list_revisions(&flow.id, 10).await.unwrap().is_empty());
     assert!(
         store
@@ -342,6 +356,10 @@ async fn a_pending_revision_shows_only_once_its_update_lands() {
         .unwrap();
     let listed = store.list_revisions(&flow.id, 10).await.unwrap();
     assert_eq!(listed.len(), 1);
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
     assert_eq!(listed[0].name, "v1");
     assert!(
         docs.get(REVISIONS, "orphan").await.unwrap().is_none(),
@@ -369,6 +387,10 @@ async fn a_swapped_but_unconfirmed_revision_is_visible_and_then_confirmed() {
         .await
         .unwrap();
     let first = store.list_revisions(&flow.id, 1).await.unwrap().remove(0);
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
     // Simulate a crash between the swap and the confirmation.
     let docs = store.docs().await.unwrap();
     compare_and_swap(docs, REVISIONS, &first.id, |doc| {
@@ -387,6 +409,10 @@ async fn a_swapped_but_unconfirmed_revision_is_visible_and_then_confirmed() {
         .upsert_flow(&store.get_flow(&flow.id).await.unwrap().unwrap())
         .await
         .unwrap();
+    assert_eq!(
+        store.latest_revision_number(&flow.id).await.unwrap(),
+        Some(2)
+    );
     assert_eq!(
         store.list_revisions(&flow.id, 10).await.unwrap().len(),
         1,

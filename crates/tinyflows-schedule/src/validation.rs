@@ -25,6 +25,22 @@ pub fn parse_human_delay(input: &str) -> Result<chrono::Duration> {
     chrono::Duration::try_seconds(seconds).ok_or_else(|| anyhow::anyhow!("delay is too large"))
 }
 
+/// Default delivery for an agent job: back to its origin conversation, or the
+/// proactive in-app stream when there is none.
+pub fn default_delivery(origin: Option<&JobOrigin>) -> DeliveryConfig {
+    DeliveryConfig {
+        mode: if origin.is_some() {
+            delivery_mode::ORIGIN
+        } else {
+            delivery_mode::PROACTIVE
+        }
+        .to_string(),
+        channel: None,
+        to: None,
+        best_effort: true,
+    }
+}
+
 /// Reject origin delivery or a current-session target without a conversation snapshot.
 pub fn check_origin_requirements(
     target: &SessionTarget,
@@ -77,10 +93,10 @@ pub fn validate_delivery(
         reply_target,
         ..
     }) = origin
+        && channel.eq_ignore_ascii_case(original)
+        && to == reply_target
     {
-        if channel.eq_ignore_ascii_case(original) && to == reply_target {
-            return Ok(());
-        }
+        return Ok(());
     }
     if channel.eq_ignore_ascii_case("web") {
         return Ok(());

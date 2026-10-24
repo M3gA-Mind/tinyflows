@@ -64,3 +64,27 @@ fn the_owning_guard_still_deregisters_its_own_entry() {
     drop(guard);
     assert!(!is_in_flight(run_id));
 }
+
+/// A stable run id can be submitted to resume more than once. Only the first
+/// claimant may own its cancellation registration: a later claimant must be
+/// rejected rather than replacing the token of the resume that can win the
+/// durable row compare-and-swap.
+#[test]
+fn duplicate_resume_reservation_keeps_the_winning_run_cancellable() {
+    let run_id = "duplicate-resume-reservation-run";
+    let (winner_token, winner_guard) =
+        try_register(run_id).expect("first resume must reserve the run id");
+
+    // Models a second resume reaching registration before the first row CAS
+    // returns. It must lose at reservation time without changing the owner.
+    assert!(
+        try_register(run_id).is_none(),
+        "duplicate resume reservations must not replace the winning token"
+    );
+    assert!(is_in_flight(run_id));
+    assert!(cancel(run_id), "the winning resume must remain cancellable");
+    assert!(winner_token.is_cancelled());
+
+    drop(winner_guard);
+    assert!(!is_in_flight(run_id));
+}

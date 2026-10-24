@@ -1,0 +1,14 @@
+use super::*;
+
+#[path = "caps_tests/agent_protocol_tests.rs"]
+mod agent_protocol_tests;
+#[path = "caps_tests/callback_tests.rs"]
+mod callback_tests;
+#[path = "caps_tests/cancel_tests.rs"]
+mod cancel_tests;
+#[path = "caps_tests/scope_tests.rs"]
+mod scope_tests;
+#[path = "caps_tests/support.rs"]
+mod support;
+#[path = "caps_tests/tasks_tests.rs"]
+mod tasks_tests;

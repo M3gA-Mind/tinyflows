@@ -30,3 +30,9 @@ pub mod recall;
 pub mod reuse;
 pub mod storage;
 pub mod workflows;
+
+/// The workflow store the unit tests run against: the engine's trait on an
+/// in-memory storage backend.
+#[cfg(test)]
+#[path = "../tests/support/driver_store.rs"]
+mod driver_store;

@@ -15,4 +15,4 @@ else
     *) artifact="$target_directory/debug/libtinyflows_module.so" ;;
   esac
 fi
-TINYFLOWS_MODULE_ARTIFACT="$artifact" cargo test -p tinyflows-module --test module_artifact_tests -- --ignored
+TINYFLOWS_MODULE_ARTIFACT="$artifact" cargo test -p tinyflows-module --test module_artifact_tests -- --ignored --test-threads=1

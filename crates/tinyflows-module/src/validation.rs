@@ -4,7 +4,10 @@ use serde_json::Value;
 use tinyflows_bus::{GraphValidation, ValidationError};
 
 /// Migrates candidate JSON without dropping editor fields and locates validation failures.
-pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json::Error> {
+pub(crate) async fn validate_graph(
+    value: Value,
+    resolver: Option<&dyn tinyflows::caps::WorkflowResolver>,
+) -> Result<GraphValidation, serde_json::Error> {
     let migrated = tinyflows::migrate::migrate(value);
     let graph = match migrated
         .as_ref()
@@ -21,6 +24,9 @@ pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json
                     node_id: None,
                     field: None,
                 }],
+                warnings: Vec::new(),
+                summary: None,
+                has_actionable_nodes: None,
             });
         }
     };
@@ -44,9 +50,29 @@ pub(crate) fn validate_graph(value: Value) -> Result<GraphValidation, serde_json
             })
             .collect();
     }
+    if errors.is_empty()
+        && let Some(resolver) = resolver
+    {
+        errors = tinyflows::compat::referenced_workflow_errors_async(&graph, resolver)
+            .await
+            .into_iter()
+            .map(|message| ValidationError {
+                code: "incompatible_referenced_workflow".into(),
+                message,
+                node_id: None,
+                field: None,
+            })
+            .collect();
+    }
+    let warnings = tinyflows::triggers::graph_trigger_warnings(&graph);
+    let summary = tinyflows::summary::summarize(&graph);
+    let has_actionable_nodes = tinyflows_catalog::graph_policy::graph_has_actionable_nodes(&graph);
     Ok(GraphValidation {
         graph: migrated.ok(),
         errors,
+        warnings,
+        summary: Some(summary),
+        has_actionable_nodes: Some(has_actionable_nodes),
     })
 }
 

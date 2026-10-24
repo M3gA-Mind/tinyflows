@@ -13,10 +13,8 @@
 //! at superstep boundaries only — never mid-node — so resuming always reruns a
 //! node from its start.
 
-mod file;
 mod types;
 
-pub use file::FileCheckpointer;
 pub use types::{
     BarrierArrivals, Checkpoint, CheckpointConfig, CheckpointMetadata, CheckpointSource,
     CheckpointTuple, DurabilityMode, PendingActivation, PendingWrite, WRITES_IDX_ERROR,
@@ -238,12 +236,11 @@ where
     /// The default walks [`Checkpointer::get_tuple`] once per hop, so a backend
     /// whose scoped lookup re-reads the whole thread is O(H²) over the lineage.
     /// Every bundled backend overrides it to read the thread (or the
-    /// namespace's rows) once and walk the lineage in memory, so none of the
-    /// three is in that class: the JSONL backend parses its file once, and the
-    /// SQLite backend issues one indexed range query — the
-    /// `(thread_id, namespace, seq)` index is what makes the namespace scope
-    /// expressible in SQL at all, and without it that backend silently fell
-    /// back to this default. The observable result is identical to iterating
+    /// namespace's rows) once and walk the lineage in memory, so none is in
+    /// that class: a document or SQL backend issues one indexed range query on
+    /// `(thread, namespace, seq)` — the index is what makes the namespace scope
+    /// expressible at all, and without it a backend silently falls back to
+    /// this default. The observable result is identical to iterating
     /// `get_tuple` by parent pointer.
     ///
     /// The walk carries a **visited set**. `parent_checkpoint_id` is caller-set
@@ -252,8 +249,7 @@ where
     /// record at itself or at one of its descendants. With `limit == None` an
     /// unguarded walk then never terminates — it does not merely return a wrong
     /// answer, it hangs the caller. Revisiting an id ends the walk.
-    /// [`FileCheckpointer`] has always had this guard (its in-memory `remove`
-    /// doubles as one); this makes it uniform.
+    /// This makes the guard uniform across backends.
     async fn state_history(
         &self,
         thread_id: &str,
@@ -482,7 +478,6 @@ pub struct InMemoryCheckpointer<State> {
 type WriteKey = (String, Vec<String>, String);
 
 mod in_memory;
-pub(crate) use in_memory::require_checkpoint_id;
 
 #[cfg(test)]
 #[path = "checkpoint_tests.rs"]

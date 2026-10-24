@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn public_facade_reexports_channel_identity_types() {
+    let _: Option<crate::ChannelSessionIdentity> = None;
+    let _: Option<crate::ChannelConversationIdentity> = None;
+}
+
+#[test]
 fn delay_units_and_default_minutes_match_existing_jobs() {
     for (text, secs) in [
         ("5s", 5),
@@ -48,6 +54,7 @@ fn origin_requires_conversation_and_announce_can_reply_to_its_asker() {
         history_key: "conversation".into(),
         sender: None,
         thread_id: None,
+        session_identity: None,
     };
     assert!(validate_delivery(&delivery, Some(&origin), None).is_ok());
     let announce = DeliveryConfig {
@@ -57,4 +64,16 @@ fn origin_requires_conversation_and_announce_can_reply_to_its_asker() {
         best_effort: true,
     };
     assert!(validate_delivery(&announce, Some(&origin), Some(&["bob".into()])).is_ok());
+}
+
+#[test]
+fn default_delivery_targets_origin_only_when_one_exists() {
+    let origin = JobOrigin::Web {
+        thread_id: "t".into(),
+        agent_id: None,
+    };
+    let with = default_delivery(Some(&origin));
+    assert_eq!(with.mode, delivery_mode::ORIGIN);
+    assert!(with.best_effort && with.channel.is_none() && with.to.is_none());
+    assert_eq!(default_delivery(None).mode, delivery_mode::PROACTIVE);
 }

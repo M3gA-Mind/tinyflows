@@ -306,7 +306,7 @@ fn permissive() -> Arc<dyn HostPolicy> {
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     // ---- process scope: once, at boot -----------------------------------
-    // HOST: MongoLedger::connect / SqliteLedger::at_default_location, a real
+    // HOST: Storage::from_documents over the host's storage backend, a real
     // HTTP-backed LlmProvider, real HostFacts from the device's probe.
     let ledger_root = MemoryLedger::new();
     // The DEVICE's workflow store — the one durable home for workflows in

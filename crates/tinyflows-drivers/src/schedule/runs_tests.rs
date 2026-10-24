@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 use super::super::codec::incarnation;
 use super::super::test_support::{daily, store};
@@ -90,6 +91,7 @@ async fn an_unknown_delivery_status_reads_as_none() {
     let mut doc = run_to_doc(
         1,
         &job.id,
+        None,
         incarnation(&stored.doc),
         Utc::now(),
         Utc::now(),
@@ -147,7 +149,10 @@ async fn record_last_run_leaves_the_schedule_alone() {
     let read = store.get_job(&job.id).await.unwrap();
     assert_eq!(read.last_status.as_deref(), Some("error"));
     assert_eq!(read.last_output.as_deref(), Some("boom"));
-    assert_eq!(read.last_run, Some(at));
+    assert_eq!(
+        read.last_run.map(|at| at.timestamp_millis()),
+        Some(at.timestamp_millis())
+    );
     assert_eq!(read.next_run, job.next_run);
 }
 
@@ -304,6 +309,36 @@ async fn dedup_ties_go_to_the_earliest_created() {
 }
 
 #[tokio::test]
+async fn dedup_ranks_migrated_jobs_by_their_body_creation_time() {
+    let store = store();
+    let first = store
+        .add_shell_job(Some("imported-dup".into()), daily(), "a")
+        .await
+        .unwrap();
+    let second = store
+        .add_shell_job(Some("imported-dup".into()), daily(), "b")
+        .await
+        .unwrap();
+
+    // Migration/import chronology lives in the body while backend metadata
+    // reflects when these records were inserted.
+    for (id, created_ms) in [(&first.id, 2_000_i64), (&second.id, 1_000_i64)] {
+        let stored = store.docs.get(JOBS, id).await.unwrap().unwrap();
+        let mut doc = stored.doc.as_object().cloned().unwrap();
+        doc.insert("created_ms".into(), json!(created_ms));
+        store
+            .docs
+            .put(JOBS, id, Value::Object(doc), stored.unchanged())
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(store.dedup_named_jobs().await.unwrap(), 1);
+    assert_eq!(store.get_job(&second.id).await.unwrap().id, second.id);
+    assert!(store.get_job(&first.id).await.is_err());
+}
+
+#[tokio::test]
 async fn a_run_for_a_missing_job_is_refused() {
     let store = store();
     let now = Utc::now();
@@ -338,6 +373,7 @@ async fn a_reused_flow_job_id_does_not_inherit_old_runs() {
             run_to_doc(
                 999,
                 &first.id,
+                None,
                 incarnation(&old.doc),
                 now,
                 now,
@@ -387,12 +423,12 @@ async fn an_edited_schedule_with_the_same_next_run_is_not_advanced() {
 }
 
 #[tokio::test]
-async fn runs_started_within_a_millisecond_order_by_their_real_start() {
+async fn runs_started_within_a_millisecond_order_by_run_number() {
     let store = store().with_limits(1, 64);
     let job = store.add_job("0 9 * * *", "x").await.unwrap();
     let earlier: DateTime<Utc> = "2026-01-01T00:00:00.000100Z".parse().unwrap();
     let later: DateTime<Utc> = "2026-01-01T00:00:00.000900Z".parse().unwrap();
-    // The later start is recorded first, as a run finishing sooner would be.
+    // Within one millisecond the later-recorded run is the newer one.
     store
         .record_run(&job.id, later, later, "later", None, 1)
         .await
@@ -403,7 +439,10 @@ async fn runs_started_within_a_millisecond_order_by_their_real_start() {
         .unwrap();
     let runs = store.list_runs(&job.id, 10).await.unwrap();
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].status, "later", "pruning keeps the latest start");
+    assert_eq!(
+        runs[0].status, "earlier",
+        "pruning keeps the newest run number"
+    );
 }
 
 #[tokio::test]

@@ -5,9 +5,9 @@
 //! none of it, so the crate never hard-codes a vendor. That rule is about
 //! *policy* — which model, which tools, which network, which sandbox — and it
 //! stands. But several capabilities have no vendor in them at all: writing a
-//! script to a temporary file and reading its stdout, keying JSON documents onto
-//! disk, refusing a URL that resolves into a private range. Every host that runs
-//! outside a sandbox needs those, and each one that wrote them itself wrote the
+//! script to a temporary file and reading its stdout, refusing a URL that
+//! resolves into a private range. Every host that runs outside a sandbox needs
+//! those, and each one that wrote them itself wrote the
 //! same subtle parts again: the stdin/stdout deadlock, the DNS-rebinding window
 //! between vetting a name and connecting to it, the traversal check that has to
 //! canonicalize because a symlink inside the workspace can still point out of
@@ -27,7 +27,6 @@
 //! - [`script_policy`] — which files a script step may read and run in.
 //! - [`code`] — [`CodeRunner`] for `code` nodes: refusing, or executing.
 //! - [`shell`] — [`ShellRunner`] for `shell` nodes, over the same runner.
-//! - [`state`] — [`StateStore`](crate::caps::StateStore) over files.
 //! - [`http`] — [`HttpClient`](crate::caps::HttpClient) behind a host allowlist.
 //! - [`mocks`] — schema-aware stand-ins for validating a graph by simulation.
 //!
@@ -40,7 +39,6 @@ pub mod mocks;
 pub mod script;
 pub mod script_policy;
 pub mod shell;
-pub mod state;
 
 pub use self::code::{DeniedCodeRunner, ProcessCodeRunner};
 pub use self::http::{
@@ -49,9 +47,10 @@ pub use self::http::{
 };
 pub use self::mocks::{SchemaAwareMockAgentRunner, SchemaAwareMockLlm, sample_for_schema};
 pub use self::script::{
-    DEFAULT_SHELL, INPUT_ENV, Interpreter, ScriptCompletion, ScriptLanguage, ScriptOutput,
-    ScriptRequest, ScriptSource, USER_SHELL, run_script, run_script_capture,
+    DEFAULT_SHELL, DirectSpawner, INPUT_ENV, Interpreter, ScriptCompletion, ScriptLanguage,
+    ScriptOutput, ScriptRequest, ScriptSource, ScriptSpawner, SpawnOutput, SpawnSpec, USER_SHELL,
+    clear_script_spawner, install_script_spawner, require_script_spawner, run_script,
+    run_script_capture,
 };
 pub use self::script_policy::{ScriptPolicy, is_valid_env_name, read_env};
 pub use self::shell::ProcessShellRunner;
-pub use self::state::FileStateStore;

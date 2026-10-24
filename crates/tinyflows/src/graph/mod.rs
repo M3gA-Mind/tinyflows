@@ -38,8 +38,8 @@ pub use channel::{
 };
 pub use checkpoint::{
     BarrierArrivals, Checkpoint, CheckpointConfig, CheckpointMetadata, CheckpointSource,
-    CheckpointTuple, Checkpointer, DurabilityMode, FileCheckpointer, InMemoryCheckpointer,
-    PendingActivation, PendingWrite,
+    CheckpointTuple, Checkpointer, DurabilityMode, InMemoryCheckpointer, PendingActivation,
+    PendingWrite,
 };
 pub use command::{Command, Interrupt, NodeResult, RouteTarget, Send};
 pub use compiled::{CompiledGraph, GraphExecution, GraphInput, ResumeTarget, StateSnapshot};

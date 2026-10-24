@@ -18,7 +18,8 @@
 //!
 //! # What this is not
 //!
-//! Not a sandbox. The child inherits this process's environment and privileges,
+//! Not a sandbox by itself. A host installs a [`ScriptSpawner`] to run scripts
+//! inside its own jail; see [`install_script_spawner`]. By default the child inherits this process's environment and privileges,
 //! and the only boundary is a temporary working directory, which is not one.
 //! What *is* checked, at the boundary above this one, is where a script may come
 //! from and where it may run: see [`super::script_policy`]. A host decides
@@ -344,7 +345,12 @@ pub struct ScriptCompletion {
 }
 
 mod runner;
+mod spawner;
 pub use runner::{run_script, run_script_capture};
+pub use spawner::{
+    DirectSpawner, ScriptSpawner, SpawnOutput, SpawnSpec, clear_script_spawner,
+    install_script_spawner, require_script_spawner,
+};
 
 #[cfg(test)]
 #[path = "script_tests.rs"]

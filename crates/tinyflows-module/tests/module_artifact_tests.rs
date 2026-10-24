@@ -1,14 +1,42 @@
+#[path = "support/authoring_contract_calls.rs"]
+mod authoring_contract_calls;
+#[path = "support/authoring_surface_artifact.rs"]
+mod authoring_surface_artifact;
 #[path = "support/schedule_artifact_callbacks.rs"]
 mod callbacks;
+#[path = "support/catalog_legacy_import_artifact_tests.rs"]
+mod catalog_legacy_import_artifact_tests;
+#[path = "support/copilot_artifact.rs"]
+mod copilot_artifact;
 #[path = "support/document_callbacks.rs"]
 mod document_callbacks;
+#[path = "support/manual_worker_artifact_tests.rs"]
+mod manual_worker_artifact_tests;
+#[path = "support/portability_artifact_tests.rs"]
+mod portability_artifact;
+#[path = "support/run_artifact_tests.rs"]
+mod run_artifact_tests;
+#[path = "support/schedule_v4_artifact.rs"]
+mod schedule_v4_artifact;
+#[path = "support/schedule_v4_delivery_artifact.rs"]
+mod schedule_v4_delivery_artifact;
+#[path = "support/schedule_v4_manual_artifact.rs"]
+mod schedule_v4_manual_artifact;
+#[path = "support/schedule_v4_recovery_artifact.rs"]
+mod schedule_v4_recovery_artifact;
+#[path = "support/scheduler_stop_artifact_tests.rs"]
+mod scheduler_stop_artifact_tests;
+#[path = "support/storage_migration_artifact_tests.rs"]
+mod storage_migration_artifact_tests;
+#[path = "support/wiring_warning_artifact.rs"]
+mod wiring_warning_artifact;
 use serde_json::json;
 use std::sync::Arc;
 use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryTransport;
-use tinyflows_bus::{BUS_NAME, GraphValidation, INTERFACE, METHODS, OBJECT_PATH, methods};
+use tinyflows_bus::{BUS_NAME, INTERFACE, METHODS};
 
 struct HostCallback;
 
@@ -28,11 +56,32 @@ impl HostCallback {
             vec![]
         })
     }
+    async fn lookup_tool_contract(
+        &self,
+        slug: String,
+    ) -> tinybus::Result<Option<tinyflows_bus::ToolContract>> {
+        Ok(
+            (slug == "provider:issues").then(|| tinyflows_bus::ToolContract {
+                output_fields: vec!["issues".into()],
+                output_schema: Some(json!({"type":"object"})),
+                primary_array_path: Some("data.issues".into()),
+                envelope_prefix: Some("data".into()),
+                metadata_fields: vec!["request_id".into()],
+            }),
+        )
+    }
 }
 
 #[tokio::test]
 #[ignore = "run through scripts/verify-module-artifact.sh"]
 async fn compiled_module_serves_validation_without_linking_engine_into_client() {
+    assert_eq!(tinyflows_bus::CONTRACT_VERSION, 4);
+    assert_eq!(tinyflows_bus::catalog::CONTRACT_VERSION, 6);
+    assert_eq!(tinyflows_bus::runs::CONTRACT_VERSION, 6);
+    assert_eq!(tinyflows_bus::portability::CONTRACT_VERSION, 4);
+    assert_eq!(tinyflows_bus::schedule::CONTRACT_VERSION, 8);
+    assert_eq!(tinyflows_bus::runs::CAPS_CONTRACT_VERSION, 2);
+    assert_eq!(tinyflows_bus::runs::CAPS_METHODS.len(), 20);
     let artifact = std::env::var_os("TINYFLOWS_MODULE_ARTIFACT")
         .expect("set TINYFLOWS_MODULE_ARTIFACT to the built cdylib");
     let broker = Broker::new();
@@ -45,6 +94,84 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             .any(|dependency| dependency.optional
                 && dependency.interface.interface.as_str() == tinyflows_bus::HOST_INTERFACE)
     );
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str() == tinyflows_bus::catalog::STORAGE_INTERFACE
+    }));
+    let copilot_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::copilot::INTERFACE)
+        .expect("copilot interface is provided by the compiled module");
+    let actual_copilot_methods: Vec<String> = copilot_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let expected_copilot_methods: Vec<String> = tinyflows_bus::copilot::METHODS
+        .iter()
+        .map(|method| method.to_string())
+        .collect();
+    assert_eq!(actual_copilot_methods, expected_copilot_methods);
+    let portability_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| {
+            provided.version.interface.as_str() == tinyflows_bus::portability::INTERFACE
+        })
+        .expect("portability interface is provided by the compiled module");
+    let mut actual_portability: Vec<_> = portability_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut expected_portability: Vec<_> = tinyflows_bus::portability::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
+    actual_portability.sort();
+    expected_portability.sort();
+    assert_eq!(actual_portability, expected_portability);
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str()
+                == tinyflows_bus::catalog::DRAFT_PROMOTION_HOST_INTERFACE
+    }));
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str()
+                == tinyflows_bus::catalog::APPROVAL_MANIFEST_HOST_INTERFACE
+    }));
+    assert!(info.manifest.requires.iter().any(|dependency| {
+        dependency.optional
+            && dependency.interface.interface.as_str() == tinyflows_bus::runs::CAPS_INTERFACE
+            && dependency.interface.speaks
+                == tinybus::Version::new(
+                    u64::from(tinyflows_bus::runs::CAPS_CONTRACT_VERSION),
+                    0,
+                    0,
+                )
+    }));
+    let runs_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::runs::INTERFACE)
+        .expect("run-control interface is provided");
+    let mut actual: Vec<_> = runs_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut expected: Vec<_> = tinyflows_bus::runs::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
     let provided = info
         .manifest
         .provides
@@ -53,6 +180,25 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     let mut actual: Vec<_> = provided.methods.iter().map(ToString::to_string).collect();
     let mut expected: Vec<_> = METHODS.iter().map(|member| member.to_string()).collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+
+    let catalog_interface = info
+        .manifest
+        .provides
+        .iter()
+        .find(|provided| provided.version.interface.as_str() == tinyflows_bus::catalog::INTERFACE)
+        .unwrap();
+    let mut actual: Vec<_> = catalog_interface
+        .methods
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut expected: Vec<_> = tinyflows_bus::catalog::METHODS
+        .iter()
+        .map(|member| member.to_string())
+        .collect();
     actual.sort();
     expected.sort();
     assert_eq!(actual, expected);
@@ -110,7 +256,7 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             destination: "test.ScheduleCallbacks".into(),
             object_path: "/test/ScheduleCallbacks".into(),
         },
-        config: json!({}),
+        config: json!({"now": "2027-01-01T00:00:00Z"}),
         manual_ticks: true,
         storage: None,
     };
@@ -133,6 +279,12 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(*state.triggers.lock().unwrap(), ["artifact-flow"]);
     assert_eq!(state.records.lock().unwrap()[0]["status"], "ok");
+    for field in ["started_at", "finished_at"] {
+        assert_eq!(
+            state.records.lock().unwrap()[0][field],
+            "2027-01-01T00:00:00Z"
+        );
+    }
     assert_eq!(state.completions.lock().unwrap()[0]["disable"], true);
 
     assert_eq!(
@@ -205,27 +357,13 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
             .any(|flow| flow == "later-flow")
     );
 
-    // Persist through the actual cdylib for both backend selections. The host
-    // forwards document I/O only; schema, policy and schedule behavior is module-owned.
-    let directory = tempfile::tempdir().unwrap();
-    let sqlite = json!({"backend":{"kind":"sqlite","path":directory.path().join("jobs.db")}});
-    let created: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":sqlite,"operation":{"op":"add_shell","name":"compiled-seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seed"}}),)).await.unwrap();
-    let listed: serde_json::Value = schedule_proxy
-        .call(
-            "ScheduleStore",
-            (json!({"storage":sqlite,"operation":{"op":"list"}}),),
-        )
-        .await
+    // Persist through the actual cdylib. The host forwards document I/O only;
+    // schema, policy and schedule behavior is module-owned.
+    use tinyflows_storage::{Scope, StorageBackend};
+    use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new("local").expect("valid scope"))
         .unwrap();
-    assert_eq!(listed[0]["id"], created["id"]);
-    assert!(
-        created.get("claim_generation").is_none(),
-        "unclaimed jobs preserve the legacy wire bytes"
-    );
-    assert!(listed[0].get("claim_generation").is_none());
-
-    use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
-    let scoped = MemoryStorage::new().for_scope(&Scope::local()).unwrap();
     let docs = scoped.documents().clone();
     let conflict_once = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let atomic_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -241,6 +379,29 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     let storage = json!({"backend":{"kind":"documents","callback":{"destination":"test.ScheduleCallbacks","object_path":"/test/Documents"}}});
+    // Unclaimed jobs preserve the legacy wire bytes, and a job added through the
+    // compiled module reads back by id.
+    let created: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_shell","name":"compiled-seed","schedule":{"kind":"every","every_ms":60000},"command":"echo seed"}}),)).await.unwrap();
+    let listed: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"list"}}),),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed[0]["id"], created["id"]);
+    assert!(
+        created.get("claim_generation").is_none(),
+        "unclaimed jobs preserve the legacy wire bytes"
+    );
+    assert!(listed[0].get("claim_generation").is_none());
+    let _: serde_json::Value = schedule_proxy
+        .call(
+            "ScheduleStore",
+            (json!({"storage":storage,"operation":{"op":"remove","job_id":created["id"]}}),),
+        )
+        .await
+        .unwrap();
     // Admission retries a real transaction conflict without creating a second job.
     let flow: serde_json::Value = schedule_proxy.call("ScheduleStore", (json!({"storage":storage,"operation":{"op":"add_flow","flow_id":"stored-flow","schedule":{"kind":"every","every_ms":60000}}}),)).await.unwrap();
     assert!(!conflict_once.load(std::sync::atomic::Ordering::SeqCst));
@@ -254,11 +415,11 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .unwrap();
     assert_eq!(listed.as_array().unwrap().len(), 1);
     let id = flow["id"].as_str().unwrap();
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
     let mut body = stored.doc.clone();
-    body["next_run_ms"] = json!(0);
-    body["next_run_ns"] = json!(0);
-    docs.put("cron_jobs", id, body, stored.unchanged())
+    let due_at = chrono::Utc::now() - chrono::Duration::minutes(1);
+    body["next_run_ms"] = json!(due_at.timestamp_millis());
+    docs.put("cron.jobs", id, body, stored.unchanged())
         .await
         .unwrap();
     let request = tinyflows_bus::schedule::StartScheduler {
@@ -296,122 +457,23 @@ async fn compiled_module_serves_validation_without_linking_engine_into_client() 
         .await
         .unwrap();
     assert_eq!(history[0]["status"], "ok");
-    let stored = docs.get("cron_jobs", id).await.unwrap().unwrap();
-    assert_eq!(
-        stored.doc["claim_generation"], 1,
-        "compiled scheduler must durably advance the claim generation"
+    let stored = docs.get("cron.jobs", id).await.unwrap().unwrap();
+    assert!(
+        stored.doc["next_run_ms"].as_i64().unwrap() > due_at.timestamp_millis(),
+        "compiled scheduler advances the occurrence only at terminal completion"
     );
+    assert!(stored.doc.get("occurrence_lease").is_none());
     assert_eq!(
         *state.triggers.lock().unwrap(),
         ["artifact-flow", "stored-flow"]
     );
+    schedule_v4_artifact::verify_captured_triggers(&state, id);
     assert_eq!(
         state.records.lock().unwrap().len(),
         1,
         "configured storage bypasses the host cron-store callback"
     );
 
-    let proxy = connection.proxy(BUS_NAME, OBJECT_PATH, INTERFACE).unwrap();
-    connection
-        .serve_at("/authoring_host".try_into().unwrap(), HostCallback)
-        .await
-        .unwrap();
-    connection
-        .request_name("test.ArtifactAuthoringHost")
-        .await
-        .unwrap();
-    let failures: Vec<String> = proxy
-        .call(
-            methods::BUILDER_FAILURES,
-            (
-                json!({"nodes":[{"id":"start", "name":"Start", "kind":"trigger"}], "edges":[]}),
-                tinyflows_bus::AuthoringHost {
-                    bus_name: "test.ArtifactAuthoringHost".into(),
-                    object_path: "/authoring_host".into(),
-                },
-                Vec::<String>::new(),
-            ),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures, ["artifact callback refused account"]);
-
-    let report: GraphValidation = proxy
-        .call(
-            methods::VALIDATE_GRAPH,
-            (json!({
-                "nodes": [{"id":"start", "name":"Start", "kind":"trigger", "config":{}}],
-                "edges": []
-            }),),
-        )
-        .await
-        .unwrap();
-    assert!(report.is_valid(), "{:?}", report.errors);
-    let graph = report.graph.unwrap();
-    assert!(graph["schema_version"].as_u64().unwrap() > 0);
-    let failures: Vec<String> = proxy
-        .call(methods::BINDING_FAILURES, (graph,))
-        .await
-        .unwrap();
-    assert_eq!(failures, Vec::<String>::new());
-
-    let failures: Vec<String> = proxy
-        .call(
-            methods::BINDING_FAILURES,
-            (json!({
-                "nodes": [
-                    {"id":"fetch", "name":"Fetch", "kind":"agent",
-                     "config":{"prompt":"Fetch the title"}},
-                    {"id":"notify", "name":"Notify", "kind":"tool_call",
-                     "config":{"slug":"demo:echo",
-                               "args":{"text":"=nodes.fetch.item.title"}}},
-                    {"id":"code", "name":"Code", "kind":"code",
-                     "config":{"language":"shell"}}
-                ],
-                "edges": []
-            }),),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("=nodes.fetch.item.json.title"));
-
-    let failures: Vec<String> = proxy
-        .call(
-            methods::AUTHORING_FAILURES,
-            (json!({
-                "nodes":[{"id":"code", "name":"Code", "kind":"code",
-                          "config":{"language":"shell"}}], "edges":[]
-            }),),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("language"));
-
-    let graph = json!({"nodes":[
-        {"id":"t", "name":"Trigger", "kind":"trigger", "config":{}},
-        {"id":"shape", "name":"Shape", "kind":"transform",
-         "config":{"set":{"subject":{}}}},
-        {"id":"send", "name":"Send", "kind":"tool_call",
-         "config":{"slug":"host:send", "args":{"subject":"=nodes.shape.item.subject.missing"}}}
-    ], "edges":[{"from_node":"t", "to_node":"shape"},
-                 {"from_node":"shape", "to_node":"send"}]});
-    let failures: Vec<String> = proxy
-        .call(
-            methods::UNRESOLVABLE_TOOL_ARGS,
-            (graph.clone(), Vec::<String>::new()),
-        )
-        .await
-        .unwrap();
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(failures[0].contains("subject"));
-    let failures: Vec<String> = proxy
-        .call(
-            methods::UNRESOLVABLE_TOOL_ARGS,
-            (graph, vec!["host:".to_owned()]),
-        )
-        .await
-        .unwrap();
-    assert!(failures.is_empty(), "{failures:?}");
+    authoring_surface_artifact::verify(&connection).await;
+    schedule_v4_artifact::verify(&schedule_proxy, docs, storage, state).await;
 }

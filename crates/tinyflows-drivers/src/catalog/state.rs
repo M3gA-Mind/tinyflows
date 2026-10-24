@@ -8,11 +8,11 @@ use serde_json::Value;
 use tinyflows::caps::StateStore;
 use tinyflows::error::{EngineError, Result};
 use tinyflows::nodes::control_flow::dedup_settle::DedupKv;
-use tinystoragedrivers_core::Blocking;
+use tinyflows_storage::Blocking;
 
 use super::FlowCatalogDocuments;
 
-/// The document-port counterpart of `tinyflows_sqlite::flows::SqliteStateStore`:
+/// One flow's state:
 /// state scoped to one namespace (a host passes one per flow), over the same
 /// `flows_kv` documents as [`FlowCatalogDocuments::kv_get`] /
 /// [`FlowCatalogDocuments::kv_set`] / [`FlowCatalogDocuments::kv_delete`].
@@ -43,6 +43,17 @@ fn shared_bridge() -> std::result::Result<&'static Blocking, String> {
 }
 
 impl FlowStateDocuments {
+    /// Opens namespaced state after proving its catalog collections are
+    /// available. Failed storage setup is returned to the caller so it cannot
+    /// silently select a process-local or unscoped fallback.
+    pub async fn open(
+        catalog: FlowCatalogDocuments,
+        namespace: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        catalog.ensure().await?;
+        Ok(Self::new(catalog, namespace))
+    }
+
     /// State in `namespace` of `catalog`, its synchronous calls on the
     /// process-wide bridge.
     pub fn new(catalog: FlowCatalogDocuments, namespace: impl Into<String>) -> Self {

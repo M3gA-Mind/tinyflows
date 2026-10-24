@@ -2,16 +2,24 @@
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tinystoragedrivers_core::{Filter, Precondition, Query, Sort};
+use tinyflows_storage::{Filter, Precondition, Query, Sort};
+
+/// A document id for `parts`, as a ledger error.
+fn key(parts: &[&str]) -> Result<String> {
+    make_key(parts).map_err(backend)
+}
 
 use super::{
-    DriverLedger, EPISODES, EVIDENCE, LESSONS, ROWS, SCORES, STEPS, VARIANTS, backend, counter,
-    encode, kind_str, record,
+    DriverLedger, EPISODES, EVIDENCE, LESSONS, ROWS, SCORES, STEPS, VARIANTS, backend, corrupt,
+    counter, decode, kind_str, put_doc,
 };
-use crate::drivers::{CAS_ATTEMPTS, is_race, key};
+use crate::drivers::convert::{
+    episode_body, episode_from, lesson_body, object, row_body, step_body, step_from,
+};
+use crate::drivers::{CAS_ATTEMPTS, is_race, key as make_key};
 use crate::execute::StepRecord;
 use crate::ledger::{
-    Episode, EpisodeStatus, Ledger, LedgerError, LedgerRow, Lesson, LessonKind, Page, Result, Score,
+    Episode, Ledger, LedgerError, LedgerRow, Lesson, LessonKind, Page, Result, Score,
 };
 
 #[async_trait]
@@ -22,16 +30,10 @@ impl Ledger for DriverLedger {
 
     async fn append(&self, row: &LedgerRow) -> Result<String> {
         self.declared().await?;
-        let seq = self.next_seq(ROWS).await?;
+        let seq = self.next_seq("adaptive_rows").await?;
         let id = format!("ldg_{seq:08}");
-        let doc = json!({
-            "episode": row.episode,
-            "scope_key": self.bucket(),
-            "seq": seq,
-            "record": encode(row)?,
-        });
-        self.docs
-            .put(ROWS, &id, doc, Precondition::Absent)
+        let doc = row_body(object(row).map_err(corrupt)?, self.bucket(), seq);
+        put_doc(self.docs.as_ref(), ROWS, &id, doc, Precondition::Absent)
             .await
             .map_err(backend)?;
         Ok(id)
@@ -52,30 +54,22 @@ impl Ledger for DriverLedger {
 
     async fn promote(&self, lesson: &Lesson, cites: &[String]) -> Result<String> {
         self.declared().await?;
-        let seq = self.next_seq(LESSONS).await?;
+        let seq = self.next_seq("adaptive_lessons").await?;
         let id = format!("les_{seq:08}");
-        let doc = json!({
-            "kind": kind_str(lesson.kind),
-            // The handle's scope, never the argument's.
-            "scope_key": self.bucket(),
-            "seq": seq,
-            "applied": lesson.applied,
-            "helped": lesson.helped,
-            "record": encode(lesson)?,
-        });
+        // The handle's scope, never the argument's.
+        let doc = lesson_body(object(lesson).map_err(corrupt)?, self.bucket(), seq);
         // Citation edges first, the lesson last: edges without a lesson are
         // invisible, so a failure part-way never publishes a lesson with
         // incomplete evidence (a retry mints a fresh id).
         for row_id in cites {
             self.insert_once(
                 EVIDENCE,
-                &key(&[&id, row_id]),
+                &key(&[&id, row_id])?,
                 json!({ "lesson_id": id, "row_id": row_id }),
             )
             .await?;
         }
-        self.docs
-            .put(LESSONS, &id, doc, Precondition::Absent)
+        put_doc(self.docs.as_ref(), LESSONS, &id, doc, Precondition::Absent)
             .await
             .map_err(backend)?;
         Ok(id)
@@ -112,7 +106,7 @@ impl Ledger for DriverLedger {
         }
         let query = Query::filter(
             self.visible()
-                .and(Filter::one_of(tinystoragedrivers_core::ID_FIELD, cited)),
+                .and(Filter::one_of(tinyflows_storage::ID_FIELD, cited)),
         )
         .sort(Sort::asc("seq"));
         self.all(ROWS, query)
@@ -148,7 +142,7 @@ impl Ledger for DriverLedger {
         });
         self.bump(
             SCORES,
-            &key(&[self.bucket(), workflow_id]),
+            &key(&[self.bucket(), workflow_id])?,
             helped,
             Some(fresh),
             |_| true,
@@ -160,7 +154,7 @@ impl Ledger for DriverLedger {
         self.declared().await?;
         let found = self
             .docs
-            .get(SCORES, &key(&[self.bucket(), workflow_id]))
+            .get(SCORES, &key(&[self.bucket(), workflow_id])?)
             .await
             .map_err(backend)?;
         Ok(found.map_or_else(Score::default, |stored| Score {
@@ -173,7 +167,7 @@ impl Ledger for DriverLedger {
         self.declared().await?;
         self.insert_once(
             VARIANTS,
-            &key(&[self.bucket(), variant]),
+            &key(&[self.bucket(), variant])?,
             json!({ "scope_key": self.bucket(), "variant": variant, "parent": parent }),
         )
         .await
@@ -183,7 +177,7 @@ impl Ledger for DriverLedger {
         self.declared().await?;
         let found = self
             .docs
-            .get(VARIANTS, &key(&[self.bucket(), id]))
+            .get(VARIANTS, &key(&[self.bucket(), id])?)
             .await
             .map_err(backend)?;
         Ok(found
@@ -217,7 +211,7 @@ impl Ledger for DriverLedger {
 
     async fn save_episode(&self, episode: &Episode) -> Result<()> {
         self.declared().await?;
-        let id = key(&[self.bucket(), &episode.id]);
+        let id = key(&[self.bucket(), &episode.id])?;
         for _ in 0..CAS_ATTEMPTS {
             let current = self.docs.get(EPISODES, &id).await.map_err(backend)?;
             let mut stored = Episode {
@@ -229,20 +223,14 @@ impl Ledger for DriverLedger {
                     // `started_at` is a fact about creation, not progress, so
                     // an update leaves it alone — matching mongo's
                     // `$setOnInsert`.
-                    let existing: Episode = record(found)?;
+                    let existing: Episode = decode(found, episode_from)?;
                     stored.started_at = existing.started_at;
                     found.unchanged()
                 }
                 None => Precondition::Absent,
             };
-            let doc = json!({
-                "scope_key": self.bucket(),
-                "episode_id": stored.id,
-                "updated_at": stored.updated_at,
-                "running": stored.status == EpisodeStatus::Running,
-                "record": encode(&stored)?,
-            });
-            match self.docs.put(EPISODES, &id, doc, precondition).await {
+            let doc = episode_body(object(&stored).map_err(corrupt)?, self.bucket());
+            match put_doc(self.docs.as_ref(), EPISODES, &id, doc, precondition).await {
                 Ok(_) => return Ok(()),
                 Err(error) if is_race(&error) => {}
                 Err(error) => return Err(backend(error)),
@@ -257,11 +245,11 @@ impl Ledger for DriverLedger {
     async fn episode(&self, id: &str) -> Result<Option<Episode>> {
         self.declared().await?;
         self.docs
-            .get(EPISODES, &key(&[self.bucket(), id]))
+            .get(EPISODES, &key(&[self.bucket(), id])?)
             .await
             .map_err(backend)?
             .as_ref()
-            .map(record)
+            .map(|stored| decode(stored, episode_from))
             .transpose()
     }
 
@@ -273,13 +261,13 @@ impl Ledger for DriverLedger {
         }
         // Newest first, ids breaking ties — the order `Page` documents.
         let query = Query::filter(filter)
-            .sort(Sort::desc("updated_at"))
+            .sort(Sort::desc("updated_ms"))
             .sort(Sort::asc("episode_id"));
         let found: Vec<Episode> = self
             .all(EPISODES, query)
             .await?
             .iter()
-            .map(record)
+            .map(|stored| decode(stored, episode_from))
             .collect::<Result<_>>()?;
         Ok(page.apply(found))
     }
@@ -294,21 +282,20 @@ impl Ledger for DriverLedger {
         let mut docs = Vec::with_capacity(steps.len());
         for (seq, step) in steps.iter().enumerate() {
             docs.push((
-                key(&[self.bucket(), row_id, &format!("{seq:08}")]),
-                json!({
-                    "scope_key": self.bucket(),
-                    "row_id": row_id,
-                    "seq": seq,
-                    "record": encode(step)?,
-                }),
+                key(&[self.bucket(), row_id, &format!("{seq:08}")])?,
+                step_body(
+                    object(step).map_err(corrupt)?,
+                    self.bucket(),
+                    row_id,
+                    seq as u64,
+                ),
             ));
         }
         // Overwrite in place, then drop the surplus tail: the set is never
         // empty mid-replace, and a failed write leaves old or new steps rather
         // than none. The port has no multi-document transaction.
         for (id, doc) in docs {
-            self.docs
-                .put(STEPS, &id, doc, Precondition::None)
+            put_doc(self.docs.as_ref(), STEPS, &id, doc, Precondition::None)
                 .await
                 .map_err(backend)?;
         }
@@ -324,6 +311,10 @@ impl Ledger for DriverLedger {
         let query =
             Query::filter(Filter::eq("scope_key", self.bucket()).and(Filter::eq("row_id", row_id)))
                 .sort(Sort::asc("seq"));
-        self.all(STEPS, query).await?.iter().map(record).collect()
+        self.all(STEPS, query)
+            .await?
+            .iter()
+            .map(|stored| decode(stored, step_from))
+            .collect()
     }
 }

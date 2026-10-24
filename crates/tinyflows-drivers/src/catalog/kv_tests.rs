@@ -1,6 +1,7 @@
 use super::*;
 use crate::catalog::test_support::{catalog, catalog_in};
-use tinystoragedrivers_core::MemoryStorage;
+use serde_json::json;
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 #[tokio::test]
 async fn values_round_trip_per_namespace() {
@@ -46,17 +47,16 @@ async fn scopes_keep_state_apart() {
 }
 
 #[tokio::test]
-async fn a_corrupt_value_is_an_error() {
+async fn values_are_tsd_kv_entries_of_owner_flows() {
     let store = catalog();
-    store.kv_set("ns", "k", &json!(1)).await.unwrap();
+    store.kv_set("a/b", "c", &json!({ "n": 1 })).await.unwrap();
     let docs = store.docs().await.unwrap();
-    docs.put(
-        KV,
-        &kv_id("ns", "k"),
-        json!({ "value_json": "{" }),
-        Precondition::None,
-    )
-    .await
-    .unwrap();
-    assert!(store.kv_get("ns", "k").await.is_err());
+    let row = docs
+        .get("tsd.kv", "flows/kv:a%2Fb/c")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.doc["owner"], "flows");
+    assert_eq!(row.doc["ns"], "kv:a/b");
+    assert_eq!(row.doc["value"], json!({ "n": 1 }));
 }

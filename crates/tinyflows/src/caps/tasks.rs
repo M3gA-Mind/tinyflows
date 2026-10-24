@@ -1,5 +1,5 @@
 //! Background work a run starts but does not wait for: the [`TaskRunner`]
-//! capability and the tokio-backed implementation the crate ships by default.
+//! capability and the tokio-backed ticket store this crate provides.
 //!
 //! # Why this is a capability at all
 //!
@@ -10,15 +10,19 @@
 //!
 //! Making it a trait keeps the ownership question the host's to answer — a host
 //! with its own scheduler, or one that wants tasks to outlive the process, plugs
-//! in there. [`TokioTaskRunner`] is the answer for everyone else, and is wired
-//! in by default so `spawn`/`gate` genuinely overlap out of the box rather than
-//! quietly degrading to inline execution.
+//! in there. [`TokioTaskRunner::with_executor`] supplies in-process overlap
+//! while using the current run's capabilities. [`TokioTaskRunner::new`] keeps
+//! its historical record-the-spec behavior for callers that need ticket
+//! mechanics without providing task semantics. A host that injects no runner
+//! gets the engine's real inline execution path instead.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use serde_json::Value;
+use std::panic::AssertUnwindSafe;
 
 use crate::error::{EngineError, Result};
 
@@ -102,12 +106,27 @@ pub trait TaskRunner: Send + Sync {
     async fn cancel(&self, ticket: &str) -> Result<()>;
 }
 
+/// Executes the closed set of task specs accepted by [`TaskRunner`].
+///
+/// The engine's default task runner owns ticketing, polling, and cancellation;
+/// an embedding module supplies this executor to give those tasks the same
+/// capabilities as the run that started them. The executor is separate from
+/// `Capabilities` so it can capture a copy with `tasks: None` and avoid a
+/// runner-to-capabilities reference cycle.
+#[async_trait]
+pub trait TaskExecutor: Send + Sync {
+    /// Runs one task spec and returns its result.
+    async fn execute(&self, spec: TaskSpec) -> Result<Value>;
+}
+
 /// A [`TaskRunner`] backed by `tokio::spawn`.
 ///
-/// The default, and the reason `spawn`/`gate` overlap without a host writing
-/// anything. Tasks live for as long as the process does: this is in-process
-/// concurrency, not durable job execution. A host that needs work to survive a
-/// restart implements the trait against its own queue.
+/// An in-process task runner. Without an executor it records the closed task
+/// spec as its result; supply an executor with [`Self::with_executor`] to run
+/// actual tool, HTTP or child-workflow behavior. Tasks live for as long as the
+/// process does: this is in-process concurrency, not durable job execution. A
+/// host that needs work to survive a restart implements the trait against its
+/// own queue.
 ///
 /// # Requires a tokio runtime
 ///
@@ -122,6 +141,9 @@ pub struct TokioTaskRunner {
     tasks: Mutex<HashMap<String, Arc<Mutex<TaskState>>>>,
     handles: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     next_id: Mutex<u64>,
+    /// Optional executor for real task work; absent preserves the historical
+    /// spec-recording behavior for direct users of `TokioTaskRunner::new`.
+    executor: Option<Arc<dyn TaskExecutor>>,
 }
 
 impl std::fmt::Debug for TokioTaskRunner {
@@ -131,10 +153,19 @@ impl std::fmt::Debug for TokioTaskRunner {
 }
 
 impl TokioTaskRunner {
-    /// Creates a runner with no tasks.
+    /// Creates a runner that records each task spec as its result.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a task runner whose worker executes each task with `executor`.
+    #[must_use]
+    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> Self {
+        Self {
+            executor: Some(executor),
+            ..Self::default()
+        }
     }
 
     fn issue_ticket(&self) -> String {
@@ -170,26 +201,34 @@ impl TaskRunner for TokioTaskRunner {
             .expect("task table poisoned")
             .insert(ticket.clone(), state.clone());
 
-        // This runner owns scheduling, not meaning: it has no capabilities of
-        // its own to run a workflow or call a tool with. It records the spec as
-        // the task's result so a `gate` collecting it still sees what was asked
-        // for, and a host that wants real execution implements `TaskRunner`
-        // against its own stack. Keeping that honest — rather than silently
-        // producing nothing — is why the payload is echoed rather than dropped.
+        let executor = self.executor.clone();
         let handle = tokio::spawn(async move {
-            *state.lock().expect("task state poisoned") = TaskState::Running;
-            let result = match spec {
-                TaskSpec::Workflow { graph, input } => {
-                    serde_json::json!({ "spec": "workflow", "graph": graph, "input": input })
+            {
+                let mut state = state.lock().expect("task state poisoned");
+                if state.is_settled() {
+                    return;
                 }
-                TaskSpec::Tool { slug, args } => {
-                    serde_json::json!({ "spec": "tool", "slug": slug, "args": args })
-                }
-                TaskSpec::Http { request } => {
-                    serde_json::json!({ "spec": "http", "request": request })
-                }
+                *state = TaskState::Running;
+            }
+            let result = match executor {
+                Some(executor) => AssertUnwindSafe(executor.execute(spec))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(EngineError::Capability(
+                            "task executor panicked".to_string(),
+                        ))
+                    }),
+                None => Ok(record_spec(spec)),
             };
-            *state.lock().expect("task state poisoned") = TaskState::Done(result);
+            let mut state = state.lock().expect("task state poisoned");
+            if state.is_settled() {
+                return;
+            }
+            *state = match result {
+                Ok(value) => TaskState::Done(value),
+                Err(error) => TaskState::Failed(error.to_string()),
+            };
         });
         self.handles
             .lock()
@@ -219,6 +258,18 @@ impl TaskRunner for TokioTaskRunner {
             *state = TaskState::Failed("cancelled".to_string());
         }
         Ok(())
+    }
+}
+
+fn record_spec(spec: TaskSpec) -> Value {
+    match spec {
+        TaskSpec::Workflow { graph, input } => {
+            serde_json::json!({ "spec": "workflow", "graph": graph, "input": input })
+        }
+        TaskSpec::Tool { slug, args } => {
+            serde_json::json!({ "spec": "tool", "slug": slug, "args": args })
+        }
+        TaskSpec::Http { request } => serde_json::json!({ "spec": "http", "request": request }),
     }
 }
 

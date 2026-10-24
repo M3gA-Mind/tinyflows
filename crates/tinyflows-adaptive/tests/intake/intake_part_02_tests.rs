@@ -67,7 +67,7 @@ async fn a_family_whose_champion_was_already_tried_still_offers_its_variant() {
 // The retry edge: attempt four must not be attempt two in different words.
 // ---------------------------------------------------------------------------
 
-async fn with_history(tag: &str) -> (FileWorkflowStore, MemoryLedger, std::path::PathBuf) {
+async fn with_history(tag: &str) -> (DriverWorkflowStore, MemoryLedger, ()) {
     let (store, root) = empty_store(tag);
     let ledger = MemoryLedger::new();
     for (attempt, sig, desc, cause) in [
@@ -174,8 +174,7 @@ async fn the_selector_is_shown_the_same_history_in_the_same_words() {
 async fn lessons_from_other_episodes_reach_the_planner() {
     // consolidate() was writing these and nothing was reading them — a
     // knowledge store that costs money and returns nothing.
-    let (store, root) = empty_store("retry-3");
-    let _ = root;
+    let (store, _root) = empty_store("retry-3");
     let ledger = MemoryLedger::new();
     ledger
         .promote(

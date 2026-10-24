@@ -1,28 +1,34 @@
 //! The flow catalog and authoring drafts on a [`DocumentStore`].
 //!
-//! [`FlowCatalogDocuments`] is the document-port counterpart of
-//! `tinyflows-sqlite`'s `flows` and `drafts` modules: one `async fn` per public
-//! function there, with the same name, the same arguments minus the leading
-//! catalog directory, and the same results — down to [`FlowUpdateError`] for a
-//! guarded graph update. A host keeps one code path and picks the backend.
+//! [`FlowCatalogDocuments`] is the catalog a host keeps its saved flows in: one
+//! `async fn` per operation (create, update with revision capture, runs and
+//! their steps, state, suggestions, drafts), reporting [`FlowUpdateError`] for a
+//! guarded graph update. The backend is whatever document handle the host
+//! passes in. It replaces the `flows.db` and draft-file catalog of the retired
+//! `tinyflows-sqlite`; hosts own any remaining file discovery or conversion.
 //!
-//! # Layout
+//! # Layout (storage schema v2, owner `flows`)
 //!
 //! | Collection | Document id | Holds |
 //! | --- | --- | --- |
-//! | `flows_definitions` | flow id | one saved [`Flow`](tinyflows_catalog::Flow) |
-//! | `flows_revisions` | revision id | one superseded graph |
-//! | `flows_runs` | run id | one run and its steps |
-//! | `flows_kv` | `(namespace, key)` | one namespaced state value |
-//! | `flows_suggestions` | suggestion id | one discovery suggestion |
-//! | `flows_drafts` | draft id | one authoring draft |
+//! | `flows.definitions` | flow id (ULID for a new flow) | one saved [`Flow`](tinyflows_catalog::Flow) |
+//! | `flows.revisions` | revision id (ULID) | one superseded graph |
+//! | `flows.runs` | run id | one run and its steps |
+//! | `flows.suggestions` | suggestion id | one discovery suggestion |
+//! | `flows.drafts` | draft id (ULID) | one authoring draft |
 //!
-//! Graphs, step outputs, drafts and state values are JSON **strings**, so a
-//! MongoDB-backed port never meets an arbitrary key. Optional fields are left
-//! out rather than stored as `null`. Ordering uses epoch-nanosecond fields
-//! (`created_ns`, `started_ns`, …) parsed from the RFC 3339 strings the model
-//! carries, since strings with differing offsets or fractional digits do not
-//! sort as instants.
+//! Namespaced state is not a collection of this owner: it lives in `tsd.kv`
+//! (owner `flows`, namespace `kv:<namespace>`).
+//!
+//! Bodies are bare snake_case objects: graphs, step outputs, drafts and ids
+//! lists are real JSON values, not strings. Optional fields are left out
+//! rather than stored as `null`. Every instant is one epoch-millisecond field
+//! (`created_ms`, `updated_ms`, `started_ms`, `finished_ms`, `last_run_ms`)
+//! that the wire types render back as RFC 3339 with millisecond precision; the
+//! `*_ns` copies are gone. The model's times are caller-supplied (an import
+//! keeps a flow's original `created_at`), so they are body fields rather than
+//! the driver-clock record metadata. Ordering is by the `_ms` field with the
+//! id as the tie-break, which for ULID ids is creation order.
 //!
 //! # Where SQLite used a transaction
 //!
@@ -35,7 +41,7 @@
 //! - `update_flow_graph` records the revision *before* swapping the graph, and
 //!   removes it again when the swap loses; a crash in between leaves one extra
 //!   revision, never a graph change without one.
-//! - A run's steps live on the run document (`steps_json`, as in SQLite), so
+//! - A run's steps live on the run document (`steps`, a JSON array), so
 //!   settling a run and its step list is one compare-and-swap, and an
 //!   incremental step write from a parallel branch retries on the winner's
 //!   list instead of losing to it (R-m1).
@@ -43,7 +49,7 @@
 //!   only once the swap has named it (`last_revision_id`) or a later update
 //!   has confirmed it, so a lost race or a crash never shows a revision for
 //!   an update that did not happen.
-//! - `updated_at` advances strictly on every write, so it is
+//! - `updated_ms` advances strictly on every write, so it is
 //!   a sound optimistic-concurrency token and revision order is total.
 //! - Removing a flow removes its runs and revisions first and the definition
 //!   last, so a failure part-way is retried by calling it again. A run or
@@ -57,10 +63,11 @@ use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use chrono::DateTime;
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
-use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, ErrorKind, IndexSpec, Precondition, StorageError, Versioned,
+use tinyflows_storage::{
+    CollectionSpec, DocumentStore, ErrorKind, IndexSpec, Meta, Precondition, Repo, StorageError,
+    Versioned, WriteOptions,
 };
 use tokio::sync::OnceCell;
 
@@ -70,28 +77,33 @@ pub use tinyflows_catalog::store::{
 
 mod definitions;
 mod drafts;
+mod import;
 mod kv;
 mod lineage;
+mod migrate;
+mod revision_sequence;
 mod revisions;
+mod run_events;
 mod runs;
+mod runs_recovery;
 mod state;
 mod steps;
 mod suggestions;
 
+pub(crate) use migrate::extend_schema;
 pub use state::FlowStateDocuments;
 
-pub(crate) const DEFINITIONS: &str = "flows_definitions";
-pub(crate) const REVISIONS: &str = "flows_revisions";
-pub(crate) const RUNS: &str = "flows_runs";
-pub(crate) const KV: &str = "flows_kv";
-pub(crate) const SUGGESTIONS: &str = "flows_suggestions";
-pub(crate) const DRAFTS: &str = "flows_drafts";
+pub(crate) const DEFINITIONS: &str = "flows.definitions";
+pub(crate) const REVISIONS: &str = "flows.revisions";
+pub(crate) const RUNS: &str = "flows.runs";
+pub(crate) const SUGGESTIONS: &str = "flows.suggestions";
+pub(crate) const DRAFTS: &str = "flows.drafts";
+
+/// The body version of every catalog collection (`flows_*` was version 1).
+pub(crate) const SCHEMA_VERSION: u32 = 2;
 
 /// Compare-and-swap attempts before a contended update gives up.
 const CAS_ATTEMPTS: usize = 32;
-
-/// Longest composite id stored as is; longer ones are hashed.
-const MAX_KEY_LEN: usize = 400;
 
 /// The flow catalog and drafts over one (usually tenant-scoped) document
 /// handle. Cheap to clone; clones share the handle.
@@ -114,17 +126,16 @@ impl FlowCatalogDocuments {
     pub fn collections() -> Vec<CollectionSpec> {
         vec![
             CollectionSpec::new(DEFINITIONS)
-                .index(IndexSpec::new("by_enabled", ["enabled", "created_ns"])),
+                .index(IndexSpec::new("by_enabled", ["enabled", "created_ms"])),
             CollectionSpec::new(REVISIONS)
-                .index(IndexSpec::new("by_flow", ["flow_id", "created_ns"])),
+                .index(IndexSpec::new("by_flow", ["flow_id", "created_ms"])),
             CollectionSpec::new(RUNS)
-                .index(IndexSpec::new("by_flow", ["flow_id", "started_ns"]))
-                .index(IndexSpec::new("by_status", ["status", "started_ns"]))
-                .index(IndexSpec::new("by_started", ["started_ns"])),
-            CollectionSpec::new(KV),
+                .index(IndexSpec::new("by_flow", ["flow_id", "started_ms"]))
+                .index(IndexSpec::new("by_status", ["status", "started_ms"]))
+                .index(IndexSpec::new("by_started", ["started_ms"])),
             CollectionSpec::new(SUGGESTIONS)
-                .index(IndexSpec::new("by_status", ["status", "created_ns"])),
-            CollectionSpec::new(DRAFTS).index(IndexSpec::new("by_updated", ["updated_ns"])),
+                .index(IndexSpec::new("by_status", ["status", "created_ms"])),
+            CollectionSpec::new(DRAFTS).index(IndexSpec::new("by_updated", ["updated_ms"])),
         ]
     }
 
@@ -137,7 +148,10 @@ impl FlowCatalogDocuments {
     pub async fn ensure(&self) -> Result<()> {
         self.declared
             .get_or_try_init(|| async {
-                for spec in Self::collections() {
+                for spec in Self::collections()
+                    .into_iter()
+                    .chain(tinyflows_storage::primitives::collection_specs())
+                {
                     self.docs
                         .ensure_collection(&spec)
                         .await
@@ -156,43 +170,49 @@ impl FlowCatalogDocuments {
     }
 }
 
-/// A document id for `parts`: length-prefixed so no two tuples collide, and
-/// replaced by its SHA-256 when it would exceed the driver's id limit.
-pub(crate) fn composite_id(parts: &[&str]) -> String {
-    let joined: String = parts
-        .iter()
-        .map(|part| format!("{}:{part}", part.len()))
-        .collect::<Vec<_>>()
-        .join("/");
-    if joined.len() <= MAX_KEY_LEN {
-        joined
-    } else {
-        use sha2::{Digest, Sha256};
-        let digest = Sha256::digest(joined.as_bytes());
-        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-        format!("h:{hex}")
-    }
-}
-
-/// `raw` (RFC 3339) as epoch nanoseconds; `0` when it does not parse, so a
+/// `raw` (RFC 3339) as epoch milliseconds; `0` when it does not parse, so a
 /// malformed timestamp sorts first instead of failing the write.
-pub(crate) fn instant_ns(raw: &str) -> i64 {
-    DateTime::parse_from_rfc3339(raw)
-        .ok()
-        .and_then(|at| at.timestamp_nanos_opt())
-        .unwrap_or(0)
+pub(crate) fn instant_ms(raw: &str) -> i64 {
+    DateTime::parse_from_rfc3339(raw).map_or(0, |at| at.with_timezone(&Utc).timestamp_millis())
 }
 
-/// Whether instant `a` is strictly before `b`. Compared as instants when both
-/// parse, else as strings — what SQLite's lexicographic `<` did.
-pub(crate) fn instant_before(a: &str, b: &str) -> bool {
-    match (
-        DateTime::parse_from_rfc3339(a),
-        DateTime::parse_from_rfc3339(b),
-    ) {
-        (Ok(a), Ok(b)) => a < b,
-        _ => a < b,
-    }
+/// Epoch milliseconds `ms` as the RFC 3339 text the wire types carry
+/// (millisecond precision, `+00:00`).
+pub(crate) fn rfc3339(ms: i64) -> String {
+    DateTime::<Utc>::from_timestamp_millis(ms)
+        .unwrap_or_default()
+        .to_rfc3339_opts(SecondsFormat::Millis, false)
+}
+
+/// The integer field `field` of `doc`; `0` when absent.
+pub(crate) fn int(doc: &Value, field: &str) -> i64 {
+    doc.get(field).and_then(Value::as_i64).unwrap_or(0)
+}
+
+pub(crate) use crate::ids::{monotonic_ms, new_id};
+
+/// A typed handle on `collection` whose writes declare [`SCHEMA_VERSION`].
+fn repo(docs: &Arc<dyn DocumentStore>, collection: &str) -> Result<Repo<Value>> {
+    Ok(Repo::new(docs, collection)?.with_options(WriteOptions::new().schema(SCHEMA_VERSION)))
+}
+
+/// Writes `doc` at `collection/id` under `precondition`, declaring the
+/// catalog's body version.
+pub(crate) async fn put_doc(
+    docs: &Arc<dyn DocumentStore>,
+    collection: &str,
+    id: &str,
+    doc: Value,
+    precondition: Precondition,
+) -> std::result::Result<tinyflows_storage::Version, StorageError> {
+    docs.put_with(
+        collection,
+        id,
+        doc,
+        precondition,
+        WriteOptions::new().schema(SCHEMA_VERSION),
+    )
+    .await
 }
 
 /// The string field `field` of `doc`.
@@ -225,40 +245,24 @@ pub(crate) fn required<'a>(stored: &'a Versioned<Value>, field: &str) -> Result<
         .with_context(|| format!("document {} has no `{field}` string", stored.id))
 }
 
-/// Applies `change` to document `id` under compare-and-swap; returns what
-/// was stored, or `None` when the document is missing or `change` declines.
+/// Applies `change` to document `id` under compare-and-swap (`Repo::update`);
+/// returns what was stored, or `None` when the document is missing or `change`
+/// declines.
 pub(crate) async fn compare_and_swap(
     docs: &Arc<dyn DocumentStore>,
     collection: &str,
     id: &str,
-    change: impl Fn(&Value) -> Option<Value>,
+    change: impl Fn(&Value) -> Option<Value> + Send + Sync,
 ) -> Result<Option<Versioned<Value>>> {
-    for _ in 0..CAS_ATTEMPTS {
-        let Some(stored) = docs.get(collection, id).await? else {
-            return Ok(None);
-        };
-        let Some(next) = change(&stored.doc) else {
-            return Ok(None);
-        };
-        match docs
-            .put(collection, id, next.clone(), stored.unchanged())
-            .await
-        {
-            Ok(version) => {
-                return Ok(Some(Versioned {
-                    id: id.to_string(),
-                    version,
-                    doc: next,
-                }));
-            }
-            Err(error) if error.kind() == ErrorKind::Conflict => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(StorageError::conflict(format!(
-        "{collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
-    ))
-    .into())
+    let stored = repo(docs, collection)?
+        .update(id, |current| Ok(current.and_then(|doc| change(&doc))))
+        .await?;
+    Ok(stored.map(|(doc, version)| Versioned {
+        id: id.to_string(),
+        version,
+        doc,
+        meta: Meta::unknown(),
+    }))
 }
 
 /// Writes `id` as `build(existing)` — insert when absent, replace when
@@ -270,25 +274,19 @@ pub(crate) async fn upsert<F>(
     build: F,
 ) -> Result<()>
 where
-    F: Fn(Option<&Value>) -> Result<Value>,
+    F: Fn(Option<&Value>) -> Result<Value> + Send + Sync,
 {
-    for _ in 0..CAS_ATTEMPTS {
-        let existing = docs.get(collection, id).await?;
-        let next = build(existing.as_ref().map(|stored| &stored.doc))?;
-        let precondition = existing
-            .as_ref()
-            .map_or(Precondition::Absent, Versioned::unchanged);
-        match docs.put(collection, id, next, precondition).await {
-            Ok(_) => return Ok(()),
-            Err(error)
-                if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Err(StorageError::conflict(format!(
-        "{collection}/{id} kept changing under {CAS_ATTEMPTS} attempts"
-    ))
-    .into())
+    let mut failure = None;
+    repo(docs, collection)?
+        .update(id, |current| match build(current.as_ref()) {
+            Ok(next) => Ok(Some(next)),
+            Err(error) => {
+                failure = Some(error);
+                Ok(None)
+            }
+        })
+        .await?;
+    failure.map_or(Ok(()), Err)
 }
 
 /// Whether `error` is a storage write conflict (a compare-and-swap that kept
@@ -299,21 +297,13 @@ pub(crate) fn is_conflict(error: &anyhow::Error) -> bool {
         .is_some_and(|error| error.kind() == ErrorKind::Conflict)
 }
 
-/// `now` as an RFC 3339 stamp strictly after `previous`: the clock's reading
-/// when it is later, else `previous` plus one nanosecond. A field used as an
+/// Now in epoch milliseconds, strictly after `previous`: the clock's reading
+/// when it is later, else `previous` plus one. A field used as an
 /// optimistic-concurrency token or an ordering key must never repeat, however
 /// coarse the clock or however quick the succession.
-pub(crate) fn next_stamp(previous: Option<&str>) -> String {
-    use chrono::{SecondsFormat, Utc};
-    let now = Utc::now();
-    let floor = previous
-        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-        .map(|at| at.with_timezone(&Utc) + chrono::Duration::nanoseconds(1));
-    let stamp = match floor {
-        Some(floor) if floor > now => floor,
-        _ => now,
-    };
-    stamp.to_rfc3339_opts(SecondsFormat::Nanos, false)
+pub(crate) fn next_stamp(previous: Option<i64>) -> i64 {
+    let now = monotonic_ms();
+    previous.map_or(now, |previous| now.max(previous + 1))
 }
 
 /// Runs `op` and logs (rather than fails on) its error: for the best-effort

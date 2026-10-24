@@ -12,6 +12,19 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    name: Minimum supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Check the workspace at its declared minimum compiler version
+        run: cargo check --locked --workspace --all-features
+
   rust-sdk:
     name: Rust SDK
     runs-on: ubuntu-latest
@@ -32,6 +45,12 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Check the published crate carries no storage git dependency
+        run: scripts/check-published-crate.sh
+
+      - name: Check storage port users do not link engine crates
+        run: scripts/check-storage-engine-free.sh
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings

@@ -8,21 +8,18 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tinyflows_schedule::{CronJob, Schedule, runtime::Completion, truncate_cron_output};
-use tinystoragedrivers_core::{Version, Versioned};
-fn decode(id: &str, doc: &Value) -> Result<CronJob> {
-    doc_to_job(&Versioned {
-        id: id.into(),
-        version: Version::FIRST,
-        doc: doc.clone(),
-    })
+use tinyflows_storage::Versioned;
+fn decode(stored: &Versioned<Value>) -> Result<CronJob> {
+    doc_to_job(stored)
 }
 impl CronDocuments {
     /// Advance only the original occurrence and definition incarnation.
     /// Disable one-shots durably before execution to prevent replay after a crash.
     pub async fn claim_slot(&self, job: &CronJob, next: DateTime<Utc>) -> Result<bool> {
         self.ensure().await?;
-        Ok(compare_job(self, JOBS, &job.id, |doc| {
-            let current = decode(&job.id, doc)?;
+        Ok(compare_job(self, JOBS, &job.id, |stored| {
+            let doc = &stored.doc;
+            let current = decode(stored)?;
             if !current.enabled
                 || current.claim_generation != job.claim_generation
                 || current.created_at != job.created_at
@@ -83,8 +80,9 @@ impl CronDocuments {
                 );
             }
         }
-        compare_job(self, JOBS, &job.id, |doc| {
-            let current = decode(&job.id, doc)?;
+        compare_job(self, JOBS, &job.id, |stored| {
+            let doc = &stored.doc;
+            let current = decode(stored)?;
             if current.created_at != job.created_at
                 || Some(current.claim_generation) != job.claim_generation.checked_add(1)
             {

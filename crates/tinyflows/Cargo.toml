@@ -1,8 +1,8 @@
 [package]
 name = "tinyflows"
-version = "0.8.8"
+version = "0.9.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "A Rust-based workflow management solution."
 readme = "README.md"
@@ -24,6 +24,7 @@ include = [
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.23"
 async-trait = "0.1"
 thiserror = "2"
 futures-timer = "3"
@@ -32,14 +33,11 @@ getrandom = "0.4"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"], optional = true }
-# `caps::host` only: hashing an author-supplied state key (and namespace) into
-# one safe path component, and staging a script in a temporary directory.
+# `store` only: the SHA-256 behind a graph's fingerprint.
 sha2 = { version = "0.11", optional = true }
 hex = "0.4"
+# `caps::host` only: staging a script in a temporary directory.
 tempfile = { version = "3", optional = true }
-# `store` only: the advisory file lock that keeps two processes from deciding
-# the same proposal at once.
-fs2 = { version = "0.4", optional = true }
 # `graph-debug` only: self-contained raster output and a tiny bitmap font. The
 # renderer deliberately does not shell out to Graphviz, so it works anywhere
 # the library does.
@@ -55,16 +53,18 @@ jaq-json = { version = "2.0.1", features = ["serde"] }
 default = []
 mock = []
 # Off by default; enables `caps::host` — ready-made capability implementations
-# for a host that runs scripts as child processes of itself and keeps state on
+# for a host that runs scripts as child processes of itself and stages them on
 # its own disk. Off by default because a host with a sandbox wants none of it,
 # and because it is the only thing in the crate that spawns a process or writes
 # a file. Always available inside this crate's own tests.
-host-caps = ["dep:reqwest", "dep:sha2", "dep:tempfile", "reqwest/rustls", "tokio/fs", "tokio/process", "tokio/io-util"]
+host-caps = ["dep:reqwest", "dep:tempfile", "reqwest/rustls", "tokio/fs", "tokio/process", "tokio/io-util"]
 # Off by default; enables `store` — the durable model around a graph (versioned
-# documents, run records, notes, proposals) and a JSON file-backed store for it.
-# A host with its own catalog or database wants none of it, so it is not part of
+# documents, run records, notes, proposals), the `WorkflowStore` contract, and
+# patch-based authoring on top of it. It names no storage: implementations live
+# with the storage ports (`tinyflows-drivers`' `DriverWorkflowStore`). A host
+# with its own catalog or database wants none of the rest, so it is not part of
 # the engine. Always available inside this crate's own tests.
-store = ["dep:sha2", "dep:fs2"]
+store = ["dep:sha2"]
 # A file-writing graph visualizer intended for development and diagnostics.
 graph-debug = ["dep:image", "dep:font8x8"]
 # Off by default; enables `testkit` — programmable capability mocks, a
@@ -78,12 +78,11 @@ testkit = []
 
 [dev-dependencies]
 proptest = "1"
-# `caps::host` compiles inside this crate's own tests whether or not the
-# `host-caps` feature is on (the same rule `caps::mock` follows), so what that
-# feature would switch on has to be present for a test build too. An optional
+# `caps::host` and `store` compile inside this crate's own tests whether or not
+# their features are on (the same rule `caps::mock` follows), so what those
+# features would switch on has to be present for a test build too. An optional
 # dependency is not activated by `cfg(test)`, hence these.
 sha2 = "0.11"
 tempfile = "3"
-fs2 = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["fs", "process", "io-util", "test-util"] }

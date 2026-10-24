@@ -12,9 +12,11 @@ description = "Loadable TinyBus module for workflow authoring and scheduling"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-tinyflows-sqlite = { path = "../tinyflows-sqlite" }
-tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["schedule"] }
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.5.0" }
+tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["catalog", "engine", "schedule"] }
+tinyflows-catalog = { path = "../tinyflows-catalog" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinyflows-storage = { path = "../tinyflows-storage" }
 tinyflows-schedule = { path = "../tinyflows-schedule" }
 anyhow = "1"
 chrono.workspace = true
@@ -25,10 +27,19 @@ uuid.workspace = true
 tracing.workspace = true
 tinyflows = { workspace = true, features = ["mock"] }
 tinyflows-bus = { path = "../tinyflows-bus" }
-tinybus = { version = "=0.1.3", default-features = false, features = ["macros", "modules"] }
-tinybus-module = "=0.1.3"
+tinyflows-copilot = { path = "../tinyflows-copilot" }
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "643df90ba25f93187249fa99f6789f9aa7f8bbc8" }
+tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = ["macros", "modules"] }
+tinybus-module = ">=0.1.3, <0.2"
 serde_json.workspace = true
+
+[features]
+default = []
+# Swap the C ABI exports for a Rust `linked_module()` so a host can link the
+# module into its own executable (several linked modules can then coexist).
+static-link = []
 
 [dev-dependencies]
 tempfile = "3"
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }

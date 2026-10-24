@@ -31,20 +31,29 @@ catalog = [
     "dep:anyhow",
     "dep:chrono",
     "dep:uuid",
-    "tinystoragedrivers-core/blocking",
 ]
 # `schedule`: the cron job/run store (`schedule::CronDocuments`). It needs only
 # `tinyflows-schedule`, so a host that runs scheduled jobs but no flows can
 # build with `default-features = false, features = ["schedule"]` and pull
 # neither the engine nor its expression stack.
-schedule = ["dep:tinyflows-schedule", "dep:anyhow", "dep:chrono", "dep:uuid"]
+schedule = ["dep:tinyflows-schedule", "dep:anyhow", "dep:chrono", "dep:uuid", "dep:tokio"]
+# `store`: `DriverWorkflowStore`, the engine's `WorkflowStore` on documents (saved
+# workflows, revisions, runs, the notes journal, proposals). Its synchronous
+# trait runs on the storage crates' `Blocking` bridge.
+store = [
+    "engine",
+    "tinyflows/store",
+    "dep:uuid",
+]
 # The fixture-only writers (`force_run_status_for_test`,
-# `force_corrupt_graph_json_for_test`), mirroring tinyflows-sqlite's feature
-# of the same name.
+# `force_corrupt_graph_json_for_test`) that stage states no production path can
+# produce.
 test-fixtures = ["catalog"]
 
 [dependencies]
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.5.0" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinyflows-storage = { path = "../tinyflows-storage" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -63,3 +72,4 @@ uuid = { workspace = true, optional = true }
 [dev-dependencies]
 async-trait = { workspace = true }
 tokio = { workspace = true }
+tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }

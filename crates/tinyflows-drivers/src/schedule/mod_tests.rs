@@ -1,9 +1,10 @@
 use super::*;
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 use super::test_support::{daily, docs_in, store};
 use chrono::Utc;
 use serde_json::json;
-use tinystoragedrivers_core::{MemoryStorage, Precondition};
+use tinyflows_storage::Precondition;
 
 async fn refuses_malformed_legacy_policy(policy: serde_json::Value) {
     use tinystoragedrivers_core::CollectionSpec;
@@ -81,7 +82,7 @@ async fn ensure_is_idempotent_and_declares_every_collection() {
         .into_iter()
         .map(|spec| spec.name)
         .collect();
-    assert_eq!(names, [JOBS, RUNS, COUNTERS]);
+    assert_eq!(names, [JOBS, RUNS, ADMISSION]);
 }
 
 #[tokio::test]
@@ -150,7 +151,7 @@ async fn compare_and_swap_skips_missing_documents_and_declined_changes() {
 
 #[tokio::test]
 async fn legacy_policy_documents_move_into_jobs_without_losing_seeded_fields() {
-    use tinystoragedrivers_core::CollectionSpec;
+    use tinyflows_storage::CollectionSpec;
     let store = store();
     let job = store
         .add_shell_job(Some("system".into()), daily(), "system:seeded")

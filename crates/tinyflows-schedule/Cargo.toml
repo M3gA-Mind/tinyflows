@@ -11,6 +11,7 @@ homepage.workspace = true
 readme = "../../README.md"
 
 [dependencies]
+tinyflows-bus = { version = "0.1.0", path = "../tinyflows-bus" }
 async-trait.workspace = true
 tokio.workspace = true
 uuid.workspace = true

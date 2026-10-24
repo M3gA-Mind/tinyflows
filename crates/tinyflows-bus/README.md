@@ -8,7 +8,10 @@ engine to invoke these operations.
 errors, then checks engine topology compatibility. Invalid graphs are ordinary
 typed results; malformed JSON graph shapes carry `unparseable_graph`. A parsed
 candidate is returned even when validation fails so editors can retain it.
-No operation persists a graph or executes a production workflow capability.
+Parseable results also include module-generated trigger warnings, the compact
+authoring summary, and an actionable-node flag. Older payloads deserialize
+with these analysis fields absent/defaulted. No operation persists a graph or
+executes a production workflow capability.
 `BuilderFailures` may call the host lookup and authoring-policy ports described below.
 
 `BindingFailures(graph)` reports node-output bindings missing their required
@@ -23,6 +26,16 @@ trigger data and opaque upstream tool output do not count as proven failures.
 This check is best effort: compile errors, capability errors and timeouts
 produce no diagnostics. Call `ValidateGraph` first; an empty preflight report
 does not establish structural validity.
+
+`WiringWarnings({graph, host})` reports best-effort output-field, payload
+envelope, and `split_out` path warnings. The module walks bindings with the
+engine parser and asks the request-scoped host callback for each static tool's
+output contract. Unknown or unavailable contracts are skipped. The host
+contract carries output fields and schema, the primary array path, its payload
+envelope prefix, and top-level metadata fields. The check performs no provider
+lookup, authentication, mock execution, or production capability call; dynamic
+`=` slugs are skipped. Whole-payload and metadata bindings stay silent. These
+diagnostics are advisory and never gate draft authoring or runtime.
 
 Deserialization failures in these gate operations are method failures.
 `BuilderFailures(graph, host, native_slug_prefixes)` owns the ordered gate
@@ -44,12 +57,110 @@ The `host` object has `bus_name` and `object_path` fields. The destination serve
   checks for `tool_policy`, `agent_references`, `connections`, and
   `tool_contracts`. An empty list passes the stage. A method failure fails the
   whole operation; it cannot silently pass the gate.
+- `LookupToolContract(slug: String) -> Option<ToolContract>` returns the output
+  facts available for that exact slug. Return `None` when unknown or
+  unavailable. `ToolContract` has `output_fields`, optional `output_schema`,
+  optional `primary_array_path`, optional `envelope_prefix`, and
+  `metadata_fields`. `output_schema` describes the payload after removing the
+  envelope. `primary_array_path` is relative to the full output and includes
+  the envelope segment (for example, `data.issues`); an empty string identifies
+  an array at the output root.
 
 Bind the callback object to the acting identity and store for the request.
 The module has no credential or account lookup implementation. Hosts can apply
 native-tool argument rules and query their own agent, account, and tool catalogs
 through this callback without linking the workflow engine.
 
-The wire contract starts at version 1. Its identity and method constants live
+The authoring wire contract is version 3. Its identity and method constants live
 in `src/lib.rs`. Build and exercise the actual dynamic artifact with
 `bash scripts/verify-module-artifact.sh` from the repository root.
+
+The module also serves the version 1 `Copilot` interface. It exposes the
+portable tool catalogue and invocation, builder prompt rendering, the bundled
+authoring prompts and resources, trail-off fallback construction, question
+detection, and backend-failure classification. `InvokeTool` carries its
+`CopilotHost` callback address outside model arguments. Hosts bind that unique
+callback object to the invocation's identity, store, and dispatch context; the
+module forwards port requests to that object and never accepts identity,
+origin, configuration, or credentials from tool arguments. A callback may keep
+the host's `ToolCallOptions`, turn origin, and configuration in its captured
+scope without putting them on the wire.
+
+When the tool is `dry_run_workflow`, the exact same bus name and object path
+must also serve the existing `runs::CAPS_INTERFACE` (`CapsHost`) `ToolInvoke`
+member. That second interface is only the sandbox's preflight acknowledgement;
+the compiled module ignores its result and creates simulated outputs from its
+own mock capabilities.
+
+The `CallPort` request is `{ operation: PortOperation, payload: Value }`. The
+`PortOperation` enum and its stable wire names are in `copilot::port_operations`.
+The host returns the operation's result as a JSON value or fails the call.
+
+| Operation | Payload | Result |
+| --- | --- | --- |
+| `draft.get` | `{id}` | `catalog::FlowDraft` |
+| `draft.create` | `{flow_id?, name, graph, origin}` | `catalog::FlowDraft` |
+| `draft.update` | `{id, name?, graph?}` | `catalog::FlowDraft` |
+| `flows.get` | `{id}` | `catalog::Workflow` |
+| `flows.list` | `null` | `catalog::Workflow[]` |
+| `flows.load_graph` | `{id}` | graph `Value` or `null` |
+| `flows.create` | `{name, graph, require_approval}` | `catalog::Workflow` |
+| `flows.update` | `{id, name?, graph?}` | `copilot::WrittenWorkflow` |
+| `flows.set_enabled` | `{id, enabled}` | `catalog::Workflow` |
+| `flows.duplicate` | `{id}` | `catalog::Workflow` |
+| `flows.history` | `{id, limit}` | `catalog::WorkflowRevision[]` |
+| `flows.list_runs` | `{flow_id, limit}` | `catalog::FlowRun[]` |
+| `flows.get_run` | `{run_id}` | `catalog::FlowRun` |
+| `flows.resume` | `{flow_id, run_id, approve, reject}` | JSON result |
+| `flows.cancel_run` | `{run_id}` | JSON result |
+| `agents.list` | `null` | `copilot::AgentDefinition[]` |
+| `suggestions.upsert` | `catalog::FlowSuggestion[]` | inserted count |
+| `gates.validate` | graph JSON | `copilot::FlowValidation` |
+| `gates.run` | `WorkflowGraph` | diagnostic `string[]` |
+| `gates.strict` | graph JSON | boolean; `true` passes, `false` rejects |
+| `gates.engine_compatibility` | `WorkflowGraph` | diagnostic `string[]` |
+| `gates.wiring_warnings` | `WorkflowGraph` | advisory `string[]` |
+| `gates.approval_manifest` | `WorkflowGraph` | permission manifest `Value[]` |
+
+The `catalog::` types are re-exported directly by `tinyflows-bus`. The
+`copilot::FlowValidation`, `copilot::AgentDefinition`, and
+`copilot::WrittenWorkflow` DTOs mirror the owning library's serde wire shapes;
+the module tests compare those DTOs against library deserialization. Hosts can
+build every callback response from bus types without linking the module or
+`tinyflows-copilot`. Callback failures or invalid result
+shapes fail closed for validation, strict gates, and sandbox permission
+classification. Wiring warnings remain best effort.
+
+Draft simulation is sent directly from the compiled module to the existing
+`Runs.SandboxRun` operation, with the same request-scoped host object as the
+preflight-only `ToolInvoke` callback. The callback cannot replace the module's
+mock execution or produce simulated outputs.
+# Portability helpers
+
+`ai.tinyhumans.tinyflows.Portability` (contract v4) exposes engine-owned
+request preparation and trigger readers to hosts through the compiled module.
+`InspectHttpRequest` accepts the request and optional connection
+reference before the host resolves any secret; it has no resolved-credential
+argument. Its result contains the exact credential name parsed by the engine
+helper and a method/URL summary; it applies no additional name normalization.
+Request headers and body are omitted from the result, even if the input contains
+inline values. The URL is copied from the request and may itself contain
+sensitive data. Foreign references return no credential name, while an empty
+`http_cred:` name fails. `PrepareHttpRequest` accepts a request
+and a tagged Bearer, Basic,
+custom-header, or already-resolved credential template. The module renders the
+scheme, rejects malformed request/header shapes, and returns the prepared
+request; callers must keep credential values out of logs and recorded output.
+`AppEventBinding` tests the sole trigger against toolkit and slug
+case-insensitively. `PinnedInputs` returns literal object values from that
+trigger, without evaluating expressions.
+
+`PrepareLlmComplete` normalizes a generic completion request into ordered
+role/content messages, reports structured-output intent, and returns the node's
+model pin for host-specific routing. `FormatLlmComplete` applies the module's
+structured JSON extraction to the host response and otherwise returns that
+response unchanged, preserving provider usage and other fields. `PrepareAgentRun`
+applies the module's prompt, model-precedence, structured-output, and timeout
+rules using the host's registry overrides and effective iteration cap.
+`FormatAgentRun` applies the node's stable result shape to the host's final text.
+

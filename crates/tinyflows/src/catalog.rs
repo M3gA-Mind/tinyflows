@@ -1,6 +1,12 @@
 //! Machine-readable authoring contracts for the node kinds — the queryable DSL
 //! schema.
 //!
+//! `tinyflows_bus::node_kinds` is the canonical host-facing contract. This
+//! engine-side copy remains as a source-compatible API because the bus crate is
+//! intentionally unpublished and cannot be a registry dependency of this
+//! crate. The module's exhaustive parity test keeps the two wire shapes and
+//! renderers aligned.
+//!
 //! A [`Node`](crate::model::Node)'s `config` is free-form
 //! [`serde_json::Value`](serde_json::Value): each executor reads the keys it
 //! needs at run time, so the per-kind config *shape* was, until now, documented
@@ -283,6 +289,73 @@ fn with_fan_out_fields(mut c: NodeKindContract) -> NodeKindContract {
             .to_string(),
     );
     c
+}
+
+/// Renders `contracts` as the compact, one-line-per-kind enumeration used to
+/// keep a tool description honest against the typed contracts. Format:
+/// `kind [required config.a/config.b; optional config.c] — summary`, joined by
+/// ` | `.
+///
+/// Takes the contracts rather than reading [`all_contracts`], so a host renders
+/// its own overlaid view (portable contracts plus host-only notes).
+#[must_use]
+pub fn render_node_kinds_line(contracts: &[NodeKindContract]) -> String {
+    contracts
+        .iter()
+        .map(|c| {
+            let required: Vec<&str> = c
+                .config_fields
+                .iter()
+                .filter(|f| f.required)
+                .map(|f| f.name.as_str())
+                .collect();
+            let optional: Vec<&str> = c
+                .config_fields
+                .iter()
+                .filter(|f| !f.required)
+                .map(|f| f.name.as_str())
+                .collect();
+            let mut cfg = String::new();
+            if !required.is_empty() {
+                cfg.push_str(&format!("required config.{}", required.join("/config.")));
+            }
+            if !optional.is_empty() {
+                if !cfg.is_empty() {
+                    cfg.push_str("; ");
+                }
+                cfg.push_str(&format!("optional config.{}", optional.join("/config.")));
+            }
+            if cfg.is_empty() {
+                format!("{} ({})", c.kind, c.summary)
+            } else {
+                format!("{} [{}] — {}", c.kind, cfg, c.summary)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// Renders `contracts` as the node kinds with only their required configuration
+/// fields: `kind(config.a, config.b)`, joined by `, `.
+#[must_use]
+pub fn render_node_kinds_required(contracts: &[NodeKindContract]) -> String {
+    contracts
+        .iter()
+        .map(|c| {
+            let required: Vec<&str> = c
+                .config_fields
+                .iter()
+                .filter(|f| f.required)
+                .map(|f| f.name.as_str())
+                .collect();
+            if required.is_empty() {
+                c.kind.clone()
+            } else {
+                format!("{}(config.{})", c.kind, required.join(", config."))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

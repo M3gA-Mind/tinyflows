@@ -1,59 +1,18 @@
 //! Pieces every job store shares, whatever it stores into: the spec an agent
 //! job is created from and the bound on stored run output.
 //!
-//! `tinyflows-sqlite` and `tinyflows-drivers` both persist [`CronJob`]s and
-//! [`CronRun`]s; keeping these here means the two stores cannot drift on
-//! what an agent job defaults to or how much output a run keeps.
+//! Every job store persists [`CronJob`]s and [`CronRun`]s (`tinyflows-drivers`
+//! does, and `tinyflows-sqlite` did); keeping these here means stores cannot
+//! drift on what an agent job defaults to or how much output a run keeps.
 //!
 //! [`CronJob`]: crate::CronJob
 //! [`CronRun`]: crate::CronRun
 
-use crate::{CronJob, CronJobPatch, DeliveryConfig, JobOrigin, JobType, Schedule, SessionTarget};
+use crate::{CronJob, CronJobPatch, JobType};
 
-/// Largest job output, in bytes, a store keeps in `last_output` or a run;
-/// longer output is cut at a char boundary and ends with
-/// [`TRUNCATED_OUTPUT_MARKER`].
-pub const MAX_CRON_OUTPUT_BYTES: usize = 16 * 1024;
-/// Suffix appended to output cut to [`MAX_CRON_OUTPUT_BYTES`].
-pub const TRUNCATED_OUTPUT_MARKER: &str = "\n...[truncated]";
-
-/// Everything an agent job is created with. [`AgentJobSpec::new`] gives an
-/// enabled, isolated job with no name, model, definition or origin.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AgentJobSpec {
-    pub name: Option<String>,
-    pub schedule: Schedule,
-    pub prompt: String,
-    pub session_target: SessionTarget,
-    pub model: Option<String>,
-    /// `None` stores [`DeliveryConfig::default`].
-    pub delivery: Option<DeliveryConfig>,
-    pub delete_after_run: bool,
-    /// Built-in agent definition to run with.
-    pub agent_id: Option<String>,
-    /// Inserted in this state in one write, so an opt-in job is never
-    /// briefly enabled.
-    pub enabled: bool,
-    /// The conversation the job was created from.
-    pub origin: Option<JobOrigin>,
-}
-
-impl AgentJobSpec {
-    pub fn new(schedule: Schedule, prompt: impl Into<String>) -> Self {
-        Self {
-            name: None,
-            schedule,
-            prompt: prompt.into(),
-            session_target: SessionTarget::default(),
-            model: None,
-            delivery: None,
-            delete_after_run: false,
-            agent_id: None,
-            enabled: true,
-            origin: None,
-        }
-    }
-}
+pub use tinyflows_bus::schedule::{
+    AgentJobSpec, ImportedJob, MAX_CRON_OUTPUT_BYTES, TRUNCATED_OUTPUT_MARKER,
+};
 
 /// Refuses a patch no store may apply to `job`.
 ///

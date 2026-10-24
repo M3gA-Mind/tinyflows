@@ -4,7 +4,7 @@ use super::super::{
     test_support::{FaultDocuments, daily, docs_in},
 };
 use std::sync::{Arc, atomic::AtomicBool};
-use tinystoragedrivers_core::MemoryStorage;
+use tinystoragedrivers_testkit::MemoryBackend as MemoryStorage;
 
 #[tokio::test]
 async fn nontransactional_deduplication_and_clear_keep_legacy_behavior() {
@@ -14,6 +14,7 @@ async fn nontransactional_deduplication_and_clear_keep_legacy_behavior() {
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let keep = a
         .add_shell_job(Some("same".into()), daily(), "a")
@@ -68,13 +69,14 @@ async fn deduplication_frees_an_enabled_slot_and_leaves_disabled_jobs_uncounted(
 
 #[tokio::test]
 async fn legacy_rows_are_imported_before_admission_policy_is_installed() {
-    use tinystoragedrivers_core::Precondition;
+    use tinyflows_storage::Precondition;
     let backend = MemoryStorage::new();
     let a = CronDocuments::new(Arc::new(FaultDocuments {
         inner: docs_in(&backend, "legacy-admission"),
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
     let stored = a.docs.get(JOBS, &job.id).await.unwrap().unwrap();
@@ -111,13 +113,14 @@ async fn legacy_rows_are_imported_before_admission_policy_is_installed() {
 
 #[tokio::test]
 async fn a_legacy_row_without_enabled_is_imported_as_disabled() {
-    use tinystoragedrivers_core::Precondition;
+    use tinyflows_storage::Precondition;
     let backend = MemoryStorage::new();
     let a = CronDocuments::new(Arc::new(FaultDocuments {
         inner: docs_in(&backend, "legacy-disabled"),
         transactions: false,
         fail_batch: AtomicBool::new(false),
         batch_barrier: Default::default(),
+        faults: Default::default(),
     }));
     let job = a.add_shell_job(None, daily(), "legacy").await.unwrap();
     let mut doc = a.docs.get(JOBS, &job.id).await.unwrap().unwrap().doc;
