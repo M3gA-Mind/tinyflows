@@ -54,7 +54,7 @@ fn origin_requires_conversation_and_announce_can_reply_to_its_asker() {
         history_key: "conversation".into(),
         sender: None,
         thread_id: None,
-        session_identity: None,
+        channel_session: None,
     };
     assert!(validate_delivery(&delivery, Some(&origin), None).is_ok());
     let announce = DeliveryConfig {

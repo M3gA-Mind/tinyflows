@@ -99,10 +99,16 @@ pub enum JobOrigin {
         /// Channel-side thread or topic within the chat.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_id: Option<String>,
-        /// Validated durable session identity supplied by the channel host.
-        /// Older origins omit it and retain their existing wire shape.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        session_identity: Option<Box<ChannelSessionIdentity>>,
+        /// Opaque, host-derived durable session binding for this channel
+        /// origin. TinyFlows stores and forwards it without interpreting it;
+        /// the host validates it against trusted context before using it.
+        /// `session_identity` is accepted as a wire alias for compatibility.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            alias = "session_identity"
+        )]
+        channel_session: Option<Box<ChannelSessionIdentity>>,
     },
 }
 

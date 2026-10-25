@@ -55,11 +55,11 @@ fn channel_job_origin_carries_optional_session_identity_without_changing_legacy_
         history_key: "telegram:chat-1".into(),
         sender: None,
         thread_id: None,
-        session_identity: Some(Box::new(channel_identity())),
+        channel_session: Some(Box::new(channel_identity())),
     };
     let value = serde_json::to_value(&origin).unwrap();
     assert_eq!(value["kind"], "channel");
-    assert_eq!(value["session_identity"]["session_key"], "session-1");
+    assert_eq!(value["channel_session"]["session_key"], "session-1");
     assert_eq!(serde_json::from_value::<JobOrigin>(value).unwrap(), origin);
 
     let legacy = json!({
@@ -77,8 +77,28 @@ fn channel_job_origin_carries_optional_session_identity_without_changing_legacy_
             history_key: "discord:room-1".into(),
             sender: None,
             thread_id: None,
-            session_identity: None,
+            channel_session: None,
         }
     );
     assert_eq!(serde_json::to_value(parsed).unwrap(), legacy);
+}
+
+#[test]
+fn channel_origin_accepts_session_identity_wire_alias() {
+    let origin: JobOrigin = serde_json::from_value(json!({
+        "kind": "channel",
+        "channel": "telegram",
+        "reply_target": "chat-1",
+        "history_key": "telegram:chat-1",
+        "session_identity": channel_identity(),
+    }))
+    .unwrap();
+
+    assert!(matches!(
+        origin,
+        JobOrigin::Channel {
+            channel_session: Some(_),
+            ..
+        }
+    ));
 }

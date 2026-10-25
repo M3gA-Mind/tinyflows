@@ -135,9 +135,9 @@ impl Schema {
                     }
                 }
                 for row in &page.items {
-                    if (source != step.item || row.meta.schema < step.to)
-                        && (source != step.item
-                            || !output_ids.contains(&(step.item.to_owned(), row.id.clone())))
+                    if source != step.item
+                        || (row.meta.schema < step.to
+                            && !output_ids.contains(&(step.item.to_owned(), row.id.clone())))
                     {
                         match docs
                             .delete(source, &row.id, Precondition::Version(row.version))
