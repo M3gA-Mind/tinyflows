@@ -106,7 +106,7 @@ pub fn migrate(mut value: Value) -> Result<Value> {
 /// attributing any failure to the member that caused it.
 ///
 /// This is [`migrate`] followed by `serde_json::from_value`, **without** the
-/// structural [`validate`](crate::validate) step, so a caller that wants every
+/// structural [`validate`] step, so a caller that wants every
 /// structural error (via `validate::validate_all`) can run validation itself.
 /// A failure here (an unmigratable schema, JSON that does not fit the model) is
 /// genuinely a single error, whereas structural validation can surface many.
