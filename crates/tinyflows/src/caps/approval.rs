@@ -32,7 +32,7 @@
 //! pause/resume channel: it interrupts the run naming itself on
 //! [`RunOutcome::pending_approvals`](crate::engine::RunOutcome::pending_approvals),
 //! and the host settles it out of band with
-//! [`engine::resume`](crate::engine::resume). That fallback is deliberate —
+//! [`engine::resume`]. That fallback is deliberate —
 //! a host that already has a review surface bolted onto run resumption should
 //! not have to implement a trait to use this node.
 

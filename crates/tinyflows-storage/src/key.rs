@@ -72,7 +72,7 @@ impl Key {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::InvalidInput`](crate::ErrorKind::InvalidInput) when `parts`
+    /// [`ErrorKind::InvalidInput`] when `parts`
     /// is empty, or holds only one empty part (an empty id is not a valid id).
     pub fn of<I, S>(parts: I) -> Result<Self>
     where
@@ -102,7 +102,7 @@ impl Key {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::InvalidInput`](crate::ErrorKind::InvalidInput) under the
+    /// [`ErrorKind::InvalidInput`] under the
     /// rules of [`validate_id`]: empty, longer than [`MAX_ID_LEN`] bytes, or
     /// holding NUL.
     pub fn new(raw: impl Into<String>) -> Result<Self> {
