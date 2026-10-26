@@ -372,7 +372,10 @@ async fn assert_reconciled(
     storage: &CatalogStorage,
 ) {
     let mut settled = None;
-    for _ in 0..128 {
+    // Cleanup runs on other tasks; wait on a wall-clock deadline, not a fixed number of yields,
+    // so a loaded CI runner cannot exhaust the budget before the work is scheduled.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
         let row = catalog.get_flow_run(run_id).await.unwrap().unwrap();
         let events = catalog.flow_run_events_after(run_id, 0, 20).await.unwrap();
         if row.status == "interrupted"
@@ -385,7 +388,7 @@ async fn assert_reconciled(
             settled = Some((row, events));
             break;
         }
-        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
     let (row, events) = settled.expect("actor recovery must finish its durable cleanup");
     assert_eq!(row.status, "interrupted");
