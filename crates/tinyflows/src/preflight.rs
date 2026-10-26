@@ -1,7 +1,7 @@
 //! Running a graph against schema-aware mocks to find bindings that can never
 //! resolve, before an author is allowed to save it.
 //!
-//! [`gates`] refuses what is *statically* guaranteed wrong. This
+//! [`gates`](crate::gates) refuses what is *statically* guaranteed wrong. This
 //! module catches the rest of the same failure by actually running the graph:
 //! the engine records, per step, which `=`-expressions resolved to null while it
 //! was assembling a node's config, and an outbound argument that resolved to
@@ -86,7 +86,7 @@ const RUN_TIMEOUT_SECS: u64 = 15;
 /// # Best-effort by construction
 ///
 /// A compile failure, a capability error, or a timeout is a skip, never a
-/// refusal: a structural problem is [`validate`]'s to report,
+/// refusal: a structural problem is [`validate`](crate::validate)'s to report,
 /// and this only ever adds what a run that actually finished observed.
 pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,

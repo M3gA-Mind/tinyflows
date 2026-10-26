@@ -1,6 +1,6 @@
 //! The authoring-time dry-run report a builder host shows an agent.
 //!
-//! [`diagnostics::diagnose`] reads a simulation
+//! [`diagnostics::diagnose`](crate::diagnostics::diagnose) reads a simulation
 //! generically. A *builder* surface wants the same evidence bucketed by what the
 //! author should do about it, with advice worded for the kinds a host actually
 //! ships: null `tool_call` args (with the honest "unverifiable" variant when the

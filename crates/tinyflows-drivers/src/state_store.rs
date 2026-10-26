@@ -7,7 +7,7 @@
 //! tenant scope, so two tenants' runs never read each other's state.
 //!
 //! The retired `flows_state` collection moves here with
-//! [`import_legacy_kv`].
+//! [`import_legacy_kv`](crate::import_legacy_kv).
 
 use std::sync::Arc;
 

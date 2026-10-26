@@ -75,7 +75,7 @@ impl Default for RetryPolicy {
 /// A typed handle on one collection of one scope.
 ///
 /// Bodies are `T` serialized as a JSON object (see
-/// [`validate_doc`]). Every write carries the repo's
+/// [`validate_doc`](crate::validate_doc)). Every write carries the repo's
 /// [`WriteOptions`], so a collection declares its schema version (and, for a
 /// short-lived one, an expiry) once.
 ///

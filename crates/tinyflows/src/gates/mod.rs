@@ -1,6 +1,6 @@
 //! Checks that run before an authoring write lands.
 //!
-//! [`validate`] answers "would this compile" — no trigger, an
+//! [`validate`](crate::validate) answers "would this compile" — no trigger, an
 //! edge to a node that is not there. That is a real bar and it is not the one
 //! authors keep failing. The graphs that cost people an afternoon *do* compile:
 //! they have a binding that resolves to null at run time, so a step executes

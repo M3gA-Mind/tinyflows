@@ -1,7 +1,7 @@
 //! Topologies this engine's fan-in lowering cannot execute safely.
 //!
-//! [`validate`] answers "is this a well-formed graph" and
-//! [`gates`] answers "are its bindings resolvable". Neither
+//! [`validate`](crate::validate) answers "is this a well-formed graph" and
+//! [`gates`](crate::gates) answers "are its bindings resolvable". Neither
 //! answers the third question, which is about the engine rather than the graph:
 //! *can this implementation actually run it?*
 //!
