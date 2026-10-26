@@ -27,7 +27,7 @@
 //! of those would have to hard-code a host, which this crate does not do. A host
 //! adds its own by implementing
 //! [`HostPolicy::check_graph`](crate::store::HostPolicy::check_graph), whose
-//! default is exactly [`failures`] below.
+//! default is exactly `failures` below.
 
 use crate::bindings::{self, collect_expressions, parse_node_binding, reads_as_prose};
 use crate::model::{NodeKind, WorkflowGraph};
