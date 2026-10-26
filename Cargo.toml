@@ -22,6 +22,12 @@ exclude = ["worktrees", "vendor/tinybus"]
 tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270" }
 tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270" }
 
+# tinystoragedrivers v2.1.1 still pins tinybus by an older git rev; unify onto the released tag so
+# `tinybus::Connection` is a single type across the graph.
+[patch."https://github.com/tinyhumansai/tinybus"]
+tinybus = { git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270" }
+tinybus-module = { git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270" }
+
 [workspace.package]
 edition = "2024"
 rust-version = "1.88"
