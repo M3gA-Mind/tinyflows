@@ -22,4 +22,4 @@ data-encoding = "2"
 [dev-dependencies]
 tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
 tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
-tinybus-sdk = { package = "tinybus", git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270", default-features = false }
+tinybus-sdk = { package = "tinybus", git = "https://github.com/tinyhumansai/tinybus.git", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270", default-features = false }
