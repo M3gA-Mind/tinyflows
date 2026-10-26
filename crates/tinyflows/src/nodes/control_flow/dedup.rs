@@ -71,11 +71,11 @@
 //! # Runtime behavior (per item)
 //!
 //! 1. Resolve `config.key` against the item (same `"=expr"` resolver as
-//!    `condition`/`memory`, via [`crate::nodes::resolve_config_traced_for_item`]).
+//!    `condition`/`memory`, via `crate::nodes::resolve_config_traced_for_item`).
 //! 2. A key that resolves to `null`, is absent, or is an empty string
 //!    **fails open**: the item passes through and is NOT recorded anywhere.
 //!    An item is never silently dropped just because its key could not be
-//!    computed — see [`resolve_key`].
+//!    computed — see `resolve_key`.
 //! 3. Otherwise, if the key is already in `committed` **or** was already seen
 //!    earlier in this same batch, the item is dropped.
 //! 4. Otherwise, the item passes through and the key is added to this run's

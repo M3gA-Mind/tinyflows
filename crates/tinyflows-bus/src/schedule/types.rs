@@ -246,7 +246,7 @@ impl<'de> Deserialize<'de> for Schedule {
 pub mod delivery_mode {
     /// Keep the result in the run history only.
     pub const NONE: &str = "none";
-    /// Announce the result on [`DeliveryConfig::channel`] / [`DeliveryConfig::to`].
+    /// Announce the result on `DeliveryConfig::channel` / `DeliveryConfig::to`.
     pub const ANNOUNCE: &str = "announce";
     /// Surface the result as a proactive message.
     pub const PROACTIVE: &str = "proactive";
@@ -454,7 +454,7 @@ pub struct CronJobPatch {
     pub delete_after_run: Option<bool>,
     /// `Option<Option<String>>` distinguishes "no change" (`None`) from
     /// "clear the agent definition" (`Some(None)`). See
-    /// [`deserialize_double_option`] for why the custom deserializer is required
+    /// `deserialize_double_option` for why the custom deserializer is required
     /// to honor a wire `null` as a clear rather than a silent no-op.
     ///
     /// Omitted when serialized for `None`: the custom deserializer reads a

@@ -145,7 +145,7 @@ impl Lease {
 
 /// Leases over [`LEASES`], one record per `(owner, key)`.
 ///
-/// Time comes from an injectable [`Clock`] (Unix epoch milliseconds), so
+/// Time comes from an injectable `Clock` (Unix epoch milliseconds), so
 /// tests drive expiry without sleeping. A lease is live while
 /// `now < expires_ms`.
 #[derive(Clone)]
