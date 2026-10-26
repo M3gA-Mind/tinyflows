@@ -32,7 +32,7 @@
 //!
 //! The journaling sink bridges the synchronous [`GraphEventSink::emit`] hook to
 //! the async journal API through a background drain (an
-//! [`AppendWorker`](crate::harness::observability)): `emit` never blocks the
+//! `AppendWorker`): `emit` never blocks the
 //! executor on I/O and persistence is best-effort (a full bounded queue drops
 //! rather than stalls; backend errors are reported, not propagated). The
 //! executor calls [`GraphEventSink::flush`] after the terminal run event so a

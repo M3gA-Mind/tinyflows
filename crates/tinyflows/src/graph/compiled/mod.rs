@@ -46,10 +46,10 @@
 //!
 //! - **Node retry.** With
 //!   `CompiledGraph::with_node_retry`, a node whose handler fails with a
-//!   [retryable]crate::harness::retry::is_retryable error (a model or tool
+//!   retryablecrate::harness::retry::is_retryable error (a model or tool
 //!   error — the transient class) is re-run from its start up to the policy's
 //!   attempt cap, emitting
-//!   [`GraphEvent::NodeRetryScheduled`](crate::graph::stream::GraphEvent::NodeRetryScheduled)
+//!   [`GraphEvent::NodeRetryScheduled`]
 //!   and sleeping the opt-in backoff between attempts. A single network blip is
 //!   absorbed without touching the run.
 //! - **Resumable failure.** When a handler fails beyond the retry budget (or the

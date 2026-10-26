@@ -1,7 +1,7 @@
 //! The pure half of turning an `agent` node's request into a model call and the
 //! reply back into a node result.
 //!
-//! Sits beside [`agent_request`](super::agent_request): that module assembles the
+//! Sits beside `agent_request`: that module assembles the
 //! declarative [`AgentRunRequest`](crate::caps::AgentRunRequest); this one
 //! handles the looser JSON *completion request* a host adapter receives
 //! (`prompt`, `messages`, `input_context`, `output_parser`, `model`,

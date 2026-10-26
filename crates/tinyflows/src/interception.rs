@@ -130,7 +130,7 @@ pub enum StepAction {
     /// genuine failure instead.
     Fail {
         /// The failure message, reported as an
-        /// [`EngineError::Capability`](crate::error::EngineError::Capability).
+        /// [`EngineError::Capability`].
         message: String,
     },
     /// Raise a real graph interrupt here, checkpointing the run.

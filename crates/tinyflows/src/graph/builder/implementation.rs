@@ -271,7 +271,7 @@ where
     ///
     /// These are advisory only — the runtime always resolves the real successor
     /// from the [`crate::graph::Command`] a node emits — but they let the
-    /// [topology export](crate::graph::export) draw and validate the set of
+    /// topology export draw and validate the set of
     /// nodes a command node may jump to. Implies [`Self::mark_command_routing`].
     pub fn with_command_destinations<I, N>(
         mut self,

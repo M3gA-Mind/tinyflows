@@ -10,7 +10,7 @@ use crate::nodes::{NodeContext, NodeExecutor, NodeOutput};
 
 /// Runs another workflow as a nested sub-graph.
 ///
-/// The child [`WorkflowGraph`](crate::model::WorkflowGraph) is supplied one of
+/// The child [`WorkflowGraph`] is supplied one of
 /// two ways — **exactly one** of these config keys must be present:
 ///
 /// - `workflow` — the child graph embedded **inline** as JSON (back-compat;
