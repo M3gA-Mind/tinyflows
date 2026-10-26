@@ -19,8 +19,8 @@ thiserror = "2"
 # revision so a host that vendors tinystoragedrivers once can `[patch]` it; chrono
 # turns the RFC 3339 instants of the records into the stored `*_ms`; tokio's
 # `OnceCell` for one-time collection setup.
-tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456", optional = true }
-tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456", optional = true }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761", optional = true }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761", optional = true }
 tinyflows-storage = { path = "../tinyflows-storage", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
@@ -41,9 +41,9 @@ tinyflows = { path = "../tinyflows", features = ["store", "mock"] }
 # The engine's `WorkflowStore` on an in-memory storage backend, for tests and
 # the eval example.
 tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["store"] }
-tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
-tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
-tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.0", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
+tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints.rust]
