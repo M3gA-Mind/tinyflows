@@ -102,7 +102,7 @@ pub enum NodeKind {
     /// Reaches the human through the optional
     /// [`ApprovalProvider`](crate::caps::ApprovalProvider) capability. With none
     /// injected it falls back to pausing the run, so the host settles it with
-    /// [`engine::resume`] the way it already settles an
+    /// [`engine::resume`](crate::engine::resume) the way it already settles an
     /// approval gate.
     Approval,
     /// Waits for tickets — from [`NodeKind::Spawn`], or named by expression —

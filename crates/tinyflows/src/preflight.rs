@@ -86,7 +86,7 @@ const RUN_TIMEOUT_SECS: u64 = 15;
 /// # Best-effort by construction
 ///
 /// A compile failure, a capability error, or a timeout is a skip, never a
-/// refusal: a structural problem is [`validate`]'s to report,
+/// refusal: a structural problem is [`validate`](crate::validate)'s to report,
 /// and this only ever adds what a run that actually finished observed.
 pub async fn unresolvable_tool_args(
     graph: &WorkflowGraph,

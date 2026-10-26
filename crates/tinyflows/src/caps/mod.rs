@@ -265,7 +265,7 @@ pub struct Capabilities {
     /// Optional human-review surface for `approval` nodes. `None` on hosts
     /// without one, in which case an `approval` node falls back to pausing the
     /// run and letting the host settle it through
-    /// [`engine::resume`] — so the node still works, it
+    /// [`engine::resume`](crate::engine::resume) — so the node still works, it
     /// just has no way to *push* the request at anybody. See
     /// [`ApprovalProvider`] for the create-or-fetch contract.
     pub approvals: Option<Arc<dyn ApprovalProvider>>,
