@@ -22,4 +22,5 @@ data-encoding = "2"
 [dev-dependencies]
 tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
 tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
-tinybus-sdk = { package = "tinybus", git = "https://github.com/tinyhumansai/tinybus", tag = "v0.3.6", default-features = false }
+# Keep this on the rev tinystoragedrivers pins so `tinybus::Connection` is one type with its busproxy.
+tinybus-sdk = { package = "tinybus", git = "https://github.com/tinyhumansai/tinybus", rev = "0de2d283f35cbbff08efad6fbe05537ffb74611b", default-features = false }
