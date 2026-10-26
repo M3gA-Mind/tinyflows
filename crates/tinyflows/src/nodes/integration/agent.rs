@@ -77,7 +77,7 @@ fn drain(sink: &TranscriptSink) -> Vec<TranscriptEntry> {
 ///   multi-turn tool-use loop is a documented follow-up.
 /// - **output-parser sub-port** (`config.output_parser`): after the completion
 ///   (and any tool hop), the resulting value is validated/repaired against
-///   `config.output_parser.schema` using the shared [`schema`] routine
+///   `config.output_parser.schema` using the shared `schema` routine
 ///   (validate → one LLM auto-fix → re-validate), honoring
 ///   `config.output_parser.auto_fix` (default `true`).
 ///

@@ -107,7 +107,7 @@ impl ConfigField {
 }
 
 /// The input/output ports a node exposes. Routing is keyed exclusively on the
-/// source node's `from_port` (see [`crate::validate`]'s condition-routing
+/// source node's `from_port` (see `crate::validate`'s condition-routing
 /// check), so the output-port list is what an author wires branch edges onto.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PortSpec {

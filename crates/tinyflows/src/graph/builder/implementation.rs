@@ -78,7 +78,7 @@ where
 
     /// Sets a default wall-clock timeout applied to every node handler. A node
     /// whose future does not resolve within `timeout` fails the run with
-    /// [`crate::GraphError::Timeout`].
+    /// `crate::GraphError::Timeout`.
     pub fn with_node_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.node_timeout = Some(timeout);
         self
@@ -317,14 +317,14 @@ where
     }
 
     /// Sets a human-readable kind for `node` (e.g. `model`, `tool`, `subgraph`)
-    /// surfaced as [`crate::graph::NodeInfo::kind`] in the export.
+    /// surfaced as `crate::graph::NodeInfo::kind` in the export.
     pub fn with_node_kind(mut self, node: impl Into<NodeId>, kind: impl Into<String>) -> Self {
         self.node_meta.entry(node.into()).or_default().kind = Some(kind.into());
         self
     }
 
     /// Records a sorted, free-form `key=value` annotation on `node`, carried
-    /// verbatim into [`crate::graph::NodeInfo::metadata`].
+    /// verbatim into `crate::graph::NodeInfo::metadata`.
     pub fn with_node_metadata(
         mut self,
         node: impl Into<NodeId>,

@@ -370,7 +370,7 @@ fn is_trigger_scoped_expression(
 ///
 /// Handles both addressing forms the engine can trace:
 /// - explicit `=nodes.<id>...` / `=.nodes["<id>"]...` (parsed via
-///   [`explicit_nodes_ref`]), and
+///   `explicit_nodes_ref`), and
 /// - implicit `=item...` / `=items...`, resolved against `node_id`'s direct
 ///   predecessor — but only when there is exactly ONE incoming edge, so an
 ///   ambiguous fan-in is never mis-attributed to a single upstream node.

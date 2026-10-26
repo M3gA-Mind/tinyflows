@@ -103,8 +103,8 @@ pub fn validate_agent_schedule(schedule: &Schedule, now: DateTime<Utc>) -> Resul
 /// `*/7 * * * *` fires at :56 and then at :00, four minutes apart, and is
 /// reported as such. Ties keep the earliest pair.
 ///
-/// The walk is bounded ([`RUN_GAP_SCAN_OCCURRENCES`] runs, one shared
-/// [`ACTIVE_WINDOW_CANDIDATE_LIMIT`] budget), so a sparse or window-restricted
+/// The walk is bounded (`RUN_GAP_SCAN_OCCURRENCES` runs, one shared
+/// `ACTIVE_WINDOW_CANDIDATE_LIMIT` budget), so a sparse or window-restricted
 /// expression stays cheap; if the budget runs out mid-walk, the closest pair
 /// seen so far is still reported. An expression that cannot be parsed, or that
 /// has no second occurrence, is not evidence of anything and yields `None`;

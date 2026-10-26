@@ -11,7 +11,7 @@
 //!   `checkpoint_id`, subgraph `namespace`, `step`, `offset`, and timestamp.
 //! - [`GraphEventJournal`] — an append-only, offset-addressable journal of
 //!   observations, with an [`InMemoryGraphEventJournal`] and a store-backed
-//!   [`StoreGraphEventJournal`] (stream key = run id).
+//!   `StoreGraphEventJournal` (stream key = run id).
 //! - [`GraphStatusStore`] — a compact "what is running now?" surface over
 //!   [`crate::graph::GraphRunStatus`], with an [`InMemoryGraphStatusStore`].
 //! - [`JournalGraphSink`] — a [`GraphEventSink`] that wraps each emitted event
