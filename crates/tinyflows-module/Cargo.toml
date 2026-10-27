@@ -14,8 +14,8 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 tinyflows-drivers = { path = "../tinyflows-drivers", default-features = false, features = ["catalog", "engine", "schedule"] }
 tinyflows-catalog = { path = "../tinyflows-catalog" }
-tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
-tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
 tinyflows-storage = { path = "../tinyflows-storage" }
 tinyflows-schedule = { path = "../tinyflows-schedule" }
 anyhow = "1"
@@ -42,4 +42,4 @@ static-link = []
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
-tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
+tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }

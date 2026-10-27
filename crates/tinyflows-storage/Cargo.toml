@@ -9,8 +9,8 @@ publish = false
 description = "TinyFlows-owned generic document persistence helpers"
 
 [dependencies]
-tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
-tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
@@ -20,7 +20,7 @@ ulid = "1"
 data-encoding = "2"
 
 [dev-dependencies]
-tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
-tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "29471a164619bcec03e5858a7d7ee0c65f52bf22" }
+tinystoragedrivers-testkit = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
+tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", version = "2.1.1", rev = "19be64111fbecb4b11f3752432a0356029a83328" }
 # Keep this on the rev tinystoragedrivers pins so `tinybus::Connection` is one type with its busproxy.
 tinybus-sdk = { package = "tinybus", git = "https://github.com/tinyhumansai/tinybus", rev = "6ce06bc674e4f4d718aa51e643ef62c1f372e270", default-features = false }
